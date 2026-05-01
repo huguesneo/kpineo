@@ -10,6 +10,7 @@ import { useAuth } from '../context/AuthContext'
 import { useClinicObjectives } from '../hooks/useObjectives'
 import { useClinicKPIEntries } from '../hooks/useKPIs'
 import { useQuarterlyBonus } from '../hooks/useCareerPlan'
+import { useQBRevenue } from '../hooks/useQuickBooks'
 import { supabase } from '../lib/supabase'
 import {
   format, startOfMonth, endOfMonth, startOfYear, endOfYear,
@@ -52,6 +53,124 @@ function statusBadge(pct) {
   if (pct >= 80) return <Badge variant="success">Excellent</Badge>
   if (pct >= 50) return <Badge variant="warning">En bonne voie</Badge>
   return <Badge variant="danger">Attention</Badge>
+}
+
+// ─── QuickBooks Revenue Cards ─────────────────────────────────
+function QBRevenueCards() {
+  const { revenue, loading, refreshing, error, refetch } = useQBRevenue()
+
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        <SkeletonCard />
+        <SkeletonCard />
+      </div>
+    )
+  }
+
+  if (!revenue && !error) return null // QB non connecté
+
+  const fmt = (n) =>
+    Number(n ?? 0).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })
+
+  const monthly = revenue?.monthly_revenue ?? 0
+  const prevMonthly = revenue?.prev_monthly_revenue ?? 0
+  const annual = revenue?.annual_revenue ?? 0
+  const lastSync = revenue?.last_synced_at
+  const fromCache = revenue?.from_cache
+  const hasWarning = revenue?.warning
+
+  const monthPct =
+    prevMonthly > 0 ? Math.round(((monthly - prevMonthly) / prevMonthly) * 100) : null
+
+  const syncLabel = lastSync
+    ? `Sync ${format(new Date(lastSync), 'd MMM à HH:mm', { locale: fr })}`
+    : null
+
+  return (
+    <div className="mb-6">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-sm font-bold text-[#6b7280] uppercase tracking-wide flex items-center gap-2">
+          <span className="inline-block w-2 h-2 rounded-full bg-[#00bbb1]" />
+          Revenus QuickBooks
+        </h2>
+        <button
+          onClick={refetch}
+          disabled={refreshing}
+          className="flex items-center gap-1.5 text-xs font-semibold text-[#00bbb1] hover:text-[#009e95] disabled:opacity-50 transition-colors"
+        >
+          <svg className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          {refreshing ? 'Actualisation…' : 'Actualiser'}
+        </button>
+      </div>
+
+      {error && (
+        <div className="mb-3 px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">
+          Impossible de contacter QuickBooks — données en cache affichées.
+        </div>
+      )}
+      {hasWarning && (
+        <div className="mb-3 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
+          Token expiré — données en cache. Reconnectez QuickBooks dans Paramètres.
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Revenus du mois */}
+        <Card className="p-5">
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide mb-1">
+                Revenus du mois
+              </p>
+              <p className="text-2xl font-bold text-[#1a1a1a]">{fmt(monthly)}</p>
+            </div>
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-[#00bbb1]/10 flex-shrink-0">
+              <svg className="w-5 h-5 text-[#00bbb1]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+          </div>
+          {monthPct !== null && (
+            <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold mb-2 ${
+              monthPct >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'
+            }`}>
+              {monthPct >= 0 ? '↑' : '↓'} {Math.abs(monthPct)}% vs mois précédent
+            </div>
+          )}
+          <p className="text-xs text-[#9ca3af]">
+            {format(new Date(), 'MMMM yyyy', { locale: fr })}
+            {syncLabel && <span> · {syncLabel}</span>}
+            {fromCache && <span> · cache</span>}
+          </p>
+        </Card>
+
+        {/* Revenus de l'année */}
+        <Card className="p-5">
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide mb-1">
+                Revenus de l'année
+              </p>
+              <p className="text-2xl font-bold text-[#1a1a1a]">{fmt(annual)}</p>
+            </div>
+            <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-[#8b5cf6]/10 flex-shrink-0">
+              <svg className="w-5 h-5 text-[#8b5cf6]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+            </div>
+          </div>
+          <p className="text-xs text-[#9ca3af]">
+            Janvier → {format(new Date(), 'MMMM yyyy', { locale: fr })}
+            {syncLabel && <span> · {syncLabel}</span>}
+            {fromCache && <span> · cache</span>}
+          </p>
+        </Card>
+      </div>
+    </div>
+  )
 }
 
 // ─── Clinic Progress Components ───────────────────────────────
@@ -299,6 +418,9 @@ function AdminDashboard() {
           />
         </>}
       </div>
+
+      {/* QuickBooks Revenue */}
+      <QBRevenueCards />
 
       {/* Clinic Revenue */}
       <div className="mb-6">

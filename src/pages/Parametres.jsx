@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import Layout from '../components/layout/Layout'
 import Header from '../components/layout/Header'
 import Card from '../components/shared/Card'
@@ -9,6 +10,9 @@ import Modal from '../components/shared/Modal'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { useKPITypes, createKPIType, deactivateKPIType } from '../hooks/useKPITypes'
+import { useQBConnection, connectQuickBooks, disconnectQuickBooks } from '../hooks/useQuickBooks'
+import { format } from 'date-fns'
+import { fr } from 'date-fns/locale'
 
 const ROLE_SCOPE_LABELS = {
   all: 'Tous les rôles',
@@ -165,6 +169,109 @@ function KPITypesSection() {
   )
 }
 
+function IntegrationsSection() {
+  const { connected, connectedAt, realmId, refetch } = useQBConnection()
+  const location = useLocation()
+  const [connecting, setConnecting] = useState(false)
+  const [disconnecting, setDisconnecting] = useState(false)
+  const [notice, setNotice] = useState(null)
+
+  // Lire le résultat OAuth du callback (?qb=connected / denied / error)
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const qb = params.get('qb')
+    if (qb === 'connected') { setNotice({ type: 'success', msg: 'QuickBooks connecté avec succès !' }); refetch() }
+    else if (qb === 'denied') setNotice({ type: 'warn', msg: 'Connexion annulée par l\'utilisateur.' })
+    else if (qb === 'error') setNotice({ type: 'error', msg: 'Erreur lors de la connexion. Réessayez.' })
+  }, [location.search])
+
+  async function handleConnect() {
+    setConnecting(true)
+    const { error } = await connectQuickBooks()
+    if (error) { setNotice({ type: 'error', msg: error }); setConnecting(false) }
+    // Sinon window.location.href a été déclenché → redirection en cours
+  }
+
+  async function handleDisconnect() {
+    if (!confirm('Déconnecter QuickBooks ? Les données en cache seront supprimées.')) return
+    setDisconnecting(true)
+    await disconnectQuickBooks()
+    setDisconnecting(false)
+    refetch()
+    setNotice({ type: 'success', msg: 'QuickBooks déconnecté.' })
+  }
+
+  return (
+    <Card className="p-6">
+      <div className="flex items-center gap-3 mb-5">
+        <div className="w-10 h-10 rounded-xl bg-[#00bbb1]/10 flex items-center justify-center">
+          <svg className="w-5 h-5 text-[#00bbb1]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+          </svg>
+        </div>
+        <div>
+          <h2 className="text-lg font-bold text-[#1a1a1a]">Intégrations</h2>
+          <p className="text-xs text-[#6b7280]">Connectez vos outils externes</p>
+        </div>
+      </div>
+
+      {/* Feedback OAuth */}
+      {notice && (
+        <div className={`mb-4 px-4 py-3 rounded-xl border text-sm font-semibold ${
+          notice.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' :
+          notice.type === 'warn'    ? 'bg-amber-50 border-amber-200 text-amber-700' :
+                                      'bg-red-50 border-red-200 text-red-600'
+        }`}>
+          {notice.msg}
+        </div>
+      )}
+
+      {/* QuickBooks */}
+      <div className="flex items-center justify-between p-4 border border-[#e5e7eb] rounded-xl">
+        <div className="flex items-center gap-3">
+          {/* Logo QB inline SVG simplifié */}
+          <div className="w-10 h-10 rounded-xl bg-[#2ca01c]/10 flex items-center justify-center flex-shrink-0">
+            <span className="text-[#2ca01c] font-black text-sm">QB</span>
+          </div>
+          <div>
+            <p className="font-semibold text-sm text-[#1a1a1a]">QuickBooks</p>
+            {connected === null && <p className="text-xs text-[#6b7280]">Vérification…</p>}
+            {connected === false && <p className="text-xs text-[#6b7280]">Non connecté</p>}
+            {connected === true && (
+              <div className="flex items-center gap-2">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                <p className="text-xs text-emerald-600 font-semibold">Connecté</p>
+                {connectedAt && (
+                  <p className="text-xs text-[#9ca3af]">
+                    · depuis le {format(new Date(connectedAt), 'd MMM yyyy', { locale: fr })}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {connected === false && (
+            <Button size="sm" loading={connecting} onClick={handleConnect}>
+              Connecter
+            </Button>
+          )}
+          {connected === true && (
+            <Button size="sm" variant="danger" loading={disconnecting} onClick={handleDisconnect}>
+              Déconnecter
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <p className="text-xs text-[#9ca3af] mt-3">
+        Les revenus QuickBooks sont affichés dans le dashboard admin avec une cache d'une heure.
+      </p>
+    </Card>
+  )
+}
+
 export default function Parametres() {
   const { profile, user } = useAuth()
   const isAdmin = profile?.role === 'admin'
@@ -228,6 +335,9 @@ export default function Parametres() {
 
         {/* Types de KPI — admin seulement */}
         {isAdmin && <KPITypesSection />}
+
+        {/* Intégrations — admin seulement */}
+        {isAdmin && <IntegrationsSection />}
       </div>
     </Layout>
   )
