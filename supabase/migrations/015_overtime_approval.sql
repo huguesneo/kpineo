@@ -1,0 +1,4 @@
+ALTER TABLE public.overtime_records
+  ADD COLUMN IF NOT EXISTS is_approved  BOOLEAN   NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS approved_at  TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS approved_by  UUID REFERENCES public.profiles(id);

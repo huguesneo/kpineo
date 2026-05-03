@@ -11,6 +11,7 @@ import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { useKPITypes, createKPIType, deactivateKPIType } from '../hooks/useKPITypes'
 import { useQBConnection, connectQuickBooks, disconnectQuickBooks } from '../hooks/useQuickBooks'
+import { useGHLConnection, useGHLConfig, syncGHLContacts, syncGHLOpportunities } from '../hooks/useGHL'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 
@@ -169,6 +170,119 @@ function KPITypesSection() {
   )
 }
 
+function GHLSection() {
+  const { config, loading: configLoading, saveLocationId } = useGHLConfig()
+  const savedLocationId = config?.location_id ?? null
+  const { locations, loading: connLoading, error: connError, refetch: retestConn } = useGHLConnection(savedLocationId, !configLoading)
+  const [syncingContacts, setSyncingContacts] = useState(false)
+  const [syncingOpps, setSyncingOpps] = useState(false)
+  const [syncMsg, setSyncMsg] = useState(null)
+  const [manualId, setManualId] = useState('')
+  const [savingManual, setSavingManual] = useState(false)
+
+  const isConnected = !connLoading && !connError && locations.length > 0
+
+  async function handleSyncContacts() {
+    if (!savedLocationId) return
+    setSyncingContacts(true); setSyncMsg(null)
+    const { data, error } = await syncGHLContacts(savedLocationId)
+    setSyncingContacts(false)
+    setSyncMsg(error ? { type: 'error', msg: error } : { type: 'success', msg: `${data.synced} contacts synchronisés` })
+  }
+
+  async function handleSyncOpps() {
+    if (!savedLocationId) return
+    setSyncingOpps(true); setSyncMsg(null)
+    const { data, error } = await syncGHLOpportunities(savedLocationId)
+    setSyncingOpps(false)
+    setSyncMsg(error ? { type: 'error', msg: error } : { type: 'success', msg: `${data.pipelines} pipeline(s), ${data.opportunities} opportunités synchronisées` })
+  }
+
+  async function handleSaveManualId() {
+    const id = manualId.trim()
+    if (!id) return
+    setSavingManual(true)
+    await saveLocationId(id, id)
+    setSavingManual(false)
+    setManualId('')
+    retestConn()
+  }
+
+  return (
+    <div className="border border-[#e5e7eb] rounded-xl overflow-hidden">
+      {/* Header row */}
+      <div className="flex items-center justify-between p-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-orange-50 flex items-center justify-center flex-shrink-0">
+            <span className="text-orange-500 font-black text-xs">GHL</span>
+          </div>
+          <div>
+            <p className="font-semibold text-sm text-[#1a1a1a]">Go High Level</p>
+            {connLoading || configLoading ? (
+              <p className="text-xs text-[#6b7280]">Vérification…</p>
+            ) : isConnected ? (
+              <div className="flex items-center gap-1.5">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                <p className="text-xs text-emerald-600 font-semibold">Connecté · {config?.name || savedLocationId}</p>
+              </div>
+            ) : connError ? (
+              <p className="text-xs text-red-500">{connError}</p>
+            ) : (
+              <p className="text-xs text-[#6b7280]">Non configuré</p>
+            )}
+          </div>
+        </div>
+        <Button size="sm" variant="secondary" onClick={retestConn} loading={connLoading}>
+          Tester
+        </Button>
+      </div>
+
+      {/* Sync buttons — only if connected */}
+      {isConnected && savedLocationId && (
+        <div className="border-t border-[#e5e7eb] px-4 py-3 bg-gray-50 flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="secondary" onClick={handleSyncContacts} loading={syncingContacts}>
+            {syncingContacts ? 'Sync…' : 'Sync Contacts'}
+          </Button>
+          <Button size="sm" variant="secondary" onClick={handleSyncOpps} loading={syncingOpps}>
+            {syncingOpps ? 'Sync…' : 'Sync Pipeline'}
+          </Button>
+          {config?.last_synced_at && (
+            <p className="text-xs text-[#9ca3af] ml-auto">
+              Dernière sync : {format(new Date(config.last_synced_at), "d MMM 'à' HH:mm", { locale: fr })}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Sync result */}
+      {syncMsg && (
+        <div className={`px-4 py-2 text-xs font-semibold ${syncMsg.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
+          {syncMsg.type === 'success' ? '✓ ' : '✗ '}{syncMsg.msg}
+        </div>
+      )}
+
+      {/* Manual location ID input — if no location saved */}
+      {!configLoading && !savedLocationId && (
+        <div className="border-t border-[#e5e7eb] px-4 py-3 bg-gray-50">
+          <p className="text-xs text-[#6b7280] mb-2">Entrez votre Location ID GHL pour activer la connexion :</p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="ex: YG2spvWJqnD75L3V95UJ"
+              value={manualId}
+              onChange={e => setManualId(e.target.value)}
+              className="flex-1 px-3 py-1.5 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:border-[#00bbb1]"
+            />
+            <Button size="sm" onClick={handleSaveManualId} loading={savingManual} disabled={!manualId.trim()}>
+              Enregistrer
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function IntegrationsSection() {
   const { connected, connectedAt, realmId, refetch } = useQBConnection()
   const location = useLocation()
@@ -176,7 +290,6 @@ function IntegrationsSection() {
   const [disconnecting, setDisconnecting] = useState(false)
   const [notice, setNotice] = useState(null)
 
-  // Lire le résultat OAuth du callback (?qb=connected / denied / error)
   useEffect(() => {
     const params = new URLSearchParams(location.search)
     const qb = params.get('qb')
@@ -189,7 +302,6 @@ function IntegrationsSection() {
     setConnecting(true)
     const { error } = await connectQuickBooks()
     if (error) { setNotice({ type: 'error', msg: error }); setConnecting(false) }
-    // Sinon window.location.href a été déclenché → redirection en cours
   }
 
   async function handleDisconnect() {
@@ -215,7 +327,6 @@ function IntegrationsSection() {
         </div>
       </div>
 
-      {/* Feedback OAuth */}
       {notice && (
         <div className={`mb-4 px-4 py-3 rounded-xl border text-sm font-semibold ${
           notice.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' :
@@ -226,43 +337,42 @@ function IntegrationsSection() {
         </div>
       )}
 
-      {/* QuickBooks */}
-      <div className="flex items-center justify-between p-4 border border-[#e5e7eb] rounded-xl">
-        <div className="flex items-center gap-3">
-          {/* Logo QB inline SVG simplifié */}
-          <div className="w-10 h-10 rounded-xl bg-[#2ca01c]/10 flex items-center justify-center flex-shrink-0">
-            <span className="text-[#2ca01c] font-black text-sm">QB</span>
+      <div className="space-y-3">
+        {/* QuickBooks */}
+        <div className="flex items-center justify-between p-4 border border-[#e5e7eb] rounded-xl">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-[#2ca01c]/10 flex items-center justify-center flex-shrink-0">
+              <span className="text-[#2ca01c] font-black text-sm">QB</span>
+            </div>
+            <div>
+              <p className="font-semibold text-sm text-[#1a1a1a]">QuickBooks</p>
+              {connected === null && <p className="text-xs text-[#6b7280]">Vérification…</p>}
+              {connected === false && <p className="text-xs text-[#6b7280]">Non connecté</p>}
+              {connected === true && (
+                <div className="flex items-center gap-2">
+                  <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  <p className="text-xs text-emerald-600 font-semibold">Connecté</p>
+                  {connectedAt && (
+                    <p className="text-xs text-[#9ca3af]">
+                      · depuis le {format(new Date(connectedAt), 'd MMM yyyy', { locale: fr })}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
-          <div>
-            <p className="font-semibold text-sm text-[#1a1a1a]">QuickBooks</p>
-            {connected === null && <p className="text-xs text-[#6b7280]">Vérification…</p>}
-            {connected === false && <p className="text-xs text-[#6b7280]">Non connecté</p>}
+          <div className="flex items-center gap-2">
+            {connected === false && (
+              <Button size="sm" loading={connecting} onClick={handleConnect}>Connecter</Button>
+            )}
             {connected === true && (
-              <div className="flex items-center gap-2">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                <p className="text-xs text-emerald-600 font-semibold">Connecté</p>
-                {connectedAt && (
-                  <p className="text-xs text-[#9ca3af]">
-                    · depuis le {format(new Date(connectedAt), 'd MMM yyyy', { locale: fr })}
-                  </p>
-                )}
-              </div>
+              <Button size="sm" variant="danger" loading={disconnecting} onClick={handleDisconnect}>Déconnecter</Button>
             )}
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {connected === false && (
-            <Button size="sm" loading={connecting} onClick={handleConnect}>
-              Connecter
-            </Button>
-          )}
-          {connected === true && (
-            <Button size="sm" variant="danger" loading={disconnecting} onClick={handleDisconnect}>
-              Déconnecter
-            </Button>
-          )}
-        </div>
+        {/* Go High Level */}
+        <GHLSection />
       </div>
 
       <p className="text-xs text-[#9ca3af] mt-3">

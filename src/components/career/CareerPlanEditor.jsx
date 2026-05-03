@@ -3,17 +3,23 @@ import Card from '../shared/Card'
 import Button from '../shared/Button'
 import Input from '../shared/Input'
 import Modal from '../shared/Modal'
-import { useCareerPlan, upsertCareerPlan, deleteCareerPlan, updateBaseSalary } from '../../hooks/useCareerPlan'
+import { useCareerPlan, upsertCareerPlan, deleteCareerPlan, updateBaseSalary, updateAnnualBonus } from '../../hooks/useCareerPlan'
 
-export default function CareerPlanEditor({ userId, baseSalary, onBaseSalaryUpdated }) {
+export default function CareerPlanEditor({ userId, baseSalary, annualBonus, onBaseSalaryUpdated, onAnnualBonusUpdated }) {
   const { plans, loading, refetch } = useCareerPlan(userId)
+
+  const [salaryEdit, setSalaryEdit] = useState(false)
+  const [salaryValue, setSalaryValue] = useState(baseSalary || '')
+  const [salaryLoading, setSalaryLoading] = useState(false)
+
+  const [bonusEdit, setBonusEdit] = useState(false)
+  const [bonusValue, setBonusValue] = useState(annualBonus || '')
+  const [bonusLoading, setBonusLoading] = useState(false)
+
   const [addOpen, setAddOpen] = useState(false)
   const [form, setForm] = useState({ year: new Date().getFullYear() + 1, planned_salary: '', notes: '' })
   const [formLoading, setFormLoading] = useState(false)
   const [formError, setFormError] = useState('')
-  const [salaryEdit, setSalaryEdit] = useState(false)
-  const [salaryValue, setSalaryValue] = useState(baseSalary || '')
-  const [salaryLoading, setSalaryLoading] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
 
   async function handleSaveSalary() {
@@ -23,6 +29,15 @@ export default function CareerPlanEditor({ userId, baseSalary, onBaseSalaryUpdat
     setSalaryLoading(false)
     setSalaryEdit(false)
     onBaseSalaryUpdated?.(Number(salaryValue))
+  }
+
+  async function handleSaveBonus() {
+    if (!bonusValue) return
+    setBonusLoading(true)
+    await updateAnnualBonus(userId, Number(bonusValue))
+    setBonusLoading(false)
+    setBonusEdit(false)
+    onAnnualBonusUpdated?.(Number(bonusValue))
   }
 
   async function handleAddPlan(e) {
@@ -53,12 +68,57 @@ export default function CareerPlanEditor({ userId, baseSalary, onBaseSalaryUpdat
 
   return (
     <div className="space-y-6">
+      {/* Boni annuel */}
+      <Card className="p-5">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h3 className="font-bold text-sm text-[#1a1a1a]">Boni annuel cible</h3>
+            <p className="text-xs text-[#6b7280]">Divisé en 4 trimestres · paiement proportionnel à l'atteinte (min 80%)</p>
+          </div>
+          {!bonusEdit && (
+            <Button size="sm" variant="secondary" onClick={() => { setBonusValue(annualBonus || ''); setBonusEdit(true) }}>
+              Modifier
+            </Button>
+          )}
+        </div>
+        {bonusEdit ? (
+          <div className="flex items-end gap-3">
+            <div className="flex-1">
+              <Input
+                label="Boni annuel ($)"
+                type="number"
+                min="0"
+                value={bonusValue}
+                onChange={e => setBonusValue(e.target.value)}
+                placeholder="Ex: 6000"
+              />
+            </div>
+            <div className="flex gap-2 pb-0.5">
+              <Button size="sm" variant="secondary" onClick={() => setBonusEdit(false)}>Annuler</Button>
+              <Button size="sm" loading={bonusLoading} onClick={handleSaveBonus}>Enregistrer</Button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-2xl font-bold text-[#1a1a1a]">
+            {annualBonus
+              ? Number(annualBonus).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })
+              : <span className="text-[#6b7280] text-base font-semibold">Non défini</span>}
+          </p>
+        )}
+        {annualBonus && (
+          <p className="text-xs text-[#6b7280] mt-2">
+            Par trimestre (à 100%) : {(Number(annualBonus) / 4).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}
+            {' · '}Ex. à 112% : {Math.round(Number(annualBonus) / 4 * 1.12).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}
+          </p>
+        )}
+      </Card>
+
       {/* Salaire de base */}
       <Card className="p-5">
         <div className="flex items-center justify-between mb-3">
           <div>
             <h3 className="font-bold text-sm text-[#1a1a1a]">Salaire de base annuel</h3>
-            <p className="text-xs text-[#6b7280]">Utilisé pour calculer les bonis trimestriels (10% annuel)</p>
+            <p className="text-xs text-[#6b7280]">Utilisé pour le plan de carrière</p>
           </div>
           {!salaryEdit && (
             <Button size="sm" variant="secondary" onClick={() => { setSalaryValue(baseSalary || ''); setSalaryEdit(true) }}>
@@ -88,12 +148,6 @@ export default function CareerPlanEditor({ userId, baseSalary, onBaseSalaryUpdat
             {baseSalary
               ? Number(baseSalary).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })
               : <span className="text-[#6b7280] text-base font-semibold">Non défini</span>}
-          </p>
-        )}
-        {baseSalary && (
-          <p className="text-xs text-[#6b7280] mt-2">
-            Boni trimestriel max : {(Number(baseSalary) * 0.025 * 1.10).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}
-            {' · '}Base : {(Number(baseSalary) * 0.025).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })} (à 100%)
           </p>
         )}
       </Card>

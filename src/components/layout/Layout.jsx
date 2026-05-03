@@ -1,4 +1,5 @@
 import Sidebar from './Sidebar'
+import OTNotifications from '../notifications/OTNotifications'
 
 export default function Layout({ children }) {
   return (
@@ -9,6 +10,7 @@ export default function Layout({ children }) {
           {children}
         </div>
       </main>
+      <OTNotifications />
     </div>
   )
 }

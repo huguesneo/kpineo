@@ -1,71 +1,122 @@
 import { useState } from 'react'
 import Layout from '../components/layout/Layout'
-import Header from '../components/layout/Header'
 import Card from '../components/shared/Card'
 import Button from '../components/shared/Button'
 import TaskSection from '../components/tasks/TaskSection'
+import TaskItem from '../components/tasks/TaskItem'
 import TaskModal from '../components/tasks/TaskModal'
 import { SkeletonCard } from '../components/shared/Skeleton'
 import { useTasks } from '../hooks/useTasks'
 import { useMembers } from '../hooks/useMembers'
 import { useAuth } from '../context/AuthContext'
+import { format } from 'date-fns'
+import { fr } from 'date-fns/locale'
 
-function MemberProgressBanner({ tasks }) {
-  const prioritaire = tasks.filter(t => t.priority === 'prioritaire')
-  const done = prioritaire.filter(t => t.is_completed).length
-  const total = prioritaire.length
-
+function MemberProgressHeader({ tasks }) {
+  const prioritaire = tasks.filter(t => t.priority === 'prioritaire' && !t.is_completed)
+  const done = tasks.filter(t => t.priority === 'prioritaire' && t.is_completed).length
+  const total = tasks.filter(t => t.priority === 'prioritaire').length
   if (total === 0) return null
 
   const pct = Math.round((done / total) * 100)
   const allDone = done === total
 
-  let emoji = '🌱'
-  let message = `${done}/${total} priorités complétées`
-  let bg = 'bg-gray-50 border-[#e5e7eb]'
-  let barColor = '#9ca3af'
-
-  if (allDone) {
-    emoji = '🏆'
-    message = 'Toutes tes priorités sont complétées !'
-    bg = 'bg-emerald-50 border-emerald-200'
-    barColor = '#10b981'
-  } else if (pct >= 75) {
-    emoji = '🔥'
-    message = `${done}/${total} priorités — presque fini !`
-    bg = 'bg-orange-50 border-orange-200'
-    barColor = '#f97316'
-  } else if (pct >= 50) {
-    emoji = '💪'
-    message = `${done}/${total} priorités — bonne progression !`
-    bg = 'bg-blue-50 border-blue-200'
-    barColor = '#3b82f6'
-  } else if (done > 0) {
-    emoji = '📈'
-    message = `${done}/${total} priorité${done > 1 ? 's' : ''} complétée${done > 1 ? 's' : ''}`
-    bg = 'bg-amber-50 border-amber-200'
-    barColor = '#f59e0b'
+  const state = allDone ? 'done' : pct >= 75 ? 'almost' : pct >= 50 ? 'half' : done > 0 ? 'started' : 'fresh'
+  const config = {
+    done:    { label: 'Toutes les priorités complétées !', sub: 'Excellent travail aujourd\'hui.', color: '#10b981', bg: 'bg-emerald-50 border-emerald-100' },
+    almost:  { label: `${done}/${total} priorités complétées`, sub: 'Presque fini, continue !', color: '#f97316', bg: 'bg-orange-50 border-orange-100' },
+    half:    { label: `${done}/${total} priorités complétées`, sub: 'Bonne progression, garde le rythme.', color: '#3b82f6', bg: 'bg-blue-50 border-blue-100' },
+    started: { label: `${done}/${total} priorité${done > 1 ? 's' : ''} complétée${done > 1 ? 's' : ''}`, sub: 'C\'est un bon début !', color: '#f59e0b', bg: 'bg-amber-50 border-amber-100' },
+    fresh:   { label: 'Priorités du jour', sub: `${total} tâche${total > 1 ? 's' : ''} à compléter`, color: '#9ca3af', bg: 'bg-gray-50 border-gray-100' },
   }
+  const c = config[state]
 
   return (
-    <Card className={`p-4 mb-6 border ${bg}`}>
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2">
-          <span className="text-2xl">{emoji}</span>
-          <div>
-            <p className="text-sm font-bold text-[#1a1a1a]">Priorités du jour</p>
-            <p className="text-xs text-[#6b7280]">{message}</p>
-          </div>
+    <div className={`rounded-2xl border p-4 mb-6 ${c.bg}`}>
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <p className="text-sm font-bold text-[#1a1a1a]">{c.label}</p>
+          <p className="text-xs text-[#6b7280] mt-0.5">{c.sub}</p>
         </div>
-        <p className="text-2xl font-bold" style={{ color: barColor }}>{pct}%</p>
+        <span className="text-2xl font-black" style={{ color: c.color }}>{pct}%</span>
       </div>
-      <div className="w-full bg-white/80 rounded-full h-2">
-        <div
-          className="h-2 rounded-full transition-all duration-500"
-          style={{ width: `${pct}%`, backgroundColor: barColor }}
-        />
+      <div className="w-full bg-white/70 rounded-full h-1.5">
+        <div className="h-1.5 rounded-full transition-all duration-700" style={{ width: `${pct}%`, backgroundColor: c.color }} />
       </div>
-    </Card>
+    </div>
+  )
+}
+
+function CompletedSection({ tasks, isAdmin, showMember, currentUserId, onUpdate }) {
+  const [expanded, setExpanded] = useState(true)
+
+  const completed = [...tasks]
+    .filter(t => t.is_completed)
+    .sort((a, b) => new Date(b.completed_at || 0) - new Date(a.completed_at || 0))
+
+  if (completed.length === 0) return null
+
+  // Group by date
+  const groups = {}
+  completed.forEach(t => {
+    const key = t.completed_at
+      ? format(new Date(t.completed_at), 'd MMMM yyyy', { locale: fr })
+      : 'Date inconnue'
+    if (!groups[key]) groups[key] = []
+    groups[key].push(t)
+  })
+
+  return (
+    <div>
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="flex items-center gap-2 mb-2 px-1 w-full group"
+      >
+        <span className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
+        <span className="text-xs font-bold text-[#6b7280] uppercase tracking-wider">Terminées</span>
+        <span className="text-[10px] font-semibold bg-emerald-50 text-emerald-600 rounded-full px-2 py-0.5">
+          {completed.length}
+        </span>
+        <svg
+          className={`w-3.5 h-3.5 text-[#9ca3af] ml-auto transition-transform ${expanded ? 'rotate-180' : ''}`}
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {expanded && (
+        <div className="space-y-3">
+          {Object.entries(groups).map(([date, items]) => (
+            <div key={date}>
+              <p className="text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wider px-1 mb-1">{date}</p>
+              <div className="bg-white rounded-2xl border border-[#e5e7eb] overflow-hidden divide-y divide-[#f3f4f6]">
+                {items.map(task => (
+                  <TaskItem
+                    key={task.id}
+                    task={task}
+                    onUpdate={onUpdate}
+                    isAdmin={isAdmin}
+                    showMember={showMember}
+                    currentUserId={currentUserId}
+                    showCompletedAt
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function StatPill({ value, label, color }) {
+  return (
+    <div className="flex flex-col items-center gap-0.5 px-5 py-3">
+      <span className="text-2xl font-black" style={{ color }}>{value}</span>
+      <span className="text-xs font-semibold text-[#9ca3af]">{label}</span>
+    </div>
   )
 }
 
@@ -85,85 +136,104 @@ export default function Taches() {
 
   const pendingCount = tasks.filter(t => !t.is_completed).length
   const doneCount = tasks.filter(t => t.is_completed).length
-  const overdueCount = tasks.filter(t => {
-    return !t.is_completed && t.due_date && new Date(t.due_date + 'T23:59:59') < new Date()
-  }).length
+  const overdueCount = tasks.filter(t =>
+    !t.is_completed && t.due_date && new Date(t.due_date + 'T23:59:59') < new Date()
+  ).length
+
+  const filteredMembers = members.filter(m => m.role !== 'admin')
+  const currentUserId = profile?.id
+
+  const taskSectionProps = {
+    tasks,
+    onUpdate: refetch,
+    isAdmin,
+    showMember: isAdmin && !memberFilter,
+    currentUserId,
+    userId: isAdmin ? (memberFilter || null) : profile?.id,
+  }
 
   return (
     <Layout>
-      <Header title="Tâches" />
-
-      {/* Compteurs */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        {[
-          { label: 'À faire', value: pendingCount, color: '#00bbb1' },
-          { label: 'Complétées', value: doneCount, color: '#10b981' },
-          { label: 'En retard', value: overdueCount, color: '#ef4444' },
-        ].map(s => (
-          <Card key={s.label} className="p-4 flex items-center gap-3">
-            <p className="text-2xl font-bold" style={{ color: s.color }}>{s.value}</p>
-            <p className="text-sm font-semibold text-[#6b7280]">{s.label}</p>
-          </Card>
-        ))}
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-[#1a1a1a]">Tâches</h1>
+          <p className="text-sm text-[#9ca3af] mt-0.5">
+            {isAdmin ? 'Gérez les tâches de votre équipe' : 'Vos tâches du moment'}
+          </p>
+        </div>
+        <Button onClick={() => setAddOpen(true)}>
+          <svg className="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+          </svg>
+          Nouvelle tâche
+        </Button>
       </div>
 
-      {/* Filtres + bouton ajout admin */}
+      {/* Stats */}
+      <Card className="mb-6 overflow-hidden">
+        <div className="flex divide-x divide-[#e5e7eb]">
+          <StatPill value={pendingCount} label="À faire" color="#00bbb1" />
+          <StatPill value={doneCount} label="Complétées" color="#10b981" />
+          <StatPill value={overdueCount} label="En retard" color={overdueCount > 0 ? '#ef4444' : '#9ca3af'} />
+        </div>
+      </Card>
+
+      {/* Filtre membre (admin) */}
       {isAdmin && (
-        <div className="flex items-center gap-3 mb-6 flex-wrap">
-          <select
-            value={memberFilter}
-            onChange={e => setMemberFilter(e.target.value)}
-            className="px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#00bbb1]"
+        <div className="flex items-center gap-2 mb-6 flex-wrap">
+          <button
+            onClick={() => setMemberFilter('')}
+            className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
+              memberFilter === '' ? 'bg-[#00bbb1] text-white shadow-sm' : 'bg-white border border-[#e5e7eb] text-[#6b7280] hover:border-[#00bbb1]/40'
+            }`}
           >
-            <option value="">Tous les membres</option>
-            {members.filter(m => m.role !== 'admin').map(m => (
-              <option key={m.id} value={m.id}>{m.full_name}</option>
-            ))}
-          </select>
-          <div className="ml-auto">
-            <Button onClick={() => setAddOpen(true)}>+ Ajouter une tâche</Button>
-          </div>
+            Tous
+          </button>
+          {filteredMembers.map(m => (
+            <button
+              key={m.id}
+              onClick={() => setMemberFilter(m.id)}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                memberFilter === m.id ? 'bg-[#00bbb1] text-white shadow-sm' : 'bg-white border border-[#e5e7eb] text-[#6b7280] hover:border-[#00bbb1]/40'
+              }`}
+            >
+              {m.full_name.split(' ')[0]}
+            </button>
+          ))}
         </div>
       )}
 
-      {/* Bannière progression membre */}
-      {!isAdmin && !loading && <MemberProgressBanner tasks={tasks} />}
+      {/* Bannière progression (membre) */}
+      {!isAdmin && !loading && <MemberProgressHeader tasks={tasks} />}
 
       {/* Sections */}
       {loading ? (
-        <div className="space-y-4">
+        <div className="space-y-6">
           <SkeletonCard />
           <SkeletonCard />
         </div>
       ) : (
-        <div className="space-y-4">
-          <TaskSection
+        <div className="space-y-6">
+          <TaskSection {...taskSectionProps} priority="prioritaire" />
+          <TaskSection {...taskSectionProps} priority="secondaire" />
+          <CompletedSection
             tasks={tasks}
-            priority="prioritaire"
-            userId={isAdmin ? (memberFilter || null) : profile?.id}
-            onUpdate={refetch}
             isAdmin={isAdmin}
             showMember={isAdmin && !memberFilter}
-          />
-          <TaskSection
-            tasks={tasks}
-            priority="secondaire"
-            userId={isAdmin ? (memberFilter || null) : profile?.id}
+            currentUserId={currentUserId}
             onUpdate={refetch}
-            isAdmin={isAdmin}
-            showMember={isAdmin && !memberFilter}
           />
         </div>
       )}
 
-      {isAdmin && (
-        <TaskModal
-          isOpen={addOpen}
-          onClose={() => setAddOpen(false)}
-          userId={memberFilter || null}
-          onCreated={refetch}
-        />
-      )}
+      <TaskModal
+        isOpen={addOpen}
+        onClose={() => setAddOpen(false)}
+        userId={isAdmin ? (memberFilter || null) : profile?.id}
+        onCreated={refetch}
+        isAdmin={isAdmin}
+      />
     </Layout>
   )
 }

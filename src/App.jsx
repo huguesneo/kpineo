@@ -7,6 +7,7 @@ import MembreDossier from './pages/MembreDossier'
 import Taches from './pages/Taches'
 import KPIs from './pages/KPIs'
 import Parametres from './pages/Parametres'
+import Horaires from './pages/Horaires'
 
 function LoadingScreen() {
   return (
@@ -53,6 +54,7 @@ function AppRoutes() {
       <Route path="/membres/:id" element={<AdminRoute><MembreDossier /></AdminRoute>} />
       <Route path="/taches" element={<PrivateRoute><Taches /></PrivateRoute>} />
       <Route path="/kpis" element={<PrivateRoute><KPIs /></PrivateRoute>} />
+      <Route path="/horaires" element={<PrivateRoute><Horaires /></PrivateRoute>} />
       <Route path="/parametres" element={<PrivateRoute><Parametres /></PrivateRoute>} />
       <Route path="/mon-dossier" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

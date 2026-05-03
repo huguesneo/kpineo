@@ -10,17 +10,268 @@ import TaskSection from '../components/tasks/TaskSection'
 import KPIModal from '../components/kpis/KPIModal'
 import CareerPlanEditor from '../components/career/CareerPlanEditor'
 import BonusTracker from '../components/career/BonusTracker'
+import QuarterlyPanel from '../components/career/QuarterlyPanel'
 import { SkeletonCard } from '../components/shared/Skeleton'
+import MonthNavigator from '../components/shared/MonthNavigator'
 import { useMember } from '../hooks/useMembers'
 import { useObjectives, createObjective, deleteObjective, OBJECTIVE_TYPES_BY_ROLE, OBJECTIVE_TYPE_LABELS } from '../hooks/useObjectives'
 import { useTasks } from '../hooks/useTasks'
 import { useKPIEntries, useEODReports, KPI_TYPE_LABELS } from '../hooks/useKPIs'
 import { useQuarterlyBonus } from '../hooks/useCareerPlan'
+import { useQBMemberRevenue, useQBMemberRevenueForMonth } from '../hooks/useQuickBooks'
 import { format, isAfter, parseISO } from 'date-fns'
 import { fr } from 'date-fns/locale'
 
 const ROLE_LABELS = { naturopathe: 'Naturopathe', closer: 'Closer', setter: 'Setter', admin: 'Admin' }
 const TABS = ['Objectifs', 'Tâches', 'KPIs & Rapports', 'Plan de carrière']
+
+function fmt(n) {
+  return Number(n ?? 0).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+const QB_ROLE_LABELS = {
+  naturopathe: 'Thérapeute',
+  closer: 'Closer',
+  setter: 'Setter',
+}
+
+const ROLE_TO_QB = { naturopathe: 'naturopathe', closer: 'closer', setter: 'setter' }
+
+const MONTHS_FR = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre']
+
+function QBRoleCard({ label, data, loading, syncLabel, isCurrentMonth = true, histData, histLoading, selectedMonth, selectedYear }) {
+  if (!isCurrentMonth) {
+    if (!histLoading && (!histData || histData.monthly === 0)) return null
+    return (
+      <div className="mb-4">
+        <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide mb-2">Champ QB « {label} »</p>
+        <Card className="p-5 w-full flex flex-col">
+          {histLoading ? (
+            <div className="space-y-3 animate-pulse">
+              <div className="h-3 bg-gray-100 rounded w-1/3" />
+              <div className="h-8 bg-gray-100 rounded w-1/2" />
+            </div>
+          ) : (
+            <>
+              <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide mb-1">
+                {MONTHS_FR[selectedMonth - 1]} {selectedYear}
+              </p>
+              <p className="text-3xl font-bold text-[#1a1a1a]">{fmt(histData?.monthly ?? 0)}</p>
+            </>
+          )}
+        </Card>
+      </div>
+    )
+  }
+
+  if (!loading && (!data || (data.annual === 0 && data.monthly === 0))) return null
+
+  const monthly = Number(data?.monthly ?? 0)
+  const prevMonthly = Number(data?.prevMonthly ?? 0)
+  const annual = Number(data?.annual ?? 0)
+  const vsLastMonth = prevMonthly > 0
+    ? Math.round(((monthly - prevMonthly) / prevMonthly) * 100)
+    : null
+
+  return (
+    <div className="mb-4">
+      <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide mb-2">
+        Champ QB « {label} »
+      </p>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch">
+        <div className="lg:col-span-2 flex">
+          <Card className="p-5 w-full flex flex-col">
+            {loading ? (
+              <div className="space-y-3 animate-pulse">
+                <div className="h-3 bg-gray-100 rounded w-1/3" />
+                <div className="h-8 bg-gray-100 rounded w-1/2" />
+              </div>
+            ) : (
+              <>
+                <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide mb-1">
+                  Revenus {new Date().getFullYear()}
+                </p>
+                <p className="text-3xl font-bold text-[#1a1a1a] mb-1">{fmt(annual)}</p>
+                <p className="text-xs text-[#6b7280] mb-4">
+                  Janvier → {format(new Date(), 'MMMM yyyy', { locale: fr })}
+                </p>
+                <div className="flex items-center gap-4 pt-3 border-t border-[#f5f5f7] mt-auto">
+                  <div>
+                    <p className="text-xs text-[#6b7280] font-semibold">Mois actuel</p>
+                    <p className="text-sm font-bold text-[#1a1a1a]">{fmt(monthly)}</p>
+                  </div>
+                  <div className="w-px h-8 bg-[#e5e7eb]" />
+                  <div>
+                    <p className="text-xs text-[#6b7280] font-semibold">Mois précédent</p>
+                    <p className="text-sm font-bold text-[#1a1a1a]">{fmt(prevMonthly)}</p>
+                  </div>
+                  {vsLastMonth !== null && (
+                    <>
+                      <div className="w-px h-8 bg-[#e5e7eb]" />
+                      <span className={`text-sm font-bold px-2.5 py-1 rounded-full ${vsLastMonth >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'}`}>
+                        {vsLastMonth >= 0 ? '↑' : '↓'} {Math.abs(vsLastMonth)}% vs mois préc.
+                      </span>
+                    </>
+                  )}
+                </div>
+                {/* Détail annuel : factures impayées */}
+                {data?.annualUnpaid != null && (
+                  <div className="mt-3 pt-3 border-t border-[#f5f5f7] grid grid-cols-3 gap-2">
+                    {[
+                      { label: 'Revenus facturés', value: annual, color: 'text-[#1a1a1a]' },
+                      { label: 'Fact. impayées', value: data?.annualUnpaid, color: 'text-amber-600' },
+                      { label: 'Déposés', value: data?.annualDeposited, color: 'text-emerald-600' },
+                    ].map(({ label, value, color }) => (
+                      <div key={label} className="bg-gray-50 rounded-xl px-2 py-2 text-center">
+                        <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide mb-0.5">{label}</p>
+                        <p className={`text-sm font-bold ${color}`}>{fmt(value)}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {syncLabel && <p className="text-xs text-[#9ca3af] mt-3 text-right">{syncLabel}</p>}
+              </>
+            )}
+          </Card>
+        </div>
+        <div className="flex">
+          <Card className="p-5 w-full flex flex-col">
+            {loading ? (
+              <div className="space-y-3 animate-pulse">
+                <div className="h-3 bg-gray-100 rounded w-2/3" />
+                <div className="h-8 bg-gray-100 rounded w-1/2" />
+              </div>
+            ) : (
+              <>
+                <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide mb-3">
+                  {format(new Date(), 'MMMM yyyy', { locale: fr })}
+                </p>
+                <p className="text-2xl font-bold text-[#1a1a1a] mb-2">{fmt(monthly)}</p>
+                {vsLastMonth !== null && (
+                  <span className={`self-start text-xs font-bold px-2 py-0.5 rounded-full mb-3 ${vsLastMonth >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'}`}>
+                    {vsLastMonth >= 0 ? '↑' : '↓'} {Math.abs(vsLastMonth)}% vs mois préc.
+                  </span>
+                )}
+                <div className="mt-auto">
+                  <p className="text-xs text-[#6b7280] font-semibold">Mois précédent</p>
+                  <p className="text-sm font-bold text-[#1a1a1a]">{fmt(prevMonthly)}</p>
+                </div>
+                {/* Détail mensuel : factures impayées */}
+                {data?.monthlyUnpaid != null && (
+                  <div className="mt-3 pt-3 border-t border-[#f5f5f7] grid grid-cols-3 gap-2">
+                    {[
+                      { label: 'Facturé', value: monthly, color: 'text-[#1a1a1a]' },
+                      { label: 'Impayé', value: data?.monthlyUnpaid, color: 'text-amber-600' },
+                      { label: 'Déposé', value: data?.monthlyDeposited, color: 'text-emerald-600' },
+                    ].map(({ label, value, color }) => (
+                      <div key={label} className="bg-gray-50 rounded-xl px-2 py-2 text-center">
+                        <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide mb-0.5">{label}</p>
+                        <p className={`text-sm font-bold ${color}`}>{fmt(value)}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </Card>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MemberQBRevenue({ member, revenue, loading, refreshing, error, refetch }) {
+  const now = new Date()
+  const [selectedMonth, setSelectedMonth] = useState(now.getMonth() + 1)
+  const [selectedYear, setSelectedYear] = useState(now.getFullYear())
+  const isCurrentMonth = selectedMonth === now.getMonth() + 1 && selectedYear === now.getFullYear()
+
+  const firstName = member?.full_name?.trim().split(/\s+/)[0] ?? ''
+  const { data: histData, loading: histLoading } = useQBMemberRevenueForMonth(
+    firstName,
+    isCurrentMonth ? null : selectedMonth,
+    isCurrentMonth ? null : selectedYear
+  )
+
+  if (!firstName || member?.role === 'admin') return null
+  if (!loading && !revenue && !error) return null
+
+  if (error) {
+    return (
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-bold text-[#6b7280] uppercase tracking-wide">Revenus QuickBooks</h2>
+          <button onClick={refetch} className="text-xs font-semibold text-[#00bbb1] hover:text-[#009e95]">Réessayer</button>
+        </div>
+        <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">
+          Erreur QB : {error} — prénom envoyé : « {firstName} »
+        </div>
+      </div>
+    )
+  }
+
+  const syncLabel = revenue?.last_synced_at
+    ? `QB · sync ${format(new Date(revenue.last_synced_at), 'd MMM à HH:mm', { locale: fr })}${revenue.from_cache ? ' · cache' : ''}`
+    : null
+
+  const hasAnyRevenue = revenue && (
+    revenue.naturopathe?.annual > 0 || revenue.closer?.annual > 0 || revenue.setter?.annual > 0 ||
+    revenue.naturopathe?.monthly > 0 || revenue.closer?.monthly > 0 || revenue.setter?.monthly > 0
+  )
+
+  const QB_TRACKED_ROLES = ['naturopathe', 'closer', 'setter']
+  const isQBRole = QB_TRACKED_ROLES.includes(member?.role)
+
+  if (!loading && revenue && !hasAnyRevenue && !isQBRole) return null
+
+  return (
+    <div className="mb-6">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3 flex-wrap">
+          <h2 className="text-sm font-bold text-[#6b7280] uppercase tracking-wide">Revenus QuickBooks</h2>
+          <MonthNavigator
+            month={selectedMonth}
+            year={selectedYear}
+            onChange={(m, y) => { setSelectedMonth(m); setSelectedYear(y) }}
+          />
+        </div>
+        {isCurrentMonth && (
+          <button
+            onClick={refetch}
+            disabled={refreshing || loading}
+            className="flex items-center gap-1.5 text-xs font-semibold text-[#00bbb1] hover:text-[#009e95] disabled:opacity-50 transition-colors"
+          >
+            <svg className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            {refreshing ? 'Actualisation…' : 'Actualiser QB'}
+          </button>
+        )}
+      </div>
+
+      {Object.entries(QB_ROLE_LABELS).map(([roleKey, label]) => (
+        <QBRoleCard
+          key={roleKey}
+          label={label}
+          data={revenue?.[roleKey]}
+          loading={loading}
+          syncLabel={isCurrentMonth ? syncLabel : null}
+          isCurrentMonth={isCurrentMonth}
+          histData={histData?.[roleKey]}
+          histLoading={histLoading}
+          selectedMonth={selectedMonth}
+          selectedYear={selectedYear}
+        />
+      ))}
+
+      {isCurrentMonth && !loading && revenue && !hasAnyRevenue && (
+        <div className="px-4 py-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
+          Prénom « {firstName} » introuvable dans QuickBooks. Vérifiez l'orthographe dans les reçus QB.
+        </div>
+      )}
+    </div>
+  )
+}
 
 function ObjectiveModal({ isOpen, onClose, userId, role, onCreated }) {
   const types = OBJECTIVE_TYPES_BY_ROLE[role] || []
@@ -74,84 +325,17 @@ function ObjectiveModal({ isOpen, onClose, userId, role, onCreated }) {
   )
 }
 
-function ObjectivesTab({ member, objectives, loading, refetch }) {
-  const [modalOpen, setModalOpen] = useState(false)
-  const today = format(new Date(), 'yyyy-MM-dd')
-
-  const active = objectives.filter(o => o.period_end >= today)
-  const past = objectives.filter(o => o.period_end < today)
-
-  function progressColor(pct) {
-    if (pct >= 80) return 'bg-emerald-500'
-    if (pct >= 50) return 'bg-amber-500'
-    return 'bg-red-500'
-  }
-
+function ObjectivesTab({ member, qbRevenue }) {
+  const firstName = member?.full_name?.trim().split(/\s+/)[0] ?? ''
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h3 className="font-bold text-[#1a1a1a]">Objectifs actifs</h3>
-        <Button onClick={() => setModalOpen(true)}>+ Ajouter un objectif</Button>
-      </div>
-
-      {loading ? (
-        <SkeletonCard />
-      ) : active.length === 0 ? (
-        <Card className="p-5">
-          <p className="text-sm text-[#6b7280]">Aucun objectif actif.</p>
-        </Card>
-      ) : (
-        <div className="space-y-3">
-          {active.map(obj => (
-            <Card key={obj.id} className="p-5">
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <p className="font-semibold text-sm text-[#1a1a1a]">{OBJECTIVE_TYPE_LABELS[obj.type] || obj.type}</p>
-                  <p className="text-xs text-[#6b7280] mt-0.5">
-                    {format(parseISO(obj.period_start), 'd MMM yyyy', { locale: fr })} → {format(parseISO(obj.period_end), 'd MMM yyyy', { locale: fr })}
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <p className="text-lg font-bold text-[#1a1a1a]">{obj.target_value.toLocaleString('fr-CA')}</p>
-                  <button onClick={() => deleteObjective(obj.id).then(refetch)} className="p-1 text-gray-300 hover:text-red-500 transition-colors">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                  </button>
-                </div>
-              </div>
-              <div className="w-full bg-gray-100 rounded-full h-2">
-                <div className={`h-2 rounded-full ${progressColor(0)} transition-all`} style={{ width: '0%' }} />
-              </div>
-              <p className="text-xs text-[#6b7280] mt-1">Progression : données des KPI requises</p>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      {past.length > 0 && (
-        <div>
-          <h3 className="font-bold text-[#1a1a1a] mb-3">Historique</h3>
-          <div className="space-y-2">
-            {past.map(obj => (
-              <div key={obj.id} className="flex items-center justify-between px-4 py-3 bg-gray-50 rounded-lg border border-[#e5e7eb]">
-                <div>
-                  <p className="text-sm font-semibold text-[#6b7280]">{OBJECTIVE_TYPE_LABELS[obj.type] || obj.type}</p>
-                  <p className="text-xs text-[#6b7280]">{format(parseISO(obj.period_start), 'd MMM yyyy', { locale: fr })} → {format(parseISO(obj.period_end), 'd MMM yyyy', { locale: fr })}</p>
-                </div>
-                <p className="text-sm font-bold text-[#6b7280]">{obj.target_value.toLocaleString('fr-CA')}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <ObjectiveModal
-        isOpen={modalOpen}
-        onClose={() => setModalOpen(false)}
-        userId={member?.id}
-        role={member?.role}
-        onCreated={refetch}
-      />
-    </div>
+    <QuarterlyPanel
+      userId={member?.id}
+      annualBonus={member?.annual_bonus}
+      role={member?.role}
+      qbRevenue={qbRevenue}
+      isAdmin={true}
+      firstName={firstName}
+    />
   )
 }
 
@@ -282,9 +466,14 @@ function KPIsTab({ userId, userRole }) {
   )
 }
 
-function CareerTab({ member, onMemberUpdated }) {
+function CareerTab({ member, onMemberUpdated, qbRevenue }) {
   const [baseSalary, setBaseSalary] = useState(member?.base_salary ?? null)
-  const { bonus, achievement, loading: bonusLoading, quarterStart, quarterEnd } = useQuarterlyBonus(member?.id, baseSalary)
+  const [annualBonus, setAnnualBonus] = useState(member?.annual_bonus ?? null)
+  const { bonus, achievement, loading: bonusLoading, quarterStart, quarterEnd } = useQuarterlyBonus(member?.id, annualBonus, qbRevenue, member?.role)
+
+  const roleField = ROLE_TO_QB[member?.role]
+  const quarterlyRevenue = qbRevenue?.[roleField]?.quarterly ?? null
+  const quarterlyUnpaid = qbRevenue?.[roleField]?.quarterlyUnpaid ?? null
 
   return (
     <div className="space-y-6">
@@ -294,12 +483,16 @@ function CareerTab({ member, onMemberUpdated }) {
         loading={bonusLoading}
         quarterStart={quarterStart}
         quarterEnd={quarterEnd}
-        baseSalary={baseSalary}
+        annualBonus={annualBonus}
+        quarterlyRevenue={quarterlyRevenue}
+        quarterlyUnpaid={quarterlyUnpaid}
       />
       <CareerPlanEditor
         userId={member?.id}
         baseSalary={baseSalary}
+        annualBonus={annualBonus}
         onBaseSalaryUpdated={val => { setBaseSalary(val); onMemberUpdated?.() }}
+        onAnnualBonusUpdated={val => { setAnnualBonus(val); onMemberUpdated?.() }}
       />
     </div>
   )
@@ -312,6 +505,9 @@ export default function MembreDossier() {
   const { member, loading: memberLoading, refetch: refetchMember } = useMember(id)
   const { objectives, loading: objLoading, refetch: refetchObj } = useObjectives(id)
   const { tasks, loading: tasksLoading, refetch: refetchTasks } = useTasks({ userId: id })
+
+  const memberFirstName = member?.full_name?.trim().split(/\s+/)[0] ?? ''
+  const { revenue: qbRevenue, loading: qbLoading, refreshing: qbRefreshing, error: qbError, refetch: qbRefetch } = useQBMemberRevenue(memberFirstName)
 
   if (memberLoading) {
     return (
@@ -358,6 +554,9 @@ export default function MembreDossier() {
         </div>
       </div>
 
+      {/* Revenus QuickBooks */}
+      <MemberQBRevenue member={member} revenue={qbRevenue} loading={qbLoading} refreshing={qbRefreshing} error={qbError} refetch={qbRefetch} />
+
       {/* Onglets */}
       <div className="flex gap-1 border-b border-[#e5e7eb] mb-6">
         {TABS.map((tab, i) => (
@@ -377,7 +576,7 @@ export default function MembreDossier() {
 
       {/* Contenu des onglets */}
       {activeTab === 0 && (
-        <ObjectivesTab member={member} objectives={objectives} loading={objLoading} refetch={refetchObj} />
+        <ObjectivesTab member={member} qbRevenue={qbRevenue} />
       )}
       {activeTab === 1 && (
         <TasksTab member={member} tasks={tasks} loading={tasksLoading} refetch={refetchTasks} />
@@ -386,7 +585,7 @@ export default function MembreDossier() {
         <KPIsTab userId={id} userRole={member.role} />
       )}
       {activeTab === 3 && (
-        <CareerTab member={member} onMemberUpdated={refetchMember} />
+        <CareerTab member={member} onMemberUpdated={refetchMember} qbRevenue={qbRevenue} />
       )}
     </Layout>
   )

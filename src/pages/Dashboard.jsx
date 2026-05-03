@@ -5,16 +5,17 @@ import Header from '../components/layout/Header'
 import Card from '../components/shared/Card'
 import Badge from '../components/shared/Badge'
 import BonusTracker from '../components/career/BonusTracker'
+import QuarterlyPanel from '../components/career/QuarterlyPanel'
 import { SkeletonCard, SkeletonTable } from '../components/shared/Skeleton'
 import { useAuth } from '../context/AuthContext'
-import { useClinicObjectives } from '../hooks/useObjectives'
+import { useClinicObjectives, OBJECTIVE_TYPE_LABELS } from '../hooks/useObjectives'
 import { useClinicKPIEntries } from '../hooks/useKPIs'
 import { useQuarterlyBonus } from '../hooks/useCareerPlan'
-import { useQBRevenue } from '../hooks/useQuickBooks'
+import { useQBRevenue, useQBMemberRevenue, useQBMemberRevenueForMonth, useQBRevenueForMonth } from '../hooks/useQuickBooks'
+import MonthNavigator from '../components/shared/MonthNavigator'
 import { supabase } from '../lib/supabase'
 import {
-  format, startOfMonth, endOfMonth, startOfYear, endOfYear,
-  parseISO, differenceInCalendarMonths,
+  format, startOfMonth, endOfMonth, parseISO,
 } from 'date-fns'
 import { fr } from 'date-fns/locale'
 
@@ -55,126 +56,8 @@ function statusBadge(pct) {
   return <Badge variant="danger">Attention</Badge>
 }
 
-// ─── QuickBooks Revenue Cards ─────────────────────────────────
-function QBRevenueCards() {
-  const { revenue, loading, refreshing, error, refetch } = useQBRevenue()
-
-  if (loading) {
-    return (
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-        <SkeletonCard />
-        <SkeletonCard />
-      </div>
-    )
-  }
-
-  if (!revenue && !error) return null // QB non connecté
-
-  const fmt = (n) =>
-    Number(n ?? 0).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })
-
-  const monthly = revenue?.monthly_revenue ?? 0
-  const prevMonthly = revenue?.prev_monthly_revenue ?? 0
-  const annual = revenue?.annual_revenue ?? 0
-  const lastSync = revenue?.last_synced_at
-  const fromCache = revenue?.from_cache
-  const hasWarning = revenue?.warning
-
-  const monthPct =
-    prevMonthly > 0 ? Math.round(((monthly - prevMonthly) / prevMonthly) * 100) : null
-
-  const syncLabel = lastSync
-    ? `Sync ${format(new Date(lastSync), 'd MMM à HH:mm', { locale: fr })}`
-    : null
-
-  return (
-    <div className="mb-6">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-bold text-[#6b7280] uppercase tracking-wide flex items-center gap-2">
-          <span className="inline-block w-2 h-2 rounded-full bg-[#00bbb1]" />
-          Revenus QuickBooks
-        </h2>
-        <button
-          onClick={refetch}
-          disabled={refreshing}
-          className="flex items-center gap-1.5 text-xs font-semibold text-[#00bbb1] hover:text-[#009e95] disabled:opacity-50 transition-colors"
-        >
-          <svg className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-          {refreshing ? 'Actualisation…' : 'Actualiser'}
-        </button>
-      </div>
-
-      {error && (
-        <div className="mb-3 px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl text-sm text-red-600">
-          Impossible de contacter QuickBooks — données en cache affichées.
-        </div>
-      )}
-      {hasWarning && (
-        <div className="mb-3 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-700">
-          Token expiré — données en cache. Reconnectez QuickBooks dans Paramètres.
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Revenus du mois */}
-        <Card className="p-5">
-          <div className="flex items-start justify-between mb-3">
-            <div>
-              <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide mb-1">
-                Revenus du mois
-              </p>
-              <p className="text-2xl font-bold text-[#1a1a1a]">{fmt(monthly)}</p>
-            </div>
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-[#00bbb1]/10 flex-shrink-0">
-              <svg className="w-5 h-5 text-[#00bbb1]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-          </div>
-          {monthPct !== null && (
-            <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold mb-2 ${
-              monthPct >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'
-            }`}>
-              {monthPct >= 0 ? '↑' : '↓'} {Math.abs(monthPct)}% vs mois précédent
-            </div>
-          )}
-          <p className="text-xs text-[#9ca3af]">
-            {format(new Date(), 'MMMM yyyy', { locale: fr })}
-            {syncLabel && <span> · {syncLabel}</span>}
-            {fromCache && <span> · cache</span>}
-          </p>
-        </Card>
-
-        {/* Revenus de l'année */}
-        <Card className="p-5">
-          <div className="flex items-start justify-between mb-3">
-            <div>
-              <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide mb-1">
-                Revenus de l'année
-              </p>
-              <p className="text-2xl font-bold text-[#1a1a1a]">{fmt(annual)}</p>
-            </div>
-            <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-[#8b5cf6]/10 flex-shrink-0">
-              <svg className="w-5 h-5 text-[#8b5cf6]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-            </div>
-          </div>
-          <p className="text-xs text-[#9ca3af]">
-            Janvier → {format(new Date(), 'MMMM yyyy', { locale: fr })}
-            {syncLabel && <span> · {syncLabel}</span>}
-            {fromCache && <span> · cache</span>}
-          </p>
-        </Card>
-      </div>
-    </div>
-  )
-}
-
 // ─── Clinic Progress Components ───────────────────────────────
-function ClinicAnnualCard({ objectives, entries }) {
+function ClinicAnnualCard({ objectives, revenue = 0, monthlyRevenue = 0, annualDeposited = null, lastSynced, fromCache }) {
   const year = new Date().getFullYear()
   const activeObj = objectives.find(o =>
     o.type === 'clinic_revenue_annual' &&
@@ -193,9 +76,8 @@ function ClinicAnnualCard({ objectives, entries }) {
     )
   }
 
-  const ytd = entries
-    .filter(e => e.kpi_type === 'clinic_revenue')
-    .reduce((sum, e) => sum + Number(e.value), 0)
+  const ytd = Number(revenue ?? 0)
+  const currentMonthRev = Number(monthlyRevenue ?? 0)
 
   const pct = Math.min(100, Math.round((ytd / activeObj.target_value) * 100))
   const remaining = Math.max(0, activeObj.target_value - ytd)
@@ -203,10 +85,14 @@ function ClinicAnnualCard({ objectives, entries }) {
   const monthsRemaining = Math.max(1, 12 - new Date().getMonth())
   const neededPerMonth = remaining / monthsRemaining
 
+  // Exclude current (partial) month from the average
+  const completedMonths = monthsElapsed - 1
+  const avgMonthly = completedMonths > 0 ? (ytd - currentMonthRev) / completedMonths : null
+
   const barColor = pct >= 80 ? '#10b981' : pct >= 50 ? '#f59e0b' : '#00bbb1'
 
   return (
-    <Card className="p-6">
+    <Card className="p-6 w-full flex flex-col">
       <div className="flex items-start justify-between mb-5">
         <div>
           <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide mb-1">
@@ -255,22 +141,81 @@ function ClinicAnnualCard({ objectives, entries }) {
         <div className="text-center">
           <p className="text-xs text-[#6b7280] font-semibold">Moy. mensuelle actuelle</p>
           <p className="text-sm font-bold text-[#1a1a1a]">
-            {(ytd / monthsElapsed).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}/mois
+            {avgMonthly !== null
+              ? avgMonthly.toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 }) + '/mois'
+              : '—'}
           </p>
         </div>
       </div>
+      {/* Détail QB : 3 colonnes */}
+      {annualDeposited != null && (
+        <div className="mt-4 pt-4 border-t border-[#f5f5f7] grid grid-cols-3 gap-3">
+          {[
+            { label: 'Revenus totaux', value: ytd, color: 'text-[#1a1a1a]' },
+            { label: 'Factures impayées', value: ytd - Number(annualDeposited), color: 'text-amber-600' },
+            { label: 'Revenus déposés', value: annualDeposited, color: 'text-emerald-600' },
+          ].map(({ label, value, color }) => (
+            <div key={label} className="bg-gray-50 rounded-xl px-3 py-3 text-center">
+              <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide mb-1">{label}</p>
+              <p className={`text-base font-bold ${color}`}>{fmtCAD(value)}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {lastSynced && (
+        <p className="text-xs text-[#9ca3af] mt-3 text-right">
+          QB · sync {format(new Date(lastSynced), 'd MMM à HH:mm', { locale: fr })}{fromCache ? ' · cache' : ''}
+        </p>
+      )}
     </Card>
   )
 }
 
-function ClinicMonthlyCard({ objectives, entries }) {
+function ClinicMonthlyCard({ objectives, revenue = null, prevRevenue = null, annualRevenue = null, deposited = null, entries = [], lastSynced, fromCache, isCurrentMonth = true, histLoading = false, selectedMonth, selectedYear }) {
   const today = format(new Date(), 'yyyy-MM-dd')
+  const year = new Date().getFullYear()
   const activeObj = objectives.find(o =>
     o.type === 'clinic_revenue' &&
     o.period_start <= today && o.period_end >= today
   ) || objectives.find(o => o.type === 'clinic_revenue')
 
-  if (!activeObj) {
+  // Auto-target from annual objective when no manual monthly objective is set
+  const annualObj = objectives.find(o =>
+    o.type === 'clinic_revenue_annual' &&
+    new Date(o.period_start).getFullYear() <= year &&
+    new Date(o.period_end).getFullYear() >= year
+  )
+  const monthsRemaining = Math.max(1, 12 - new Date().getMonth())
+  const autoTarget = (!activeObj && annualObj && annualRevenue !== null)
+    ? Math.round(Math.max(0, annualObj.target_value - Number(annualRevenue)) / monthsRemaining)
+    : null
+  const effectiveTarget = activeObj?.target_value ?? autoTarget
+
+  if (!isCurrentMonth) {
+    const histTotal = revenue !== null ? Number(revenue) : null
+    return (
+      <Card className="p-5 w-full flex flex-col">
+        <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide mb-3">
+          Revenu clinique — {MONTHS_FR_DASH[selectedMonth - 1]} {selectedYear}
+        </p>
+        {histLoading ? (
+          <div className="space-y-3 animate-pulse">
+            <div className="h-3 bg-gray-100 rounded w-1/3" />
+            <div className="h-8 bg-gray-100 rounded w-1/2" />
+          </div>
+        ) : (
+          <p className="text-2xl font-bold text-[#1a1a1a]">
+            {histTotal !== null
+              ? histTotal.toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })
+              : '—'}
+          </p>
+        )}
+      </Card>
+    )
+  }
+
+  if (!effectiveTarget) {
     return (
       <Card className="p-5 flex items-center justify-center min-h-[140px]">
         <div className="text-center">
@@ -281,28 +226,37 @@ function ClinicMonthlyCard({ objectives, entries }) {
     )
   }
 
-  const total = entries
-    .filter(e => e.kpi_type === 'clinic_revenue')
-    .reduce((sum, e) => sum + Number(e.value), 0)
+  const total = revenue !== null
+    ? Number(revenue)
+    : entries.filter(e => e.kpi_type === 'clinic_revenue').reduce((sum, e) => sum + Number(e.value), 0)
 
-  const pct = Math.min(100, Math.round((total / activeObj.target_value) * 100))
+  const pct = Math.min(100, Math.round((total / effectiveTarget) * 100))
   const barColor = pct >= 80 ? '#10b981' : pct >= 50 ? '#f59e0b' : '#00bbb1'
 
   const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate()
   const dayOfMonth = new Date().getDate()
   const daysLeft = daysInMonth - dayOfMonth
 
+  const vsLastMonth = prevRevenue != null && prevRevenue > 0
+    ? Math.round(((total - prevRevenue) / prevRevenue) * 100)
+    : null
+
   return (
-    <Card className="p-5">
-      <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide mb-3">
-        Revenu clinique — {format(new Date(), 'MMMM yyyy', { locale: fr })}
-      </p>
+    <Card className="p-5 w-full flex flex-col">
+      <div className="flex items-center gap-2 mb-3">
+        <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide">
+          Revenu clinique — {format(new Date(), 'MMMM yyyy', { locale: fr })}
+        </p>
+        {autoTarget !== null && (
+          <span className="text-[10px] font-bold text-blue-500 bg-blue-50 px-2 py-0.5 rounded-full">Objectif auto</span>
+        )}
+      </div>
       <div className="flex items-baseline gap-2 mb-1">
         <span className="text-2xl font-bold text-[#1a1a1a]">
           {total.toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}
         </span>
         <span className="text-sm text-[#6b7280]">
-          / {Number(activeObj.target_value).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}
+          / {Number(effectiveTarget).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}
         </span>
         <span className="ml-auto text-2xl font-bold" style={{ color: barColor }}>{pct}%</span>
       </div>
@@ -312,11 +266,238 @@ function ClinicMonthlyCard({ objectives, entries }) {
           style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${barColor}aa, ${barColor})` }}
         />
       </div>
-      <p className="text-xs text-[#6b7280]">
-        {format(parseISO(activeObj.period_start), 'd MMM', { locale: fr })} → {format(parseISO(activeObj.period_end), 'd MMM', { locale: fr })}
-        {daysLeft > 0 && <span className="ml-2 font-semibold">· {daysLeft} jour{daysLeft > 1 ? 's' : ''} restant{daysLeft > 1 ? 's' : ''}</span>}
-      </p>
+      <div className="flex items-center justify-between">
+        {activeObj ? (
+          <p className="text-xs text-[#6b7280]">
+            {format(parseISO(activeObj.period_start), 'd MMM', { locale: fr })} → {format(parseISO(activeObj.period_end), 'd MMM', { locale: fr })}
+            {daysLeft > 0 && <span className="ml-2 font-semibold">· {daysLeft} jour{daysLeft > 1 ? 's' : ''} restant{daysLeft > 1 ? 's' : ''}</span>}
+          </p>
+        ) : (
+          <p className="text-xs text-[#9ca3af]">
+            Calculé depuis l'objectif annuel · {daysLeft > 0 ? `${daysLeft} jour${daysLeft > 1 ? 's' : ''} restant${daysLeft > 1 ? 's' : ''}` : ''}
+          </p>
+        )}
+        {vsLastMonth !== null && (
+          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${vsLastMonth >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'}`}>
+            {vsLastMonth >= 0 ? '↑' : '↓'} {Math.abs(vsLastMonth)}% vs mois préc.
+          </span>
+        )}
+      </div>
+      {/* Détail QB mensuel : 3 colonnes */}
+      {deposited != null && (
+        <div className="mt-3 pt-3 border-t border-[#f5f5f7] grid grid-cols-3 gap-2">
+          {[
+            { label: 'Revenus totaux', value: total, color: 'text-[#1a1a1a]' },
+            { label: 'Fact. impayées', value: total - Number(deposited), color: 'text-amber-600' },
+            { label: 'Déposés', value: deposited, color: 'text-emerald-600' },
+          ].map(({ label, value, color }) => (
+            <div key={label} className="bg-gray-50 rounded-xl px-2 py-2 text-center">
+              <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide mb-0.5">{label}</p>
+              <p className={`text-sm font-bold ${color}`}>{fmtCAD(value)}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {lastSynced && (
+        <p className="text-xs text-[#9ca3af] mt-auto pt-3 text-right">
+          QB · sync {format(new Date(lastSynced), 'd MMM à HH:mm', { locale: fr })}{fromCache ? ' · cache' : ''}
+        </p>
+      )}
     </Card>
+  )
+}
+
+// ─── Member QB Revenue (dashboard membre) ────────────────────
+const QB_ROLE_LABELS = { naturopathe: 'Thérapeute', closer: 'Closer', setter: 'Setter' }
+
+function fmtCAD(n) {
+  if (n == null) return '—'
+  return Number(n).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })
+}
+
+const MONTHS_FR_DASH = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre']
+
+function MemberQBRoleCard({ label, data, loading, isCurrentMonth = true, histData, histLoading, selectedMonth, selectedYear }) {
+  if (!isCurrentMonth) {
+    if (!histLoading && (!histData || histData.monthly === 0)) return null
+    return (
+      <div className="mb-4">
+        <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide mb-2">Champ QB « {label} »</p>
+        <Card className="p-5 w-full flex flex-col">
+          {histLoading ? (
+            <div className="space-y-3 animate-pulse">
+              <div className="h-3 bg-gray-100 rounded w-1/3" />
+              <div className="h-8 bg-gray-100 rounded w-1/2" />
+            </div>
+          ) : (
+            <>
+              <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide mb-1">
+                {MONTHS_FR_DASH[selectedMonth - 1]} {selectedYear}
+              </p>
+              <p className="text-3xl font-bold text-[#1a1a1a]">{fmtCAD(histData?.monthly ?? 0)}</p>
+            </>
+          )}
+        </Card>
+      </div>
+    )
+  }
+
+  if (!loading && (!data || (data.annual === 0 && data.monthly === 0))) return null
+  const monthly = Number(data?.monthly ?? 0)
+  const prevMonthly = Number(data?.prevMonthly ?? 0)
+  const annual = Number(data?.annual ?? 0)
+  const vs = prevMonthly > 0 ? Math.round(((monthly - prevMonthly) / prevMonthly) * 100) : null
+
+  return (
+    <div className="mb-4">
+      <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide mb-2">
+        Champ QB « {label} »
+      </p>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch">
+        <div className="lg:col-span-2 flex">
+          <Card className="p-5 w-full flex flex-col">
+            {loading ? (
+              <div className="space-y-3 animate-pulse">
+                <div className="h-3 bg-gray-100 rounded w-1/3" />
+                <div className="h-8 bg-gray-100 rounded w-1/2" />
+              </div>
+            ) : (
+              <>
+                <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide mb-1">Revenus {new Date().getFullYear()}</p>
+                <p className="text-3xl font-bold text-[#1a1a1a] mb-1">{fmtCAD(annual)}</p>
+                <p className="text-xs text-[#6b7280] mb-4">Janvier → {format(new Date(), 'MMMM yyyy', { locale: fr })}</p>
+                <div className="flex items-center gap-4 pt-3 border-t border-[#f5f5f7] mt-auto">
+                  <div>
+                    <p className="text-xs text-[#6b7280] font-semibold">Mois actuel</p>
+                    <p className="text-sm font-bold text-[#1a1a1a]">{fmtCAD(monthly)}</p>
+                  </div>
+                  <div className="w-px h-8 bg-[#e5e7eb]" />
+                  <div>
+                    <p className="text-xs text-[#6b7280] font-semibold">Mois précédent</p>
+                    <p className="text-sm font-bold text-[#1a1a1a]">{fmtCAD(prevMonthly)}</p>
+                  </div>
+                  {vs !== null && (
+                    <>
+                      <div className="w-px h-8 bg-[#e5e7eb]" />
+                      <span className={`text-sm font-bold px-2.5 py-1 rounded-full ${vs >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'}`}>
+                        {vs >= 0 ? '↑' : '↓'} {Math.abs(vs)}% vs mois préc.
+                      </span>
+                    </>
+                  )}
+                </div>
+                {/* Détail annuel : factures impayées */}
+                {data?.annualUnpaid != null && (
+                  <div className="mt-3 pt-3 border-t border-[#f5f5f7] grid grid-cols-3 gap-2">
+                    {[
+                      { label: 'Revenus facturés', value: annual, color: 'text-[#1a1a1a]' },
+                      { label: 'Fact. impayées', value: data?.annualUnpaid, color: 'text-amber-600' },
+                      { label: 'Déposés', value: data?.annualDeposited, color: 'text-emerald-600' },
+                    ].map(({ label, value, color }) => (
+                      <div key={label} className="bg-gray-50 rounded-xl px-2 py-2 text-center">
+                        <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide mb-0.5">{label}</p>
+                        <p className={`text-sm font-bold ${color}`}>{fmtCAD(value)}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </Card>
+        </div>
+        <div className="flex">
+          <Card className="p-5 w-full flex flex-col">
+            {loading ? (
+              <div className="space-y-3 animate-pulse">
+                <div className="h-3 bg-gray-100 rounded w-2/3" />
+                <div className="h-8 bg-gray-100 rounded w-1/2" />
+              </div>
+            ) : (
+              <>
+                <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide mb-3">
+                  {format(new Date(), 'MMMM yyyy', { locale: fr })}
+                </p>
+                <p className="text-2xl font-bold text-[#1a1a1a] mb-2">{fmtCAD(monthly)}</p>
+                {vs !== null && (
+                  <span className={`self-start text-xs font-bold px-2 py-0.5 rounded-full ${vs >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'}`}>
+                    {vs >= 0 ? '↑' : '↓'} {Math.abs(vs)}% vs mois préc.
+                  </span>
+                )}
+                <div className="mt-auto">
+                  <p className="text-xs text-[#6b7280] font-semibold mt-3">Mois précédent</p>
+                  <p className="text-sm font-bold text-[#1a1a1a]">{fmtCAD(prevMonthly)}</p>
+                </div>
+                {/* Détail mensuel : factures impayées */}
+                {data?.monthlyUnpaid != null && (
+                  <div className="mt-3 pt-3 border-t border-[#f5f5f7] grid grid-cols-3 gap-2">
+                    {[
+                      { label: 'Facturé', value: monthly, color: 'text-[#1a1a1a]' },
+                      { label: 'Impayé', value: data?.monthlyUnpaid, color: 'text-amber-600' },
+                      { label: 'Déposé', value: data?.monthlyDeposited, color: 'text-emerald-600' },
+                    ].map(({ label, value, color }) => (
+                      <div key={label} className="bg-gray-50 rounded-xl px-2 py-2 text-center">
+                        <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide mb-0.5">{label}</p>
+                        <p className={`text-sm font-bold ${color}`}>{fmtCAD(value)}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </Card>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MemberQBRevenueSection({ revenue, loading, refreshing, onRefetch, isCurrentMonth, histData, histLoading, selectedMonth, selectedYear, onMonthChange }) {
+  const hasAny = revenue && Object.keys(QB_ROLE_LABELS).some(
+    k => (revenue[k]?.annual ?? 0) > 0 || (revenue[k]?.monthly ?? 0) > 0
+  )
+  if (!loading && !hasAny) return null
+
+  const syncLabel = revenue?.last_synced_at
+    ? `QB · sync ${format(new Date(revenue.last_synced_at), 'd MMM à HH:mm', { locale: fr })}${revenue.from_cache ? ' · cache' : ''}`
+    : null
+
+  return (
+    <div className="mb-6">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3 flex-wrap">
+          <h2 className="text-sm font-bold text-[#6b7280] uppercase tracking-wide">Mes revenus QuickBooks</h2>
+          <MonthNavigator month={selectedMonth} year={selectedYear} onChange={onMonthChange} />
+        </div>
+        <div className="flex items-center gap-3">
+          {isCurrentMonth && syncLabel && <span className="text-xs text-[#9ca3af]">{syncLabel}</span>}
+          {isCurrentMonth && (
+            <button
+              onClick={onRefetch}
+              disabled={refreshing || loading}
+              className="flex items-center gap-1.5 text-xs font-semibold text-[#00bbb1] hover:text-[#009e95] disabled:opacity-50 transition-colors"
+            >
+              <svg className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              {refreshing ? 'Actualisation…' : 'Actualiser QB'}
+            </button>
+          )}
+        </div>
+      </div>
+      {Object.entries(QB_ROLE_LABELS).map(([roleKey, label]) => (
+        <MemberQBRoleCard
+          key={roleKey}
+          label={label}
+          data={revenue?.[roleKey]}
+          loading={loading}
+          isCurrentMonth={isCurrentMonth}
+          histData={histData?.[roleKey]}
+          histLoading={histLoading}
+          selectedMonth={selectedMonth}
+          selectedYear={selectedYear}
+        />
+      ))}
+    </div>
   )
 }
 
@@ -328,18 +509,22 @@ function AdminDashboard() {
   const [members, setMembers] = useState([])
   const [roleFilter, setRoleFilter] = useState('tous')
 
+  const nowAD = new Date()
+  const [clinicMonth, setClinicMonth] = useState(nowAD.getMonth() + 1)
+  const [clinicYear, setClinicYear] = useState(nowAD.getFullYear())
+  const isClinicCurrentMonth = clinicMonth === nowAD.getMonth() + 1 && clinicYear === nowAD.getFullYear()
+
   const { objectives: clinicObjectives } = useClinicObjectives()
+  const { revenue: qbRevenue, loading: qbLoading, refreshing: qbRefreshing, error: qbError, refetch: qbRefetch } = useQBRevenue()
+  const { revenue: clinicHistRevenue, loading: clinicHistLoading } = useQBRevenueForMonth(
+    isClinicCurrentMonth ? null : clinicMonth,
+    isClinicCurrentMonth ? null : clinicYear
+  )
 
   const monthDates = {
     from: format(startOfMonth(new Date()), 'yyyy-MM-dd'),
     to: format(endOfMonth(new Date()), 'yyyy-MM-dd'),
   }
-  const yearDates = {
-    from: format(startOfYear(new Date()), 'yyyy-MM-dd'),
-    to: format(endOfYear(new Date()), 'yyyy-MM-dd'),
-  }
-  const { entries: clinicEntriesMonth } = useClinicKPIEntries(monthDates)
-  const { entries: clinicEntriesYear } = useClinicKPIEntries(yearDates)
 
   useEffect(() => { loadDashboard() }, [])
 
@@ -348,16 +533,20 @@ function AdminDashboard() {
     const today = format(new Date(), 'yyyy-MM-dd')
     const { from: monthStart, to: monthEnd } = monthDates
 
-    const [profilesRes, eodRes, kpiRes, objRes] = await Promise.all([
+    const [profilesRes, eodRes, kpiRes, objRes, qbCacheRes] = await Promise.all([
       supabase.from('profiles').select('*').eq('is_active', true).neq('role', 'admin'),
       supabase.from('end_of_day_reports').select('id', { count: 'exact', head: true }).eq('report_date', today),
       supabase.from('kpi_entries').select('user_id, kpi_type, value').eq('scope', 'individual').gte('entry_date', monthStart).lte('entry_date', monthEnd),
       supabase.from('objectives').select('*').eq('scope', 'individual').lte('period_start', monthEnd).gte('period_end', monthStart),
+      supabase.from('member_revenue_cache').select('first_name, therapist_monthly, closer_monthly, setter_monthly'),
     ])
 
     const profiles = profilesRes.data || []
     const kpiEntries = kpiRes.data || []
     const objectives = objRes.data || []
+    const qbCache = qbCacheRes.data || []
+
+    const QB_MONTHLY = { naturopathe: 'therapist_monthly', closer: 'closer_monthly', setter: 'setter_monthly' }
 
     setStats({
       total: profiles.length,
@@ -367,14 +556,34 @@ function AdminDashboard() {
     })
 
     const membersWithProgress = profiles.map(profile => {
+      const firstName = profile.full_name?.trim().split(/\s+/)[0]?.toLowerCase() ?? ''
+      const qbRow = qbCache.find(c => c.first_name.toLowerCase() === firstName)
+      const qbMonthly = qbRow ? Number(qbRow[QB_MONTHLY[profile.role]] ?? 0) : null
+
       const userObjectives = objectives.filter(o => o.user_id === profile.id)
       const userKpis = kpiEntries.filter(k => k.user_id === profile.id)
+
+      // Objectif mensuel de revenus (pour l'affichage)
+      const revenueObj = userObjectives.find(o => o.type === 'monthly_revenue')
+      const monthlyTarget = revenueObj?.target_value ?? null
+
       let totalPct = 0, count = 0
       userObjectives.forEach(obj => {
-        const sum = userKpis.filter(k => k.kpi_type === obj.type).reduce((a, k) => a + Number(k.value), 0)
-        if (obj.target_value > 0) { totalPct += Math.min(100, Math.round((sum / obj.target_value) * 100)); count++ }
+        let current
+        if (['monthly_revenue', 'quarterly_revenue', 'annual_revenue'].includes(obj.type) && qbMonthly !== null) {
+          current = obj.type === 'monthly_revenue' ? qbMonthly : userKpis.filter(k => k.kpi_type === obj.type).reduce((a, k) => a + Number(k.value), 0)
+        } else {
+          current = userKpis.filter(k => k.kpi_type === obj.type).reduce((a, k) => a + Number(k.value), 0)
+        }
+        if (obj.target_value > 0) { totalPct += Math.min(100, (current / obj.target_value) * 100); count++ }
       })
-      return { ...profile, progress: count > 0 ? Math.round(totalPct / count) : null }
+
+      return {
+        ...profile,
+        progress: count > 0 ? Math.round(totalPct / count) : null,
+        qbMonthly,
+        monthlyTarget,
+      }
     })
 
     setMembers(membersWithProgress)
@@ -383,6 +592,23 @@ function AdminDashboard() {
 
   const filteredMembers = roleFilter === 'tous' ? members : members.filter(m => m.role === roleFilter)
   const roles = ['tous', 'naturopathe', 'closer', 'setter']
+
+  const ROLE_GROUPS = [
+    { role: 'naturopathe', label: 'Naturopathes', accent: '#00bbb1' },
+    { role: 'closer',      label: 'Closers',       accent: '#8b5cf6' },
+    { role: 'setter',      label: 'Setters',        accent: '#f59e0b' },
+  ]
+
+  function progressColor(pct) {
+    if (pct === null) return '#d1d5db'
+    if (pct >= 80) return '#10b981'
+    if (pct >= 50) return '#f59e0b'
+    return '#ef4444'
+  }
+
+  function fmtCAD(n) {
+    return Number(n).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })
+  }
 
   return (
     <Layout>
@@ -419,28 +645,85 @@ function AdminDashboard() {
         </>}
       </div>
 
-      {/* QuickBooks Revenue */}
-      <QBRevenueCards />
-
       {/* Clinic Revenue */}
       <div className="mb-6">
-        <h2 className="text-sm font-bold text-[#6b7280] uppercase tracking-wide mb-3">Revenu clinique</h2>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <div className="lg:col-span-2">
-            <ClinicAnnualCard objectives={clinicObjectives} entries={clinicEntriesYear} />
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <h2 className="text-sm font-bold text-[#6b7280] uppercase tracking-wide">Revenu clinique</h2>
+            <MonthNavigator
+              month={clinicMonth}
+              year={clinicYear}
+              onChange={(m, y) => { setClinicMonth(m); setClinicYear(y) }}
+            />
           </div>
-          <div>
-            <ClinicMonthlyCard objectives={clinicObjectives} entries={clinicEntriesMonth} />
+          <div className="flex items-center gap-3">
+            {qbError && (
+              <span className="text-xs text-amber-600 font-semibold">QB non disponible · cache</span>
+            )}
+            {qbRevenue?.warning && (
+              <span className="text-xs text-amber-600 font-semibold">Token QB expiré</span>
+            )}
+            {!qbRevenue && !qbLoading && !qbError && (
+              <span className="text-xs text-[#9ca3af]">QuickBooks non connecté</span>
+            )}
+            {isClinicCurrentMonth && (
+              <button
+                onClick={qbRefetch}
+                disabled={qbRefreshing || qbLoading}
+                className="flex items-center gap-1.5 text-xs font-semibold text-[#00bbb1] hover:text-[#009e95] disabled:opacity-50 transition-colors"
+              >
+                <svg className={`w-3.5 h-3.5 ${qbRefreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                {qbRefreshing ? 'Actualisation…' : 'Actualiser QB'}
+              </button>
+            )}
           </div>
         </div>
+        {(qbLoading && isClinicCurrentMonth) ? (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="lg:col-span-2"><SkeletonCard /></div>
+            <SkeletonCard />
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch">
+            {isClinicCurrentMonth && (
+              <div className="lg:col-span-2 flex">
+                <ClinicAnnualCard
+                  objectives={clinicObjectives}
+                  revenue={qbRevenue?.annual_revenue ?? 0}
+                  monthlyRevenue={qbRevenue?.monthly_revenue ?? 0}
+                  annualDeposited={qbRevenue?.annual_deposited ?? null}
+                  lastSynced={qbRevenue?.last_synced_at}
+                  fromCache={qbRevenue?.from_cache}
+                />
+              </div>
+            )}
+            <div className={`flex ${isClinicCurrentMonth ? '' : 'lg:col-span-3'}`}>
+              <ClinicMonthlyCard
+                objectives={clinicObjectives}
+                revenue={isClinicCurrentMonth ? (qbRevenue?.monthly_revenue ?? 0) : (clinicHistRevenue ?? null)}
+                prevRevenue={isClinicCurrentMonth ? (qbRevenue?.prev_monthly_revenue ?? null) : null}
+                annualRevenue={qbRevenue?.annual_revenue ?? null}
+                deposited={isClinicCurrentMonth ? (qbRevenue?.monthly_deposited ?? null) : null}
+                lastSynced={isClinicCurrentMonth ? qbRevenue?.last_synced_at : null}
+                fromCache={isClinicCurrentMonth ? qbRevenue?.from_cache : false}
+                isCurrentMonth={isClinicCurrentMonth}
+                histLoading={clinicHistLoading}
+                selectedMonth={clinicMonth}
+                selectedYear={clinicYear}
+              />
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Team table */}
-      <Card className="p-6">
-        <div className="flex items-center justify-between mb-5">
+      {/* Team performance — groupé par rôle */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-lg font-bold text-[#1a1a1a]">Performance de l'équipe</h2>
-            <p className="text-xs text-[#6b7280] mt-0.5">{format(new Date(), 'MMMM yyyy', { locale: fr })} — objectifs individuels</p>
+            <p className="text-xs text-[#6b7280] mt-0.5">{format(new Date(), 'MMMM yyyy', { locale: fr })} — revenus mensuels vs objectif</p>
           </div>
           <div className="flex gap-1.5">
             {roles.map(r => (
@@ -457,61 +740,78 @@ function AdminDashboard() {
           </div>
         </div>
 
-        {loading ? <SkeletonTable rows={5} /> : filteredMembers.length === 0 ? (
-          <p className="text-sm text-[#6b7280] py-4">Aucun membre trouvé.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-[#e5e7eb]">
-                  <th className="text-left py-3 px-3 text-xs font-semibold text-[#6b7280] uppercase tracking-wide">Membre</th>
-                  <th className="text-left py-3 px-3 text-xs font-semibold text-[#6b7280] uppercase tracking-wide">Rôle</th>
-                  <th className="text-left py-3 px-3 text-xs font-semibold text-[#6b7280] uppercase tracking-wide">Progression</th>
-                  <th className="text-left py-3 px-3 text-xs font-semibold text-[#6b7280] uppercase tracking-wide">Statut</th>
-                  <th className="text-right py-3 px-3 text-xs font-semibold text-[#6b7280] uppercase tracking-wide">Dossier</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredMembers.map(m => (
-                  <tr key={m.id} className="border-b border-[#f5f5f7] hover:bg-gray-50/60 transition-colors">
-                    <td className="py-3.5 px-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-[#00bbb1]/10 flex items-center justify-center text-[#00bbb1] font-bold text-sm flex-shrink-0">
-                          {m.full_name.charAt(0).toUpperCase()}
+        {loading ? <SkeletonTable rows={5} /> : (
+          <div className="space-y-4">
+            {ROLE_GROUPS.map(group => {
+              const groupMembers = filteredMembers
+                .filter(m => m.role === group.role)
+                .sort((a, b) => (b.qbMonthly ?? -1) - (a.qbMonthly ?? -1))
+              if (groupMembers.length === 0) return null
+              return (
+                <Card key={group.role} className="p-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="w-2 h-5 rounded-full" style={{ backgroundColor: group.accent }} />
+                    <h3 className="text-sm font-bold text-[#1a1a1a] uppercase tracking-wide">{group.label}</h3>
+                    <span className="text-xs text-[#9ca3af] ml-1">{groupMembers.length} membre{groupMembers.length > 1 ? 's' : ''}</span>
+                  </div>
+                  <div className="space-y-4">
+                    {groupMembers.map((m, idx) => {
+                      const pct = m.progress ?? 0
+                      const color = progressColor(m.progress)
+                      const hasRevenue = m.qbMonthly !== null
+                      return (
+                        <div key={m.id} className="flex items-center gap-3">
+                          {/* Rang */}
+                          <span className="text-sm font-bold w-5 text-center" style={{ color: idx === 0 ? group.accent : '#d1d5db' }}>
+                            {idx + 1}
+                          </span>
+                          {/* Avatar */}
+                          <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 text-white" style={{ backgroundColor: group.accent }}>
+                            {m.full_name.charAt(0).toUpperCase()}
+                          </div>
+                          {/* Nom */}
+                          <p className="font-semibold text-sm text-[#1a1a1a] w-28 flex-shrink-0 truncate">
+                            {m.full_name.split(' ')[0]}
+                          </p>
+                          {/* Barre + montants */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex justify-between items-baseline mb-1">
+                              <span className="text-xs text-[#6b7280]">
+                                {hasRevenue ? fmtCAD(m.qbMonthly) : '—'}
+                                {m.monthlyTarget ? <span className="text-[#d1d5db]"> / {fmtCAD(m.monthlyTarget)}</span> : ''}
+                              </span>
+                              <span className="text-xs font-bold ml-2 flex-shrink-0" style={{ color }}>
+                                {m.progress !== null ? `${m.progress} %` : 'Aucun objectif'}
+                              </span>
+                            </div>
+                            {m.progress !== null ? (
+                              <div className="w-full bg-gray-100 rounded-full h-2">
+                                <div
+                                  className="h-2 rounded-full transition-all duration-500"
+                                  style={{ width: `${pct}%`, backgroundColor: color }}
+                                />
+                              </div>
+                            ) : (
+                              <div className="w-full bg-gray-100 rounded-full h-2" />
+                            )}
+                          </div>
+                          {/* Lien */}
+                          <button
+                            onClick={() => navigate(`/membres/${m.id}`)}
+                            className="text-xs font-semibold text-[#00bbb1] hover:text-[#009e95] transition-colors flex-shrink-0"
+                          >
+                            Voir →
+                          </button>
                         </div>
-                        <div>
-                          <p className="font-semibold text-sm text-[#1a1a1a]">{m.full_name}</p>
-                          <p className="text-xs text-[#9ca3af]">{m.email}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-3.5 px-3">
-                      <Badge variant={m.role}>{ROLE_LABELS[m.role]}</Badge>
-                    </td>
-                    <td className="py-3.5 px-3 min-w-[160px]">
-                      {m.progress !== null
-                        ? <ProgressBar pct={m.progress} color={m.progress >= 80 ? '#10b981' : m.progress >= 50 ? '#f59e0b' : '#ef4444'} />
-                        : <span className="text-xs text-[#9ca3af]">Aucun objectif</span>
-                      }
-                    </td>
-                    <td className="py-3.5 px-3">
-                      {m.progress !== null ? statusBadge(m.progress) : <span className="text-[#9ca3af]">—</span>}
-                    </td>
-                    <td className="py-3.5 px-3 text-right">
-                      <button
-                        onClick={() => navigate(`/membres/${m.id}`)}
-                        className="text-xs font-semibold text-[#00bbb1] hover:text-[#009e95] transition-colors"
-                      >
-                        Voir →
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      )
+                    })}
+                  </div>
+                </Card>
+              )
+            })}
           </div>
         )}
-      </Card>
+      </div>
     </Layout>
   )
 }
@@ -524,13 +824,26 @@ function MemberDashboard() {
   const [myObjectives, setMyObjectives] = useState([])
   const [myKpiEntries, setMyKpiEntries] = useState([])
 
+  const nowMD = new Date()
+  const [qbMonth, setQbMonth] = useState(nowMD.getMonth() + 1)
+  const [qbYear, setQbYear] = useState(nowMD.getFullYear())
+  const isQbCurrentMonth = qbMonth === nowMD.getMonth() + 1 && qbYear === nowMD.getFullYear()
+
   const { objectives: clinicObjectives } = useClinicObjectives()
   const monthDates = {
     from: format(startOfMonth(new Date()), 'yyyy-MM-dd'),
     to: format(endOfMonth(new Date()), 'yyyy-MM-dd'),
   }
   const { entries: clinicEntriesMonth } = useClinicKPIEntries(monthDates)
-  const { bonus, achievement, loading: bonusLoading, quarterStart, quarterEnd } = useQuarterlyBonus(profile?.id, profile?.base_salary)
+  const memberFirstName = profile?.full_name?.trim().split(/\s+/)[0] ?? ''
+  const { revenue: memberQBRevenue, loading: memberQBLoading, refreshing: memberQBRefreshing, refetch: memberQBRefetch } = useQBMemberRevenue(memberFirstName)
+  const { data: memberQBHistData, loading: memberQBHistLoading } = useQBMemberRevenueForMonth(
+    memberFirstName,
+    isQbCurrentMonth ? null : qbMonth,
+    isQbCurrentMonth ? null : qbYear
+  )
+  const { revenue: qbClinicRevenue } = useQBRevenue()
+  const { bonus, achievement, loading: bonusLoading, quarterStart, quarterEnd } = useQuarterlyBonus(profile?.id, profile?.annual_bonus, memberQBRevenue, profile?.role)
 
   useEffect(() => {
     if (!profile?.id) return
@@ -566,7 +879,33 @@ function MemberDashboard() {
     setLoading(false)
   }
 
+  const ROLE_TO_QB = { naturopathe: 'naturopathe', closer: 'closer', setter: 'setter' }
+  const REVENUE_OBJ_TYPES = ['monthly_revenue', 'quarterly_revenue', 'annual_revenue']
+
+  const memberRoleField = ROLE_TO_QB[profile?.role]
+  const quarterlyRevenue = memberQBRevenue?.[memberRoleField]?.quarterly ?? null
+  const quarterlyUnpaid = memberQBRevenue?.[memberRoleField]?.quarterlyUnpaid ?? null
+
   function calcProgress(obj) {
+    if (memberQBRevenue && REVENUE_OBJ_TYPES.includes(obj.type)) {
+      const qbField = ROLE_TO_QB[profile?.role]
+      const roleData = memberQBRevenue?.[qbField]
+      if (roleData) {
+        const now = new Date()
+        const objStart = new Date(obj.period_start)
+        const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+        let current = 0
+        if (obj.type === 'quarterly_revenue') current = roleData.quarterly ?? 0
+        else if (obj.type === 'annual_revenue') current = roleData.annual ?? 0
+        else if (obj.type === 'monthly_revenue') {
+          if (objStart.getFullYear() === now.getFullYear() && objStart.getMonth() === now.getMonth())
+            current = roleData.monthly ?? 0
+          else if (objStart.getFullYear() === prevMonthDate.getFullYear() && objStart.getMonth() === prevMonthDate.getMonth())
+            current = roleData.prevMonthly ?? 0
+        }
+        return obj.target_value > 0 ? Math.min(100, Math.round((current / obj.target_value) * 100)) : 0
+      }
+    }
     const sum = myKpiEntries.filter(k => k.kpi_type === obj.type).reduce((a, k) => a + Number(k.value), 0)
     return obj.target_value > 0 ? Math.min(100, Math.round((sum / obj.target_value) * 100)) : 0
   }
@@ -594,7 +933,7 @@ function MemberDashboard() {
       </div>
 
       {/* Boni trimestriel */}
-      {profile?.base_salary && (
+      {profile?.annual_bonus && (
         <div className="mb-6">
           <h2 className="text-sm font-bold text-[#6b7280] uppercase tracking-wide mb-3">Mon boni trimestriel</h2>
           <BonusTracker
@@ -603,15 +942,54 @@ function MemberDashboard() {
             loading={bonusLoading}
             quarterStart={quarterStart}
             quarterEnd={quarterEnd}
-            baseSalary={profile?.base_salary}
+            annualBonus={profile?.annual_bonus}
+            quarterlyRevenue={quarterlyRevenue}
+            quarterlyUnpaid={quarterlyUnpaid}
           />
         </div>
+      )}
+
+      {/* Objectifs trimestriels */}
+      {profile?.annual_bonus && (
+        <div className="mb-6">
+          <QuarterlyPanel
+            userId={profile?.id}
+            annualBonus={profile?.annual_bonus}
+            role={profile?.role}
+            qbRevenue={memberQBRevenue}
+            isAdmin={false}
+            firstName={memberFirstName}
+          />
+        </div>
+      )}
+
+      {/* Mes revenus QuickBooks */}
+      {(memberQBRevenue || memberQBLoading) && (
+        <MemberQBRevenueSection
+          revenue={memberQBRevenue}
+          loading={memberQBLoading}
+          refreshing={memberQBRefreshing}
+          onRefetch={memberQBRefetch}
+          isCurrentMonth={isQbCurrentMonth}
+          histData={memberQBHistData}
+          histLoading={memberQBHistLoading}
+          selectedMonth={qbMonth}
+          selectedYear={qbYear}
+          onMonthChange={(m, y) => { setQbMonth(m); setQbYear(y) }}
+        />
       )}
 
       {/* Revenu clinique mensuel */}
       <div className="mb-6">
         <h2 className="text-sm font-bold text-[#6b7280] uppercase tracking-wide mb-3">Revenu clinique</h2>
-        <ClinicMonthlyCard objectives={clinicObjectives} entries={clinicEntriesMonth} />
+        <ClinicMonthlyCard
+          objectives={clinicObjectives}
+          revenue={qbClinicRevenue?.monthly_revenue ?? null}
+          prevRevenue={qbClinicRevenue?.prev_monthly_revenue ?? null}
+          lastSynced={qbClinicRevenue?.last_synced_at}
+          fromCache={qbClinicRevenue?.from_cache}
+          entries={clinicEntriesMonth}
+        />
       </div>
 
       {/* Mes objectifs */}
@@ -627,7 +1005,7 @@ function MemberDashboard() {
               return (
                 <div key={obj.id}>
                   <div className="flex items-center justify-between mb-1.5">
-                    <p className="text-sm font-semibold text-[#1a1a1a]">{obj.type.replace(/_/g, ' ')}</p>
+                    <p className="text-sm font-semibold text-[#1a1a1a]">{OBJECTIVE_TYPE_LABELS[obj.type] || obj.type.replace(/_/g, ' ')}</p>
                     <p className="text-sm font-bold text-[#6b7280]">{obj.target_value.toLocaleString('fr-CA')}</p>
                   </div>
                   <ProgressBar pct={pct} color={color} />

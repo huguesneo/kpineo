@@ -59,6 +59,35 @@ export async function deleteObjective(id) {
   return { error }
 }
 
+export async function setObjectiveForPeriod({ user_id, type, target_value, period_start, period_end }) {
+  const { data: existing } = await supabase
+    .from('objectives')
+    .select('id')
+    .eq('user_id', user_id)
+    .eq('type', type)
+    .eq('period_start', period_start)
+    .eq('period_end', period_end)
+    .eq('scope', 'individual')
+    .maybeSingle()
+
+  if (!target_value || Number(target_value) === 0) {
+    if (existing) {
+      const { error } = await supabase.from('objectives').delete().eq('id', existing.id)
+      return { error }
+    }
+    return { error: null }
+  }
+
+  if (existing) {
+    const { error } = await supabase.from('objectives').update({ target_value: Number(target_value) }).eq('id', existing.id)
+    return { error }
+  }
+
+  const { error } = await supabase.from('objectives')
+    .insert({ user_id, type, target_value: Number(target_value), period_start, period_end, scope: 'individual' })
+  return { error }
+}
+
 export const OBJECTIVE_TYPES_BY_ROLE = {
   naturopathe: [
     { value: 'monthly_revenue', label: 'Objectif mensuel revenus ($)' },
