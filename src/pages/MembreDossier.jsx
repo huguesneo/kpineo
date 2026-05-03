@@ -19,11 +19,12 @@ import { useTasks } from '../hooks/useTasks'
 import { useKPIEntries, useEODReports, KPI_TYPE_LABELS } from '../hooks/useKPIs'
 import { useQuarterlyBonus } from '../hooks/useCareerPlan'
 import { useQBMemberRevenue, useQBMemberRevenueForMonth } from '../hooks/useQuickBooks'
+import { useUserPoints, usePointsTransactions, usePointsHistory } from '../hooks/usePoints'
 import { format, isAfter, parseISO } from 'date-fns'
 import { fr } from 'date-fns/locale'
 
 const ROLE_LABELS = { naturopathe: 'Naturopathe', closer: 'Closer', setter: 'Setter', admin: 'Admin' }
-const TABS = ['Objectifs', 'Tâches', 'KPIs & Rapports', 'Plan de carrière']
+const TABS = ['Objectifs', 'Tâches', 'KPIs & Rapports', 'Plan de carrière', 'Points']
 
 function fmt(n) {
   return Number(n ?? 0).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -498,6 +499,146 @@ function CareerTab({ member, onMemberUpdated, qbRevenue }) {
   )
 }
 
+const TX_TYPE_LABELS = {
+  task_completed:   { label: 'Tâche complétée',  color: 'text-emerald-600', sign: '+' },
+  task_uncompleted: { label: 'Tâche décochée',   color: 'text-red-500',     sign: '−' },
+  redemption:       { label: 'Échange boutique', color: 'text-amber-600',   sign: '−' },
+  refund:           { label: 'Remboursement',    color: 'text-emerald-600', sign: '+' },
+  monthly_reset:    { label: 'Reset mensuel',    color: 'text-[#9ca3af]',   sign: '·' },
+}
+
+const MONTHS_SHORT = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc']
+
+function PointsTab({ userId }) {
+  const { points, loading: ptsLoading }             = useUserPoints(userId)
+  const { transactions, loading: txLoading }         = usePointsTransactions(userId, { limit: 30 })
+  const { history, loading: histLoading }            = usePointsHistory(userId)
+
+  if (ptsLoading) return <SkeletonCard />
+
+  const streak = points?.current_streak_days ?? 0
+
+  return (
+    <div className="space-y-6">
+      {/* Summary cards */}
+      <div className="grid grid-cols-3 gap-4">
+        {[
+          { label: 'Points total',  value: points?.points_total ?? 0,          color: '#1a1a1a' },
+          { label: 'Ce mois',       value: `+${points?.points_current_month ?? 0}`, color: '#00bbb1' },
+          { label: 'Streak',        value: `${streak} j${streak !== 1 ? '' : ''}`,  color: streak > 0 ? '#f97316' : '#9ca3af' },
+        ].map(s => (
+          <Card key={s.label} className="p-4 text-center">
+            <p className="text-2xl font-black" style={{ color: s.color }}>{s.value}</p>
+            <p className="text-xs font-semibold text-[#9ca3af] mt-0.5">{s.label}</p>
+          </Card>
+        ))}
+      </div>
+
+      {/* Monthly history */}
+      {!histLoading && history.length > 0 && (
+        <div>
+          <h3 className="font-bold text-[#1a1a1a] mb-3">Historique mensuel</h3>
+          <div className="bg-white rounded-2xl border border-[#e5e7eb] overflow-hidden">
+            <div className="divide-y divide-[#f3f4f6]">
+              {history.map(h => (
+                <div key={`${h.year}-${h.month}`} className="flex items-center px-4 py-3 gap-4">
+                  <p className="text-sm font-semibold text-[#6b7280] w-20">
+                    {MONTHS_SHORT[h.month - 1]} {h.year}
+                  </p>
+                  <div className="flex-1 flex items-center gap-4">
+                    <span className="text-xs text-emerald-600 font-semibold">+{h.points_earned ?? 0} gagnés</span>
+                    {(h.points_spent ?? 0) > 0 && (
+                      <span className="text-xs text-amber-600 font-semibold">−{h.points_spent} dépensés</span>
+                    )}
+                  </div>
+                  <p className="text-sm font-bold text-[#1a1a1a]">{h.balance_end_of_month ?? 0} pts</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Recent transactions */}
+      <div>
+        <h3 className="font-bold text-[#1a1a1a] mb-3">Transactions récentes</h3>
+        {txLoading ? (
+          <SkeletonCard />
+        ) : transactions.length === 0 ? (
+          <Card className="p-5"><p className="text-sm text-[#6b7280]">Aucune transaction.</p></Card>
+        ) : (
+          <div className="bg-white rounded-2xl border border-[#e5e7eb] overflow-hidden">
+            <div className="divide-y divide-[#f3f4f6]">
+              {transactions.map(tx => {
+                const cfg = TX_TYPE_LABELS[tx.type] ?? { label: tx.type, color: 'text-[#6b7280]', sign: '·' }
+                const isPos = tx.amount > 0
+                return (
+                  <div key={tx.id} className="flex items-center px-4 py-3 gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-[#1a1a1a]">{cfg.label}</p>
+                      <p className="text-[10px] text-[#9ca3af]">
+                        {format(new Date(tx.created_at), 'd MMM yyyy à HH:mm', { locale: fr })}
+                      </p>
+                    </div>
+                    <p className={`text-sm font-bold ${isPos ? 'text-emerald-600' : 'text-red-500'}`}>
+                      {isPos ? '+' : ''}{tx.amount}
+                    </p>
+                    <p className="text-xs text-[#9ca3af] w-16 text-right">{tx.balance_after ?? '—'} pts</p>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── MemberPointsBadge ────────────────────────────────────────────────────────
+// Petit composant Realtime affiché dans le header du dossier membre.
+function MemberPointsBadge({ userId }) {
+  const { points, loading } = useUserPoints(userId)
+  if (loading || !points) return null
+
+  const total   = points.points_total         ?? 0
+  const monthly = points.points_current_month ?? 0
+  const pending = points.points_pending       ?? 0
+  const streak  = points.current_streak_days  ?? 0
+
+  return (
+    <div className="flex items-center gap-3 px-3 py-2 bg-[#f0fdfc] border border-[#00bbb1]/20 rounded-xl">
+      <div className="text-center">
+        <p className="text-sm font-black text-[#1a1a1a] leading-none">{total}</p>
+        <p className="text-[9px] font-semibold text-[#9ca3af] uppercase tracking-wide">pts total</p>
+      </div>
+      <div className="h-5 w-px bg-[#00bbb1]/20" />
+      <div className="text-center">
+        <p className="text-sm font-black text-[#00bbb1] leading-none">+{monthly}</p>
+        <p className="text-[9px] font-semibold text-[#9ca3af] uppercase tracking-wide">ce mois</p>
+      </div>
+      {pending > 0 && (
+        <>
+          <div className="h-5 w-px bg-[#00bbb1]/20" />
+          <div className="text-center">
+            <p className="text-sm font-black text-amber-500 leading-none">⏳ {pending}</p>
+            <p className="text-[9px] font-semibold text-[#9ca3af] uppercase tracking-wide">en attente</p>
+          </div>
+        </>
+      )}
+      {streak > 0 && (
+        <>
+          <div className="h-5 w-px bg-[#00bbb1]/20" />
+          <div className="text-center">
+            <p className="text-sm font-black text-orange-500 leading-none">🔥 {streak}</p>
+            <p className="text-[9px] font-semibold text-[#9ca3af] uppercase tracking-wide">streak</p>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function MembreDossier() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -544,13 +685,14 @@ export default function MembreDossier() {
           <div className="w-14 h-14 rounded-2xl bg-[#00bbb1]/10 flex items-center justify-center text-[#00bbb1] font-bold text-xl">
             {member.full_name.charAt(0).toUpperCase()}
           </div>
-          <div>
+          <div className="flex-1">
             <h1 className="text-2xl font-bold text-[#1a1a1a]">{member.full_name}</h1>
-            <div className="flex items-center gap-2 mt-1">
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
               <Badge variant={member.role}>{ROLE_LABELS[member.role] || member.role}</Badge>
               <Badge variant={member.is_active ? 'success' : 'default'}>{member.is_active ? 'Actif' : 'Inactif'}</Badge>
             </div>
           </div>
+          {member.role !== 'admin' && <MemberPointsBadge userId={id} />}
         </div>
       </div>
 
@@ -586,6 +728,9 @@ export default function MembreDossier() {
       )}
       {activeTab === 3 && (
         <CareerTab member={member} onMemberUpdated={refetchMember} qbRevenue={qbRevenue} />
+      )}
+      {activeTab === 4 && (
+        <PointsTab userId={id} />
       )}
     </Layout>
   )

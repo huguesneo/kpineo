@@ -5,25 +5,69 @@ import { fr } from 'date-fns/locale'
 
 function dueDateLabel(dateStr) {
   const d = new Date(dateStr + 'T00:00:00')
-  if (isToday(d)) return "Aujourd'hui"
+  if (isToday(d))    return "Aujourd'hui"
   if (isTomorrow(d)) return 'Demain'
   return format(d, 'd MMM', { locale: fr })
 }
 
-export default function TaskItem({ task, onUpdate, isAdmin, showMember = false, currentUserId, showCompletedAt = false }) {
-  const [optimistic, setOptimistic] = useState(task.is_completed)
-  const [toggling, setToggling] = useState(false)
-  const [stopping, setStopping] = useState(false)
+export default function TaskItem({
+  task,
+  onUpdate,
+  isAdmin,
+  showMember     = false,
+  currentUserId,
+  showCompletedAt = false,
+}) {
+  // completed state (is_completed)
+  const [optimistic, setOptimistic]   = useState(task.is_completed)
+  // pending approval state
+  const [isPending, setIsPending]     = useState(task.pending_approval ?? false)
+  const [toggling, setToggling]       = useState(false)
+  const [stopping, setStopping]       = useState(false)
 
-  const canDelete = isAdmin || (task.created_by === currentUserId)
+  // Animation "+X pts"
+  const [pointsAnimMounted,  setPointsAnimMounted]  = useState(false)
+  const [pointsAnimVisible,  setPointsAnimVisible]  = useState(false)
+
+  const canDelete   = isAdmin || (task.created_by === currentUserId)
   const creatorName = task.creator?.full_name
 
   async function handleToggle() {
     if (toggling) return
+    setToggling(true)
+
+    // ── Secondaire + non-admin : flux approbation ──────────────────────────
+    if (!isAdmin && task.priority === 'secondaire') {
+      if (!optimistic && !isPending) {
+        // Cocher → en attente
+        setIsPending(true)
+        const { error } = await toggleTaskCompletion(task.id, true, task, false)
+        if (error) setIsPending(false)
+        else onUpdate?.()
+      } else if (isPending) {
+        // Décocher → annuler l'attente
+        setIsPending(false)
+        const { error } = await toggleTaskCompletion(task.id, false, { ...task, pending_approval: true }, false)
+        if (error) setIsPending(true)
+        else onUpdate?.()
+      }
+      setToggling(false)
+      return
+    }
+
+    // ── Flux normal (prioritaire ou admin) ────────────────────────────────
     const next = !optimistic
     setOptimistic(next)
-    setToggling(true)
-    const { error } = await toggleTaskCompletion(task.id, next, next ? task : null)
+
+    // Animation points (secondaire avec points, admin qui approuve directement)
+    if (next && task.priority === 'secondaire' && (task.points ?? 0) > 0) {
+      setPointsAnimMounted(true)
+      setTimeout(() => setPointsAnimVisible(true), 20)
+      setTimeout(() => setPointsAnimVisible(false), 820)
+      setTimeout(() => setPointsAnimMounted(false), 1200)
+    }
+
+    const { error } = await toggleTaskCompletion(task.id, next, next ? task : null, isAdmin)
     if (error) setOptimistic(!next)
     else onUpdate?.()
     setToggling(false)
@@ -43,32 +87,56 @@ export default function TaskItem({ task, onUpdate, isAdmin, showMember = false, 
     onUpdate?.()
   }
 
-  const isOverdue = !optimistic && task.due_date && isPast(new Date(task.due_date + 'T23:59:59'))
+  const isOverdue   = !optimistic && !isPending && task.due_date && isPast(new Date(task.due_date + 'T23:59:59'))
   const isRecurring = !!task.recurrence_rule
+  const hasPoints   = task.priority === 'secondaire' && (task.points ?? 0) > 0
+
+  // ── Checkbox appearance ────────────────────────────────────────────────────
+  // Green   = completed
+  // Amber   = pending approval
+  // Default = unchecked
+  const checkboxClass = optimistic
+    ? 'bg-[#10b981] border-[#10b981]'
+    : isPending
+    ? 'bg-amber-400 border-amber-400'
+    : 'border-[#d1d5db] hover:border-[#00bbb1] hover:scale-110'
 
   return (
-    <div className={`group flex items-start gap-3 px-4 py-3 transition-all duration-150 ${
-      optimistic ? 'bg-gray-50/50' : 'bg-white hover:bg-[#f8fffe]'
+    <div className={`group relative flex items-start gap-3 px-4 py-3 transition-all duration-150 ${
+      optimistic ? 'bg-gray-50/50' : isPending ? 'bg-amber-50/30' : 'bg-white hover:bg-[#f8fffe]'
     }`}>
 
-      {/* Checkbox circulaire */}
+      {/* Animation "+X pts" */}
+      {pointsAnimMounted && (
+        <span
+          className={`absolute left-4 text-[11px] font-bold text-emerald-500 pointer-events-none select-none z-10
+            transition-all duration-300 ${
+            pointsAnimVisible ? 'opacity-100 -translate-y-5' : 'opacity-0 -translate-y-1'
+          }`}
+        >
+          +{task.points} pts
+        </span>
+      )}
+
+      {/* Checkbox */}
       <button
         onClick={handleToggle}
         disabled={toggling}
-        className={`mt-0.5 w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all duration-200 ${
-          optimistic
-            ? 'bg-[#10b981] border-[#10b981]'
-            : 'border-[#d1d5db] hover:border-[#00bbb1] hover:scale-110'
-        } ${toggling ? 'opacity-60' : ''}`}
+        className={`mt-0.5 w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all duration-200 ${checkboxClass} ${toggling ? 'opacity-60' : ''}`}
       >
         {optimistic && (
           <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
           </svg>
         )}
+        {isPending && !optimistic && (
+          <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        )}
       </button>
 
-      {/* Contenu */}
+      {/* Content */}
       <div className="flex-1 min-w-0">
         <div className="flex items-start gap-2 flex-wrap">
           <p className={`text-sm font-medium leading-snug flex-1 min-w-0 ${
@@ -76,6 +144,21 @@ export default function TaskItem({ task, onUpdate, isAdmin, showMember = false, 
           }`}>
             {task.title}
           </p>
+
+          {/* Badge points */}
+          {hasPoints && !optimistic && !isPending && (
+            <span className="flex-shrink-0 text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-100 rounded-full px-2 py-0.5">
+              +{task.points} pts
+            </span>
+          )}
+
+          {/* Badge points en attente */}
+          {hasPoints && isPending && (
+            <span className="flex-shrink-0 text-[10px] font-bold text-amber-500 bg-amber-50 border border-amber-200 rounded-full px-2 py-0.5 animate-pulse">
+              ⏳ +{task.points} pts en attente
+            </span>
+          )}
+
           {showMember && task.profiles?.full_name && (
             <span className="text-[10px] font-semibold text-[#6b7280] bg-gray-100 rounded-full px-2 py-0.5 flex-shrink-0">
               {task.profiles.full_name}
@@ -87,9 +170,15 @@ export default function TaskItem({ task, onUpdate, isAdmin, showMember = false, 
           <p className="text-xs text-[#6b7280] mt-1 leading-relaxed">{task.description}</p>
         )}
 
+        {/* En attente d'approbation label */}
+        {isPending && (
+          <p className="text-[10px] font-semibold text-amber-500 mt-1">
+            En attente d'approbation admin
+          </p>
+        )}
+
         {/* Meta */}
         <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-          {/* Complété le */}
           {showCompletedAt && task.completed_at && (
             <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-600 bg-emerald-50 rounded-full px-2 py-0.5">
               <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -98,7 +187,6 @@ export default function TaskItem({ task, onUpdate, isAdmin, showMember = false, 
               {format(new Date(task.completed_at), "d MMM 'à' HH:mm", { locale: fr })}
             </span>
           )}
-          {/* Priorité dans la section Terminées */}
           {showCompletedAt && (
             <span className={`text-[10px] font-semibold rounded-full px-2 py-0.5 ${
               task.priority === 'prioritaire' ? 'bg-red-50 text-red-500' : 'bg-amber-50 text-amber-600'
@@ -106,20 +194,17 @@ export default function TaskItem({ task, onUpdate, isAdmin, showMember = false, 
               {task.priority === 'prioritaire' ? 'Prioritaire' : 'Secondaire'}
             </span>
           )}
-          {/* Créée par */}
           {creatorName && (
             <span className="text-[10px] font-medium text-[#9ca3af]">
               Créée par {creatorName}
             </span>
           )}
-          {/* En retard */}
           {isOverdue && (
             <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-red-500 bg-red-50 rounded-full px-2 py-0.5">
               <span className="w-1 h-1 rounded-full bg-red-500 inline-block" />
               En retard · {format(new Date(task.due_date + 'T00:00:00'), 'd MMM', { locale: fr })}
             </span>
           )}
-          {/* Date limite */}
           {task.due_date && !isOverdue && !optimistic && !showCompletedAt && (
             <span className="inline-flex items-center gap-1 text-[10px] font-medium text-[#9ca3af]">
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -128,7 +213,6 @@ export default function TaskItem({ task, onUpdate, isAdmin, showMember = false, 
               {dueDateLabel(task.due_date)}
             </span>
           )}
-          {/* Récurrence */}
           {isRecurring && !optimistic && (
             <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-[#00bbb1] bg-[#00bbb1]/8 rounded-full px-2 py-0.5">
               <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -8,6 +8,10 @@ import Taches from './pages/Taches'
 import KPIs from './pages/KPIs'
 import Parametres from './pages/Parametres'
 import Horaires from './pages/Horaires'
+import Boutique from './pages/Boutique'
+import MesEchanges from './pages/MesEchanges'
+import BoutiqueCatalogue from './pages/BoutiqueCatalogue'
+import BoutiqueEchanges from './pages/BoutiqueEchanges'
 
 function LoadingScreen() {
   return (
@@ -23,14 +27,12 @@ function LoadingScreen() {
   )
 }
 
-// Route accessible à tout utilisateur authentifié
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth()
   if (loading) return <LoadingScreen />
   return user ? children : <Navigate to="/login" replace />
 }
 
-// Route réservée aux admins uniquement
 function AdminRoute({ children }) {
   const { user, profile, loading } = useAuth()
   if (loading) return <LoadingScreen />
@@ -48,16 +50,25 @@ function PublicRoute({ children }) {
 function AppRoutes() {
   return (
     <Routes>
-      <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
-      <Route path="/dashboard" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
-      <Route path="/membres" element={<PrivateRoute><Membres /></PrivateRoute>} />
-      <Route path="/membres/:id" element={<AdminRoute><MembreDossier /></AdminRoute>} />
-      <Route path="/taches" element={<PrivateRoute><Taches /></PrivateRoute>} />
-      <Route path="/kpis" element={<PrivateRoute><KPIs /></PrivateRoute>} />
-      <Route path="/horaires" element={<PrivateRoute><Horaires /></PrivateRoute>} />
-      <Route path="/parametres" element={<PrivateRoute><Parametres /></PrivateRoute>} />
+      <Route path="/login"           element={<PublicRoute><Login /></PublicRoute>} />
+      <Route path="/dashboard"       element={<PrivateRoute><Dashboard /></PrivateRoute>} />
+      <Route path="/membres"         element={<PrivateRoute><Membres /></PrivateRoute>} />
+      <Route path="/membres/:id"     element={<AdminRoute><MembreDossier /></AdminRoute>} />
+      <Route path="/taches"          element={<PrivateRoute><Taches /></PrivateRoute>} />
+      <Route path="/kpis"            element={<PrivateRoute><KPIs /></PrivateRoute>} />
+      <Route path="/horaires"        element={<PrivateRoute><Horaires /></PrivateRoute>} />
+      <Route path="/parametres"      element={<PrivateRoute><Parametres /></PrivateRoute>} />
+
+      {/* Boutique — membres */}
+      <Route path="/boutique"              element={<PrivateRoute><Boutique /></PrivateRoute>} />
+      <Route path="/boutique/mes-echanges" element={<PrivateRoute><MesEchanges /></PrivateRoute>} />
+
+      {/* Boutique — admin */}
+      <Route path="/boutique-catalogue" element={<AdminRoute><BoutiqueCatalogue /></AdminRoute>} />
+      <Route path="/boutique-echanges"  element={<AdminRoute><BoutiqueEchanges /></AdminRoute>} />
+
       <Route path="/mon-dossier" element={<Navigate to="/dashboard" replace />} />
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      <Route path="*"            element={<Navigate to="/dashboard" replace />} />
     </Routes>
   )
 }

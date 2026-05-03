@@ -1,7 +1,8 @@
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { usePendingTasksCount } from '../../hooks/useTasks'
+import { usePendingTasksCount, usePendingApprovalCount } from '../../hooks/useTasks'
 import { useTotalHoraireAlertCount } from '../../hooks/useSchedule'
+import { usePendingRedemptionsCount } from '../../hooks/useRewards'
 
 const NEO_LOGO = 'https://assets.cdn.filesafe.space/YG2spvWJqnD75L3V95UJ/media/6941c9327109a899ec69b43c.png'
 
@@ -30,9 +31,16 @@ function NavItem({ to, icon, label, badge }) {
 
 export default function Sidebar() {
   const { signOut, profile } = useAuth()
-  const { count } = usePendingTasksCount()
   const isAdmin = profile?.role === 'admin'
+  // Admin : compte toutes les tâches non complétées
+  // Membre : uniquement les siennes (évite de voir le total de l'équipe)
+  const { count } = usePendingTasksCount(isAdmin ? null : profile?.id)
+  const { count: approvalCount } = usePendingApprovalCount()
   const horaireAlertCount = useTotalHoraireAlertCount()
+  // Boutique badge: admin = pending redemptions to review, member = available to use
+  const { count: boutiqueCount } = usePendingRedemptionsCount(isAdmin ? null : profile?.id)
+  // Admin tâches badge = pending approvals (members show own pending tasks)
+  const tachesBadge = isAdmin ? (approvalCount > 0 ? approvalCount : count) : count
 
   return (
     <aside className="fixed left-0 top-0 h-screen w-60 bg-white border-r border-[#e5e7eb] flex flex-col z-40">
@@ -64,7 +72,7 @@ export default function Sidebar() {
         <NavItem
           to="/taches"
           label="Tâches"
-          badge={count}
+          badge={tachesBadge}
           icon={
             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -90,6 +98,43 @@ export default function Sidebar() {
             </svg>
           }
         />
+        {/* Boutique — membre */}
+        {!isAdmin && (
+          <NavItem
+            to="/boutique"
+            label="Boutique"
+            badge={boutiqueCount}
+            icon={
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+              </svg>
+            }
+          />
+        )}
+        {/* Boutique — admin */}
+        {isAdmin && (
+          <>
+            <NavItem
+              to="/boutique-catalogue"
+              label="Catalogue"
+              icon={
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                </svg>
+              }
+            />
+            <NavItem
+              to="/boutique-echanges"
+              label="Échanges"
+              badge={boutiqueCount}
+              icon={
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />
+                </svg>
+              }
+            />
+          </>
+        )}
         <NavItem
           to="/parametres"
           label="Paramètres"

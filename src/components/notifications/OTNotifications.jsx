@@ -5,6 +5,9 @@ import { useAuth } from '../../context/AuthContext'
 import { format, parseISO } from 'date-fns'
 import { fr } from 'date-fns/locale'
 
+// ── Redemption notifications helper ─────────────────────────
+// Listens for new redemptions (admin) or status updates (member)
+
 function playDing() {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)()
@@ -132,14 +135,19 @@ export default function OTNotifications() {
   const dingFired = useRef(false)
 
   // ── Admin states ──
-  const [pendingRecs, setPendingRecs] = useState([])           // overtime_records en attente
-  const [pendingChanges, setPendingChanges] = useState([])     // pending_changes en attente
-  const [otDismissed, setOtDismissed] = useState(new Set())
+  const [pendingRecs, setPendingRecs]         = useState([])
+  const [pendingChanges, setPendingChanges]   = useState([])
+  const [otDismissed, setOtDismissed]         = useState(new Set())
   const [changeDismissed, setChangeDismissed] = useState(new Set())
 
   // ── Member states ──
-  const [approvedRecs, setApprovedRecs] = useState([])        // OT approuvés non vus
-  const [reviewedChanges, setReviewedChanges] = useState([])  // changements reviewés non vus
+  const [approvedRecs, setApprovedRecs]       = useState([])
+  const [reviewedChanges, setReviewedChanges] = useState([])
+
+  // ── Boutique states ──
+  const [redemptionToasts, setRedemptionToasts]   = useState([])   // admin: new pending
+  const [redeemDismissed, setRedeemDismissed]     = useState(new Set())
+  const [memberRedeemToasts, setMemberRedeemToasts] = useState([]) // member: status changed
 
   // ─────────────────────────────────────────────────────────────
   // Admin : OT en attente
@@ -318,6 +326,51 @@ export default function OTNotifications() {
     return () => supabase.removeChannel(channel)
   }, [isAdmin, profile?.id])
 
+  // ─────────────────────────────────────────────────────────────
+  // Admin : nouvelles demandes d'échange boutique
+  // ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isAdmin) return
+    const channel = supabase.channel('redemptions-admin-notifs')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'redemptions' },
+        async (payload) => {
+          const rec = payload.new
+          const { data: prof } = await supabase
+            .from('profiles').select('full_name').eq('id', rec.user_id).single()
+          const { data: reward } = await supabase
+            .from('rewards_catalog').select('title').eq('id', rec.reward_id).single()
+          const enriched = { ...rec, memberName: prof?.full_name ?? 'Membre', rewardTitle: reward?.title ?? 'Récompense' }
+          setRedemptionToasts(prev => [enriched, ...prev.filter(r => r.id !== enriched.id)])
+          playDing()
+        }
+      )
+      .subscribe()
+    return () => supabase.removeChannel(channel)
+  }, [isAdmin])
+
+  // ─────────────────────────────────────────────────────────────
+  // Membre : changements de statut de ses échanges
+  // ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (isAdmin || !profile?.id) return
+    const channel = supabase.channel(`redemptions-member-notifs-${profile.id}`)
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'redemptions',
+        filter: `user_id=eq.${profile.id}`,
+      }, async (payload) => {
+        const rec = payload.new
+        if (rec.status === 'available' || rec.status === 'cancelled') {
+          const { data: reward } = await supabase
+            .from('rewards_catalog').select('title').eq('id', rec.reward_id).single()
+          const enriched = { ...rec, rewardTitle: reward?.title ?? 'Récompense' }
+          setMemberRedeemToasts(prev => [enriched, ...prev.filter(r => r.id !== enriched.id)])
+          playDing()
+        }
+      })
+      .subscribe()
+    return () => supabase.removeChannel(channel)
+  }, [isAdmin, profile?.id])
+
   // ── Handlers ──
   function adminOtDismiss(id) {
     setOtDismissed(prev => new Set([...prev, id]))
@@ -345,20 +398,29 @@ export default function OTNotifications() {
     localStorage.setItem('pending_change_seen', JSON.stringify([...seen, id]))
     setReviewedChanges(prev => prev.filter(c => c.id !== id))
   }
+  function redeemDismiss(id) {
+    setRedeemDismissed(prev => new Set([...prev, id]))
+  }
+  function memberRedeemDismiss(id) {
+    setMemberRedeemToasts(prev => prev.filter(r => r.id !== id))
+  }
 
   // ── Toasts à afficher ──
   const visibleOt      = (isAdmin && onDashboard) ? pendingRecs.filter(r => !otDismissed.has(r.id)) : []
   const visibleChanges = (isAdmin && onDashboard) ? pendingChanges.filter(r => !changeDismissed.has(r.id)) : []
-  const memberOtToasts     = !isAdmin ? approvedRecs.slice(0, 2) : []
-  const memberChangeToasts = !isAdmin ? reviewedChanges.slice(0, 2) : []
+  const visibleRedeems = isAdmin ? redemptionToasts.filter(r => !redeemDismissed.has(r.id)).slice(0, 2) : []
+  const memberOtToasts       = !isAdmin ? approvedRecs.slice(0, 2) : []
+  const memberChangeToasts   = !isAdmin ? reviewedChanges.slice(0, 2) : []
+  const memberRedeemVisible  = !isAdmin ? memberRedeemToasts.slice(0, 2) : []
 
-  // Combine admin toasts (max 3 total)
+  // Combine admin toasts (max 4 total)
   const allAdminToasts = [
     ...visibleOt.slice(0, 2).map(r => ({ ...r, _kind: 'ot' })),
     ...visibleChanges.slice(0, 2).map(r => ({ ...r, _kind: 'change' })),
-  ].slice(0, 3)
+    ...visibleRedeems.map(r => ({ ...r, _kind: 'redeem' })),
+  ].slice(0, 4)
 
-  const hasAny = allAdminToasts.length || memberOtToasts.length || memberChangeToasts.length
+  const hasAny = allAdminToasts.length || memberOtToasts.length || memberChangeToasts.length || memberRedeemVisible.length
   if (!hasAny) return null
 
   return (
@@ -394,28 +456,46 @@ export default function OTNotifications() {
         }
 
         // _kind === 'change'
-        const name = r.profiles?.full_name ?? 'Un membre'
-        const isAbsence = r.entity_type === 'absence'
-        const isModify = r.action === 'modify'
+        if (r._kind === 'change') {
+          const name = r.profiles?.full_name ?? 'Un membre'
+          const isAbsence = r.entity_type === 'absence'
+          const isModify  = r.action === 'modify'
+          return (
+            <div key={`change-${r.id}`} className="pointer-events-auto">
+              <Toast
+                delay={i * 80}
+                icon={
+                  <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center text-sm font-bold text-amber-600">
+                    {name.charAt(0).toUpperCase()}
+                  </div>
+                }
+                title={name}
+                subtitle={
+                  <>
+                    Demande de {isModify ? 'modification' : 'suppression'}
+                    {' · '}{isAbsence ? 'Absence' : 'Horaire'}
+                  </>
+                }
+                actionLabel="Voir"
+                onAction={() => adminChangeView(r.id)}
+                onDismiss={() => adminChangeDismiss(r.id)}
+              />
+            </div>
+          )
+        }
+
+        // _kind === 'redeem'
+        const name = r.memberName ?? 'Un membre'
         return (
-          <div key={`change-${r.id}`} className="pointer-events-auto">
+          <div key={`redeem-${r.id}`} className="pointer-events-auto">
             <Toast
               delay={i * 80}
-              icon={
-                <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center text-sm font-bold text-amber-600">
-                  {name.charAt(0).toUpperCase()}
-                </div>
-              }
+              icon={<div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center text-lg">🛍️</div>}
               title={name}
-              subtitle={
-                <>
-                  Demande de {isModify ? 'modification' : 'suppression'}
-                  {' · '}{isAbsence ? 'Absence' : 'Horaire'}
-                </>
-              }
+              subtitle={<>Veut échanger <strong>{r.points_spent} pts</strong> contre<br />{r.rewardTitle}</>}
               actionLabel="Voir"
-              onAction={() => adminChangeView(r.id)}
-              onDismiss={() => adminChangeDismiss(r.id)}
+              onAction={() => { redeemDismiss(r.id); navigate('/boutique-echanges') }}
+              onDismiss={() => redeemDismiss(r.id)}
             />
           </div>
         )
@@ -440,6 +520,38 @@ export default function OTNotifications() {
           />
         </div>
       ))}
+
+      {/* Membre : échanges boutique validés / refusés */}
+      {memberRedeemVisible.map((r, i) => {
+        const isAvailable = r.status === 'available'
+        return (
+          <div key={`mredeem-${r.id}`} className="pointer-events-auto">
+            <Toast
+              delay={i * 300}
+              autoCloseSecs={6}
+              icon={
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xl ${
+                  isAvailable ? 'bg-emerald-50' : 'bg-red-50'
+                }`}>
+                  {isAvailable ? '🎁' : '❌'}
+                </div>
+              }
+              title={isAvailable ? 'Récompense disponible !' : 'Demande refusée'}
+              subtitle={
+                <>
+                  {isAvailable
+                    ? <>Votre récompense <strong>{r.rewardTitle}</strong> est prête à utiliser.</>
+                    : <>Votre demande pour <strong>{r.rewardTitle}</strong> a été refusée.</>
+                  }
+                </>
+              }
+              actionLabel={isAvailable ? 'Voir' : null}
+              onAction={isAvailable ? () => { memberRedeemDismiss(r.id); navigate('/boutique/mes-echanges') } : null}
+              onDismiss={() => memberRedeemDismiss(r.id)}
+            />
+          </div>
+        )
+      })}
 
       {/* Membre : changements reviewés */}
       {memberChangeToasts.map((c, i) => {

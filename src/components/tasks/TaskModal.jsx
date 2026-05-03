@@ -7,9 +7,16 @@ import { useAuth } from '../../context/AuthContext'
 import { useMembers } from '../../hooks/useMembers'
 
 const PRIORITIES = [
-  { value: 'prioritaire', label: 'Prioritaire', dot: 'bg-red-400', desc: 'À traiter en premier' },
+  { value: 'prioritaire', label: 'Prioritaire', dot: 'bg-red-400',   desc: 'À traiter en premier' },
   { value: 'secondaire',  label: 'Secondaire',  dot: 'bg-amber-400', desc: 'Quand possible' },
 ]
+
+const TASK_TYPES = [
+  { value: 'recurrente', label: '🔁 Récurrente', desc: 'Se répète automatiquement' },
+  { value: 'ponctuelle', label: '✅ Ponctuelle',  desc: 'À faire une seule fois' },
+]
+
+const POINTS_OPTIONS = [0, 5, 10, 20, 50]
 
 const RECURRENCE_TYPES = [
   { value: 'daily',   label: 'Quotidien' },
@@ -30,38 +37,58 @@ const WEEKDAYS = [
 const END_TYPES = [
   { value: 'never', label: 'Jamais' },
   { value: 'count', label: 'Après X fois' },
-  { value: 'date',  label: "Le..." },
+  { value: 'date',  label: 'Le...' },
 ]
 
 const DEFAULT_RECURRENCE = {
-  type: 'weekly',
-  interval: 1,
-  weekdays: [1], // lundi par défaut
-  end_type: 'never',
+  type:      'weekly',
+  interval:  1,
+  weekdays:  [1],
+  end_type:  'never',
   end_count: 10,
-  end_date: '',
+  end_date:  '',
 }
 
-export default function TaskModal({ isOpen, onClose, userId, defaultPriority = 'prioritaire', onCreated, isAdmin = true }) {
+export default function TaskModal({
+  isOpen,
+  onClose,
+  userId,
+  defaultPriority = 'prioritaire',
+  onCreated,
+  isAdmin = true,
+}) {
   const { user } = useAuth()
   const { members } = useMembers()
 
   const [form, setForm] = useState({
-    user_id: userId || '',
-    title: '',
-    description: '',
-    due_date: '',
-    priority: defaultPriority,
+    user_id:        userId || '',
+    title:          '',
+    description:    '',
+    due_date:       '',
+    priority:       defaultPriority,
+    task_type:      'ponctuelle',
+    points:         0,
+    priority_order: 0,
   })
-  const [isRecurring, setIsRecurring] = useState(false)
+  // isRecurring est toujours synchronisé avec task_type
   const [recurrence, setRecurrence] = useState(DEFAULT_RECURRENCE)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [loading, setLoading]       = useState(false)
+  const [error, setError]           = useState('')
+
+  const isRecurring = form.task_type === 'recurrente'
 
   useEffect(() => {
     if (isOpen) {
-      setForm({ user_id: userId || '', title: '', description: '', due_date: '', priority: defaultPriority })
-      setIsRecurring(false)
+      setForm({
+        user_id:        userId || '',
+        title:          '',
+        description:    '',
+        due_date:       '',
+        priority:       defaultPriority,
+        task_type:      'ponctuelle',
+        points:         0,
+        priority_order: 0,
+      })
       setRecurrence(DEFAULT_RECURRENCE)
       setError('')
     }
@@ -70,7 +97,17 @@ export default function TaskModal({ isOpen, onClose, userId, defaultPriority = '
   const needsMemberSelect = isAdmin && !userId
 
   function handleChange(e) {
-    setForm(f => ({ ...f, [e.target.name]: e.target.value }))
+    const { name, value } = e.target
+    setForm(f => {
+      const next = { ...f, [name]: value }
+      // Si priorité passe à prioritaire → forcer points à 0
+      if (name === 'priority' && value === 'prioritaire') next.points = 0
+      return next
+    })
+  }
+
+  function setTaskType(type) {
+    setForm(f => ({ ...f, task_type: type }))
   }
 
   function setRec(key, value) {
@@ -99,24 +136,27 @@ export default function TaskModal({ isOpen, onClose, userId, defaultPriority = '
     setError('')
 
     const recurrence_rule = isRecurring ? {
-      type: recurrence.type,
-      interval: Math.max(1, parseInt(recurrence.interval) || 1),
-      weekdays: recurrence.type === 'weekly' ? recurrence.weekdays : undefined,
-      end_type: recurrence.end_type,
+      type:      recurrence.type,
+      interval:  Math.max(1, parseInt(recurrence.interval) || 1),
+      weekdays:  recurrence.type === 'weekly' ? recurrence.weekdays : undefined,
+      end_type:  recurrence.end_type,
       end_count: recurrence.end_type === 'count' ? Math.max(1, parseInt(recurrence.end_count) || 1) : null,
-      end_date: recurrence.end_type === 'date' ? recurrence.end_date : null,
+      end_date:  recurrence.end_type === 'date'  ? recurrence.end_date : null,
     } : null
 
     const taskPayload = {
-      user_id: userId || form.user_id,
-      created_by: user.id,
-      title: form.title.trim(),
-      description: form.description.trim() || null,
-      due_date: form.due_date || null,
-      priority: form.priority,
+      user_id:        userId || form.user_id,
+      created_by:     user.id,
+      title:          form.title.trim(),
+      description:    form.description.trim() || null,
+      due_date:       form.due_date || null,
+      priority:       form.priority,
+      task_type:      form.task_type,
+      points:         form.priority === 'prioritaire' ? 0 : Number(form.points),
+      priority_order: Number(form.priority_order) || 0,
     }
     if (recurrence_rule) {
-      taskPayload.recurrence_rule = recurrence_rule
+      taskPayload.recurrence_rule  = recurrence_rule
       taskPayload.recurrence_index = 0
     }
 
@@ -132,6 +172,7 @@ export default function TaskModal({ isOpen, onClose, userId, defaultPriority = '
     <Modal isOpen={isOpen} onClose={onClose} title="Nouvelle tâche" size="md">
       <form onSubmit={handleSubmit} className="space-y-5">
 
+        {/* Membre */}
         {needsMemberSelect && (
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-semibold text-[#1a1a1a]">Membre assigné <span className="text-red-400">*</span></label>
@@ -149,15 +190,41 @@ export default function TaskModal({ isOpen, onClose, userId, defaultPriority = '
           </div>
         )}
 
+        {/* Type de tâche */}
+        <div className="flex flex-col gap-1.5">
+          <label className="text-sm font-semibold text-[#1a1a1a]">Type</label>
+          <div className="grid grid-cols-2 gap-2">
+            {TASK_TYPES.map(t => (
+              <button
+                key={t.value}
+                type="button"
+                onClick={() => setTaskType(t.value)}
+                className={`flex flex-col items-start px-3 py-2.5 rounded-xl border-2 text-left transition-all ${
+                  form.task_type === t.value
+                    ? 'border-[#00bbb1] bg-[#00bbb1]/5'
+                    : 'border-[#e5e7eb] hover:border-[#9ca3af]'
+                }`}
+              >
+                <p className={`text-sm font-semibold ${form.task_type === t.value ? 'text-[#00bbb1]' : 'text-[#1a1a1a]'}`}>
+                  {t.label}
+                </p>
+                <p className="text-[10px] text-[#9ca3af] mt-0.5">{t.desc}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Titre */}
         <Input
           label="Titre"
           name="title"
           value={form.title}
           onChange={handleChange}
-          placeholder="Ex: Préparer le rapport mensuel"
+          placeholder="Ex: Répondre aux messages clients"
           required
         />
 
+        {/* Description */}
         <div className="flex flex-col gap-1.5">
           <label className="text-sm font-semibold text-[#1a1a1a]">
             Description <span className="text-[#9ca3af] font-normal">(optionnel)</span>
@@ -174,13 +241,13 @@ export default function TaskModal({ isOpen, onClose, userId, defaultPriority = '
 
         {/* Priorité */}
         <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-semibold text-[#1a1a1a]">Priorité</label>
+          <label className="text-sm font-semibold text-[#1a1a1a]">Section</label>
           <div className="grid grid-cols-2 gap-2">
             {PRIORITIES.map(p => (
               <button
                 key={p.value}
                 type="button"
-                onClick={() => setForm(f => ({ ...f, priority: p.value }))}
+                onClick={() => setForm(f => ({ ...f, priority: p.value, points: p.value === 'prioritaire' ? 0 : f.points }))}
                 className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl border-2 text-left transition-all ${
                   form.priority === p.value ? 'border-[#1a1a1a]' : 'border-[#e5e7eb] hover:border-[#9ca3af]'
                 }`}
@@ -195,44 +262,77 @@ export default function TaskModal({ isOpen, onClose, userId, defaultPriority = '
           </div>
         </div>
 
-        {/* Date limite */}
-        <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-semibold text-[#1a1a1a]">
-            {isRecurring ? 'Date de début' : 'Date limite'}{' '}
-            <span className="text-[#9ca3af] font-normal">(optionnel)</span>
-          </label>
-          <input
-            type="date"
-            name="due_date"
-            value={form.due_date}
-            onChange={handleChange}
-            className="w-full px-3 py-2.5 text-sm border border-[#e5e7eb] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#00bbb1]"
-          />
+        {/* Points — seulement pour les secondaires */}
+        {form.priority === 'secondaire' && (
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-semibold text-[#1a1a1a]">
+              Points <span className="text-[#9ca3af] font-normal">(récompense à la complétion)</span>
+            </label>
+            <div className="flex gap-2">
+              {POINTS_OPTIONS.map(pts => (
+                <button
+                  key={pts}
+                  type="button"
+                  onClick={() => setForm(f => ({ ...f, points: pts }))}
+                  className={`flex-1 py-2 rounded-xl text-sm font-bold border-2 transition-all ${
+                    form.points === pts
+                      ? 'border-amber-400 bg-amber-50 text-amber-700'
+                      : 'border-[#e5e7eb] text-[#6b7280] hover:border-amber-200'
+                  }`}
+                >
+                  {pts === 0 ? '—' : `+${pts}`}
+                </button>
+              ))}
+            </div>
+            {form.points > 0 && (
+              <p className="text-[11px] text-amber-600 font-medium">
+                Le membre gagnera {form.points} pts en cochant cette tâche.
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Ordre d'affichage + Date */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-semibold text-[#1a1a1a]">
+              {isRecurring ? 'Date de début' : 'Date limite'}{' '}
+              <span className="text-[#9ca3af] font-normal">(optionnel)</span>
+            </label>
+            <input
+              type="date"
+              name="due_date"
+              value={form.due_date}
+              onChange={handleChange}
+              className="w-full px-3 py-2.5 text-sm border border-[#e5e7eb] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#00bbb1]"
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-sm font-semibold text-[#1a1a1a]">
+              Ordre <span className="text-[#9ca3af] font-normal">(0 = premier)</span>
+            </label>
+            <input
+              type="number"
+              name="priority_order"
+              min="0"
+              value={form.priority_order}
+              onChange={handleChange}
+              className="w-full px-3 py-2.5 text-sm border border-[#e5e7eb] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#00bbb1]"
+            />
+          </div>
         </div>
 
-        {/* Toggle récurrence */}
-        <div className="border border-[#e5e7eb] rounded-2xl overflow-hidden">
-          <button
-            type="button"
-            onClick={() => setIsRecurring(r => !r)}
-            className={`w-full flex items-center justify-between px-4 py-3 text-sm font-semibold transition-colors ${
-              isRecurring ? 'bg-[#00bbb1]/5 text-[#00bbb1]' : 'bg-white text-[#6b7280] hover:bg-gray-50'
-            }`}
-          >
-            <div className="flex items-center gap-2.5">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        {/* Récurrence — visible uniquement si task_type = recurrente */}
+        {isRecurring && (
+          <div className="border border-[#00bbb1]/30 rounded-2xl overflow-hidden bg-[#fafafa]">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-[#e5e7eb] bg-[#00bbb1]/5">
+              <svg className="w-4 h-4 text-[#00bbb1]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
-              Répéter cette tâche
+              <span className="text-sm font-semibold text-[#00bbb1]">Configuration de la récurrence</span>
             </div>
-            <div className={`w-10 h-5 rounded-full transition-colors relative ${isRecurring ? 'bg-[#00bbb1]' : 'bg-gray-200'}`}>
-              <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${isRecurring ? 'translate-x-5' : 'translate-x-0.5'}`} />
-            </div>
-          </button>
 
-          {isRecurring && (
-            <div className="px-4 pb-4 pt-3 space-y-4 bg-[#fafafa] border-t border-[#e5e7eb]">
-
+            <div className="px-4 pb-4 pt-3 space-y-4">
               {/* Type */}
               <div>
                 <label className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide mb-2 block">Fréquence</label>
@@ -300,10 +400,7 @@ export default function TaskModal({ isOpen, onClose, userId, defaultPriority = '
                   {END_TYPES.map(et => (
                     <label key={et.value} className="flex items-center gap-3 cursor-pointer">
                       <div className="relative">
-                        <input
-                          type="radio"
-                          name="end_type"
-                          value={et.value}
+                        <input type="radio" name="end_type" value={et.value}
                           checked={recurrence.end_type === et.value}
                           onChange={() => setRec('end_type', et.value)}
                           className="sr-only"
@@ -320,22 +417,15 @@ export default function TaskModal({ isOpen, onClose, userId, defaultPriority = '
 
                       {et.value === 'count' && recurrence.end_type === 'count' && (
                         <div className="flex items-center gap-1.5">
-                          <input
-                            type="number"
-                            min="1"
-                            max="365"
-                            value={recurrence.end_count}
+                          <input type="number" min="1" max="365" value={recurrence.end_count}
                             onChange={e => setRec('end_count', e.target.value)}
                             className="w-16 px-2 py-1 text-sm text-center border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00bbb1]"
                           />
-                          <span className="text-sm text-[#6b7280]">occurrence{recurrence.end_count > 1 ? 's' : ''}</span>
+                          <span className="text-sm text-[#6b7280]">fois</span>
                         </div>
                       )}
-
                       {et.value === 'date' && recurrence.end_type === 'date' && (
-                        <input
-                          type="date"
-                          value={recurrence.end_date}
+                        <input type="date" value={recurrence.end_date}
                           onChange={e => setRec('end_date', e.target.value)}
                           className="px-2 py-1 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00bbb1]"
                         />
@@ -344,10 +434,9 @@ export default function TaskModal({ isOpen, onClose, userId, defaultPriority = '
                   ))}
                 </div>
               </div>
-
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {error && (
           <div className="px-4 py-3 bg-red-50 border border-red-100 rounded-xl">
