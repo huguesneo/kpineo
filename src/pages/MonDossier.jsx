@@ -1,19 +1,17 @@
 import { useState } from 'react'
-import MemberLayout from '../components/layout/MemberLayout'
+import Layout from '../components/layout/Layout'
 import Card from '../components/shared/Card'
 import Badge from '../components/shared/Badge'
 import Button from '../components/shared/Button'
-import TaskSection from '../components/tasks/TaskSection'
 import KPIModal from '../components/kpis/KPIModal'
 import { SkeletonCard } from '../components/shared/Skeleton'
 import { useAuth } from '../context/AuthContext'
-import { useObjectives, OBJECTIVE_TYPE_LABELS } from '../hooks/useObjectives'
-import { useTasks } from '../hooks/useTasks'
 import { useKPIEntries, useEODReports, KPI_TYPE_LABELS } from '../hooks/useKPIs'
+import { useCareerPlan } from '../hooks/useCareerPlan'
 import { format, parseISO } from 'date-fns'
 import { fr } from 'date-fns/locale'
 
-const TABS = ['Mes objectifs', 'Mes tâches', 'Mes KPIs']
+const TABS = ['Mes KPIs', 'Plan de carrière']
 
 const ROLE_LABELS = {
   naturopathe:    'Naturopathe',
@@ -23,46 +21,7 @@ const ROLE_LABELS = {
   resp_vente:     'Resp. équipe de vente',
 }
 
-function ObjectivesTab({ userId }) {
-  const { objectives, loading } = useObjectives(userId)
-  const today = format(new Date(), 'yyyy-MM-dd')
-  const active = objectives.filter(o => o.period_end >= today)
-  const past = objectives.filter(o => o.period_end < today)
-
-  return (
-    <div className="space-y-4">
-      <h3 className="font-bold text-[#1a1a1a]">Objectifs actifs</h3>
-      {loading ? <SkeletonCard /> : active.length === 0 ? (
-        <Card className="p-5"><p className="text-sm text-[#6b7280]">Aucun objectif actif pour le moment.</p></Card>
-      ) : (
-        active.map(obj => (
-          <Card key={obj.id} className="p-5">
-            <p className="font-semibold text-sm text-[#1a1a1a]">{OBJECTIVE_TYPE_LABELS[obj.type] || obj.type}</p>
-            <p className="text-xs text-[#6b7280] mt-0.5">
-              {format(parseISO(obj.period_start), 'd MMM yyyy', { locale: fr })} → {format(parseISO(obj.period_end), 'd MMM yyyy', { locale: fr })}
-            </p>
-            <p className="text-2xl font-bold text-[#00bbb1] mt-2">{obj.target_value.toLocaleString('fr-CA')}</p>
-          </Card>
-        ))
-      )}
-
-      {past.length > 0 && (
-        <>
-          <h3 className="font-bold text-[#1a1a1a] mt-6">Historique</h3>
-          {past.map(obj => (
-            <div key={obj.id} className="flex items-center justify-between px-4 py-3 bg-gray-50 rounded-lg border border-[#e5e7eb]">
-              <div>
-                <p className="text-sm font-semibold text-[#6b7280]">{OBJECTIVE_TYPE_LABELS[obj.type] || obj.type}</p>
-                <p className="text-xs text-[#6b7280]">{format(parseISO(obj.period_start), 'd MMM yyyy', { locale: fr })} → {format(parseISO(obj.period_end), 'd MMM yyyy', { locale: fr })}</p>
-              </div>
-              <p className="text-sm font-bold text-[#6b7280]">{obj.target_value.toLocaleString('fr-CA')}</p>
-            </div>
-          ))}
-        </>
-      )}
-    </div>
-  )
-}
+// ─── EOD Item ────────────────────────────────────────────────────────────────
 
 function EODItem({ report }) {
   const [expanded, setExpanded] = useState(false)
@@ -96,6 +55,8 @@ function EODItem({ report }) {
     </div>
   )
 }
+
+// ─── KPIs Tab ─────────────────────────────────────────────────────────────────
 
 function KPIsTab({ userId, userRole }) {
   const [kpiModalOpen, setKpiModalOpen] = useState(false)
@@ -148,15 +109,145 @@ function KPIsTab({ userId, userRole }) {
   )
 }
 
+// ─── Plan de carrière (lecture seule) ────────────────────────────────────────
+
+function CareerPlanTab({ profile }) {
+  const { plans, loading } = useCareerPlan(profile.id)
+  const currentYear = new Date().getFullYear()
+
+  const baseSalary  = profile.base_salary  ?? null
+  const annualBonus = profile.annual_bonus  ?? null
+
+  function fmtCAD(val) {
+    return Number(val).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })
+  }
+
+  return (
+    <div className="space-y-5">
+
+      {/* Boni annuel cible */}
+      <Card className="p-5">
+        <div className="flex items-start gap-3 mb-2">
+          <div className="w-9 h-9 rounded-xl bg-amber-50 flex items-center justify-center flex-shrink-0">
+            <span className="text-lg">🏆</span>
+          </div>
+          <div>
+            <h3 className="font-bold text-sm text-[#1a1a1a]">Boni annuel cible</h3>
+            <p className="text-xs text-[#9ca3af]">Divisé en 4 trimestres · paiement proportionnel à l'atteinte (min 80 %)</p>
+          </div>
+        </div>
+        {annualBonus ? (
+          <>
+            <p className="text-3xl font-black text-[#1a1a1a] mt-3">{fmtCAD(annualBonus)}</p>
+            <p className="text-xs text-[#6b7280] mt-1">
+              Par trimestre (à 100 %) : {fmtCAD(Number(annualBonus) / 4)}
+              {' · '}Ex. à 112 % : {fmtCAD(Math.round(Number(annualBonus) / 4 * 1.12))}
+            </p>
+          </>
+        ) : (
+          <p className="text-sm text-[#9ca3af] mt-2">Non défini pour le moment.</p>
+        )}
+      </Card>
+
+      {/* Salaire de base */}
+      <Card className="p-5">
+        <div className="flex items-start gap-3 mb-2">
+          <div className="w-9 h-9 rounded-xl bg-[#00bbb1]/10 flex items-center justify-center flex-shrink-0">
+            <span className="text-lg">💼</span>
+          </div>
+          <div>
+            <h3 className="font-bold text-sm text-[#1a1a1a]">Salaire de base annuel</h3>
+            <p className="text-xs text-[#9ca3af]">Rémunération fixe annuelle</p>
+          </div>
+        </div>
+        {baseSalary ? (
+          <p className="text-3xl font-black text-[#1a1a1a] mt-3">{fmtCAD(baseSalary)}</p>
+        ) : (
+          <p className="text-sm text-[#9ca3af] mt-2">Non défini pour le moment.</p>
+        )}
+      </Card>
+
+      {/* Plan de carrière par année */}
+      <Card className="p-5">
+        <div className="flex items-start gap-3 mb-4">
+          <div className="w-9 h-9 rounded-xl bg-purple-50 flex items-center justify-center flex-shrink-0">
+            <span className="text-lg">🚀</span>
+          </div>
+          <div>
+            <h3 className="font-bold text-sm text-[#1a1a1a]">Progression salariale</h3>
+            <p className="text-xs text-[#9ca3af]">Progression salariale prévue année par année</p>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="space-y-2">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="h-14 bg-gray-100 rounded-xl animate-pulse" />
+            ))}
+          </div>
+        ) : plans.length === 0 ? (
+          <p className="text-sm text-[#9ca3af] py-2">Aucun plan défini pour le moment.</p>
+        ) : (
+          <div className="space-y-2">
+            {plans.map(plan => (
+              <div
+                key={plan.id}
+                className={`px-4 py-3 rounded-xl border transition-all ${
+                  plan.year === currentYear
+                    ? 'border-[#00bbb1]/40 bg-[#00bbb1]/5'
+                    : plan.year < currentYear
+                    ? 'border-[#e5e7eb] bg-gray-50 opacity-70'
+                    : 'border-[#e5e7eb] bg-white'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-bold text-sm text-[#1a1a1a]">{plan.year}</p>
+                      {plan.year === currentYear && (
+                        <span className="text-[10px] font-semibold text-[#00bbb1] bg-[#00bbb1]/10 px-2 py-0.5 rounded-full">
+                          Année en cours
+                        </span>
+                      )}
+                      {plan.year > currentYear && (
+                        <span className="text-[10px] font-semibold text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full">
+                          À venir
+                        </span>
+                      )}
+                    </div>
+                    {plan.notes && (
+                      <div className="mt-1.5 flex items-start gap-1.5">
+                        <svg className="w-3 h-3 text-[#00bbb1] flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                        </svg>
+                        <p className="text-xs text-[#6b7280] leading-relaxed">{plan.notes}</p>
+                      </div>
+                    )}
+                  </div>
+                  <p className="font-black text-[#1a1a1a] text-sm flex-shrink-0">
+                    {fmtCAD(plan.planned_salary)}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+    </div>
+  )
+}
+
+// ─── Page principale ──────────────────────────────────────────────────────────
+
 export default function MonDossier() {
   const { profile } = useAuth()
   const [activeTab, setActiveTab] = useState(0)
-  const { tasks, loading: tasksLoading, refetch } = useTasks({ userId: profile?.id })
 
   if (!profile) return null
 
   return (
-    <MemberLayout>
+    <Layout>
       {/* En-tête profil */}
       <div className="flex items-center gap-4 mb-6">
         <div className="w-14 h-14 rounded-2xl bg-[#00bbb1]/10 flex items-center justify-center text-[#00bbb1] font-bold text-xl">
@@ -185,18 +276,8 @@ export default function MonDossier() {
         ))}
       </div>
 
-      {activeTab === 0 && <ObjectivesTab userId={profile.id} />}
-      {activeTab === 1 && (
-        <div className="space-y-4">
-          {tasksLoading ? <SkeletonCard /> : (
-            <>
-              <TaskSection tasks={tasks} priority="prioritaire" userId={profile.id} onUpdate={refetch} isAdmin={false} />
-              <TaskSection tasks={tasks} priority="secondaire" userId={profile.id} onUpdate={refetch} isAdmin={false} />
-            </>
-          )}
-        </div>
-      )}
-      {activeTab === 2 && <KPIsTab userId={profile.id} userRole={profile.role} />}
-    </MemberLayout>
+      {activeTab === 0 && <KPIsTab userId={profile.id} userRole={profile.role} />}
+      {activeTab === 1 && <CareerPlanTab profile={profile} />}
+    </Layout>
   )
 }

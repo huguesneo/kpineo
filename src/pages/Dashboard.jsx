@@ -15,7 +15,7 @@ import { useQBRevenue, useQBMemberRevenue, useQBMemberRevenueForMonth, useQBReve
 import MonthNavigator from '../components/shared/MonthNavigator'
 import { supabase } from '../lib/supabase'
 import {
-  format, startOfMonth, endOfMonth, parseISO,
+  format, startOfMonth, endOfMonth, startOfQuarter, endOfQuarter, parseISO,
 } from 'date-fns'
 import { fr } from 'date-fns/locale'
 
@@ -539,19 +539,25 @@ function AdminDashboard() {
     setLoading(true)
     const today = format(new Date(), 'yyyy-MM-dd')
     const { from: monthStart, to: monthEnd } = monthDates
+    const quarterStart = format(startOfQuarter(new Date()), 'yyyy-MM-dd')
+    const quarterEnd   = format(endOfQuarter(new Date()),   'yyyy-MM-dd')
 
-    const [profilesRes, eodRes, kpiRes, objRes, qbCacheRes] = await Promise.all([
+    const [profilesRes, eodRes, kpiRes, objRes, qbCacheRes, qObjRes] = await Promise.all([
       supabase.from('profiles').select('*').eq('is_active', true).neq('role', 'admin'),
       supabase.from('end_of_day_reports').select('id', { count: 'exact', head: true }).eq('report_date', today),
       supabase.from('kpi_entries').select('user_id, kpi_type, value').eq('scope', 'individual').gte('entry_date', monthStart).lte('entry_date', monthEnd),
       supabase.from('objectives').select('*').eq('scope', 'individual').lte('period_start', monthEnd).gte('period_end', monthStart),
-      supabase.from('member_revenue_cache').select('first_name, therapist_monthly, closer_monthly, setter_monthly'),
+      supabase.from('member_revenue_cache').select('first_name, therapist_monthly, therapist_quarterly, closer_monthly, setter_monthly'),
+      // Objectifs trimestriels revenus pour les naturopathes
+      supabase.from('objectives').select('*').eq('scope', 'individual').eq('type', 'quarterly_revenue')
+        .lte('period_start', quarterEnd).gte('period_end', quarterStart),
     ])
 
     const profiles = profilesRes.data || []
     const kpiEntries = kpiRes.data || []
     const objectives = objRes.data || []
     const qbCache = qbCacheRes.data || []
+    const quarterlyObjectives = qObjRes.data || []
 
     const QB_MONTHLY = { naturopathe: 'therapist_monthly', closer: 'closer_monthly', setter: 'setter_monthly' }
 
@@ -565,14 +571,21 @@ function AdminDashboard() {
     const membersWithProgress = profiles.map(profile => {
       const firstName = profile.full_name?.trim().split(/\s+/)[0]?.toLowerCase() ?? ''
       const qbRow = qbCache.find(c => c.first_name.toLowerCase() === firstName)
-      const qbMonthly = qbRow ? Number(qbRow[QB_MONTHLY[profile.role]] ?? 0) : null
+      const qbMonthly    = qbRow ? Number(qbRow[QB_MONTHLY[profile.role]] ?? 0) : null
+      const qbQuarterly  = (profile.role === 'naturopathe' && qbRow)
+        ? Number(qbRow.therapist_quarterly ?? 0)
+        : null
 
       const userObjectives = objectives.filter(o => o.user_id === profile.id)
       const userKpis = kpiEntries.filter(k => k.user_id === profile.id)
 
-      // Objectif mensuel de revenus (pour l'affichage)
+      // Objectif mensuel de revenus (pour l'affichage des autres rôles)
       const revenueObj = userObjectives.find(o => o.type === 'monthly_revenue')
       const monthlyTarget = revenueObj?.target_value ?? null
+
+      // Objectif trimestriel revenus (naturopathes)
+      const qObj = quarterlyObjectives.find(o => o.user_id === profile.id)
+      const quarterlyTarget = qObj?.target_value ?? null
 
       let totalPct = 0, count = 0
       userObjectives.forEach(obj => {
@@ -589,7 +602,9 @@ function AdminDashboard() {
         ...profile,
         progress: count > 0 ? Math.round(totalPct / count) : null,
         qbMonthly,
+        qbQuarterly,
         monthlyTarget,
+        quarterlyTarget,
       }
     })
 
@@ -752,22 +767,44 @@ function AdminDashboard() {
         {loading ? <SkeletonTable rows={5} /> : (
           <div className="space-y-4">
             {ROLE_GROUPS.map(group => {
+              const isNaturo = group.role === 'naturopathe'
               const groupMembers = filteredMembers
                 .filter(m => m.role === group.role)
-                .sort((a, b) => (b.qbMonthly ?? -1) - (a.qbMonthly ?? -1))
+                .sort((a, b) => {
+                  if (isNaturo) return (b.qbQuarterly ?? -1) - (a.qbQuarterly ?? -1)
+                  return (b.qbMonthly ?? -1) - (a.qbMonthly ?? -1)
+                })
               if (groupMembers.length === 0) return null
+
+              // Quarter label for naturopathes header
+              const qNum = Math.ceil((new Date().getMonth() + 1) / 3)
+              const qYear = new Date().getFullYear()
+
               return (
                 <Card key={group.role} className="p-5">
-                  <div className="flex items-center gap-2 mb-4">
+                  <div className="flex items-center gap-2 mb-1">
                     <div className="w-2 h-5 rounded-full" style={{ backgroundColor: group.accent }} />
                     <h3 className="text-sm font-bold text-[#1a1a1a] uppercase tracking-wide">{group.label}</h3>
                     <span className="text-xs text-[#9ca3af] ml-1">{groupMembers.length} membre{groupMembers.length > 1 ? 's' : ''}</span>
                   </div>
+                  {isNaturo && (
+                    <p className="text-xs text-[#9ca3af] mb-3 pl-4">
+                      Revenus trimestriels vs objectif · T{qNum} {qYear}
+                    </p>
+                  )}
+                  {!isNaturo && <div className="mb-3" />}
                   <div className="space-y-4">
                     {groupMembers.map((m, idx) => {
-                      const pct = m.progress ?? 0
-                      const color = progressColor(m.progress)
-                      const hasRevenue = m.qbMonthly !== null
+                      // For naturopathes: use quarterly data; for others: monthly
+                      const revenue = isNaturo ? m.qbQuarterly : m.qbMonthly
+                      const target  = isNaturo ? m.quarterlyTarget : m.monthlyTarget
+                      const qPct    = (revenue !== null && target > 0)
+                        ? Math.min(100, Math.round((revenue / target) * 100))
+                        : null
+                      const displayPct = isNaturo ? qPct : m.progress
+                      const color = progressColor(displayPct)
+                      const hasRevenue = revenue !== null
+
                       return (
                         <div key={m.id} className="flex items-center gap-3">
                           {/* Rang */}
@@ -786,18 +823,18 @@ function AdminDashboard() {
                           <div className="flex-1 min-w-0">
                             <div className="flex justify-between items-baseline mb-1">
                               <span className="text-xs text-[#6b7280]">
-                                {hasRevenue ? fmtCAD(m.qbMonthly) : '—'}
-                                {m.monthlyTarget ? <span className="text-[#d1d5db]"> / {fmtCAD(m.monthlyTarget)}</span> : ''}
+                                {hasRevenue ? fmtCAD(revenue) : '—'}
+                                {target ? <span className="text-[#d1d5db]"> / {fmtCAD(target)}</span> : ''}
                               </span>
                               <span className="text-xs font-bold ml-2 flex-shrink-0" style={{ color }}>
-                                {m.progress !== null ? `${m.progress} %` : 'Aucun objectif'}
+                                {displayPct !== null ? `${displayPct} %` : 'Aucun objectif'}
                               </span>
                             </div>
-                            {m.progress !== null ? (
+                            {displayPct !== null ? (
                               <div className="w-full bg-gray-100 rounded-full h-2">
                                 <div
                                   className="h-2 rounded-full transition-all duration-500"
-                                  style={{ width: `${pct}%`, backgroundColor: color }}
+                                  style={{ width: `${displayPct}%`, backgroundColor: color }}
                                 />
                               </div>
                             ) : (

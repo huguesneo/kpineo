@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import Layout from '../components/layout/Layout'
 import { useAuth } from '../context/AuthContext'
-import { useUserPoints } from '../hooks/usePoints'
+import { useUserPoints, useTeamLeaderboard } from '../hooks/usePoints'
 import { useRewardsCatalog, createRedemption } from '../hooks/useRewards'
 
 const CATEGORY_LABELS = {
@@ -139,6 +139,100 @@ function ConfirmModal({ reward, onConfirm, onCancel, loading }) {
   )
 }
 
+const ROLE_LABELS = {
+  naturopathe:    'Naturopathe',
+  closer:         'Closer',
+  setter:         'Setter',
+  service_client: 'Service clients & gestion',
+  resp_vente:     'Resp. équipe de vente',
+}
+
+const MEDAL = ['🥇', '🥈', '🥉']
+
+function TeamLeaderboard({ currentUserId }) {
+  const { leaderboard, loading } = useTeamLeaderboard()
+
+  return (
+    <div className="mt-10">
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-xl">🏆</span>
+        <h2 className="text-lg font-bold text-[#1a1a1a]">Classement de l'équipe</h2>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-[#e5e7eb] overflow-hidden">
+        {loading ? (
+          <div className="divide-y divide-[#f3f4f6]">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="flex items-center gap-3 px-5 py-3.5 animate-pulse">
+                <div className="w-6 h-4 bg-gray-100 rounded" />
+                <div className="w-8 h-8 rounded-full bg-gray-100" />
+                <div className="flex-1 h-3 bg-gray-100 rounded" />
+                <div className="w-16 h-4 bg-gray-100 rounded" />
+              </div>
+            ))}
+          </div>
+        ) : leaderboard.length === 0 ? (
+          <p className="text-sm text-[#9ca3af] text-center py-8">Aucun membre trouvé.</p>
+        ) : (
+          <div className="divide-y divide-[#f3f4f6]">
+            {leaderboard.map((member, idx) => {
+              const isMe = member.id === currentUserId
+              const medal = MEDAL[idx] ?? null
+              const isTop3 = idx < 3
+
+              return (
+                <div
+                  key={member.id}
+                  className={`flex items-center gap-3 px-5 py-3.5 transition-colors ${
+                    isMe ? 'bg-[#00bbb1]/5' : 'hover:bg-gray-50/60'
+                  }`}
+                >
+                  {/* Rang */}
+                  <div className="w-7 text-center flex-shrink-0">
+                    {medal
+                      ? <span className="text-lg leading-none">{medal}</span>
+                      : <span className="text-xs font-bold text-[#9ca3af]">{idx + 1}</span>
+                    }
+                  </div>
+
+                  {/* Avatar */}
+                  <div
+                    className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 text-white"
+                    style={{ backgroundColor: isTop3 ? '#00bbb1' : '#d1d5db' }}
+                  >
+                    {member.full_name.charAt(0).toUpperCase()}
+                  </div>
+
+                  {/* Nom + rôle */}
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm font-semibold truncate ${isMe ? 'text-[#00bbb1]' : 'text-[#1a1a1a]'}`}>
+                      {member.full_name}
+                      {isMe && <span className="text-[10px] font-bold text-[#00bbb1] bg-[#00bbb1]/10 px-1.5 py-0.5 rounded-full ml-2">Vous</span>}
+                    </p>
+                    <p className="text-[11px] text-[#9ca3af]">{ROLE_LABELS[member.role] ?? member.role}</p>
+                  </div>
+
+                  {/* Points */}
+                  <div className="text-right flex-shrink-0">
+                    <p className={`text-sm font-black ${isTop3 ? 'text-amber-500' : 'text-[#1a1a1a]'}`}>
+                      {member.points_total.toLocaleString('fr-CA')} pts
+                    </p>
+                    {member.points_current_month > 0 && (
+                      <p className="text-[10px] text-[#00bbb1] font-semibold">
+                        +{member.points_current_month} ce mois
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function Boutique() {
   const { profile } = useAuth()
   const { points } = useUserPoints(profile?.id)
@@ -238,6 +332,9 @@ export default function Boutique() {
           ))}
         </div>
       )}
+
+      {/* Leaderboard */}
+      <TeamLeaderboard currentUserId={profile?.id} />
 
       {/* Confirm modal */}
       <ConfirmModal

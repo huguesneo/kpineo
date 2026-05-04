@@ -236,6 +236,44 @@ export function usePointsTransactions(userId, { month, year, limit = 50 } = {}) 
   return { transactions, loading }
 }
 
+// ─── Hook : useTeamLeaderboard ───────────────────────────────
+/**
+ * Retourne tous les membres actifs triés par points décroissants.
+ * Utilisé pour le classement dans la Boutique.
+ */
+export function useTeamLeaderboard() {
+  const [leaderboard, setLeaderboard] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    async function load() {
+      const [profilesRes, pointsRes] = await Promise.all([
+        supabase.from('profiles').select('id, full_name, role').eq('is_active', true).neq('role', 'admin'),
+        supabase.from('user_points').select('user_id, points_total, points_current_month'),
+      ])
+
+      const profiles = profilesRes.data || []
+      const pointsMap = {}
+      for (const p of (pointsRes.data || [])) pointsMap[p.user_id] = p
+
+      const ranked = profiles
+        .map(p => ({
+          ...p,
+          points_total:         pointsMap[p.id]?.points_total         ?? 0,
+          points_current_month: pointsMap[p.id]?.points_current_month ?? 0,
+        }))
+        .sort((a, b) => b.points_total - a.points_total)
+
+      setLeaderboard(ranked)
+      setLoading(false)
+    }
+
+    load()
+  }, [])
+
+  return { leaderboard, loading }
+}
+
 // ─── Hook : usePointsHistory ──────────────────────────────────
 /**
  * Lit les snapshots mensuels agrégés d'un membre.

@@ -11,6 +11,7 @@ import {
   deleteReward,
   reorderRewards,
 } from '../hooks/useRewards'
+import { useTeamLeaderboard } from '../hooks/usePoints'
 
 const CATEGORIES = [
   { value: 'temps_off',  label: 'Temps off',   icon: '🏖️' },
@@ -149,6 +150,94 @@ function RewardFormModal({ isOpen, onClose, initial, onSaved }) {
         </div>
       </form>
     </Modal>
+  )
+}
+
+const ROLE_LABELS_LB = {
+  naturopathe:    'Naturopathe',
+  closer:         'Closer',
+  setter:         'Setter',
+  service_client: 'Service clients & gestion',
+  resp_vente:     'Resp. équipe de vente',
+}
+
+const MEDAL = ['🥇', '🥈', '🥉']
+
+function TeamLeaderboard() {
+  const { leaderboard, loading } = useTeamLeaderboard()
+
+  return (
+    <div className="mt-10">
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-xl">🏆</span>
+        <h2 className="text-lg font-bold text-[#1a1a1a]">Classement de l'équipe</h2>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-[#e5e7eb] overflow-hidden">
+        {loading ? (
+          <div className="divide-y divide-[#f3f4f6]">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="flex items-center gap-3 px-5 py-3.5 animate-pulse">
+                <div className="w-6 h-4 bg-gray-100 rounded" />
+                <div className="w-8 h-8 rounded-full bg-gray-100" />
+                <div className="flex-1 h-3 bg-gray-100 rounded" />
+                <div className="w-16 h-4 bg-gray-100 rounded" />
+              </div>
+            ))}
+          </div>
+        ) : leaderboard.length === 0 ? (
+          <p className="text-sm text-[#9ca3af] text-center py-8">Aucun membre trouvé.</p>
+        ) : (
+          <div className="divide-y divide-[#f3f4f6]">
+            {leaderboard.map((member, idx) => {
+              const medal = MEDAL[idx] ?? null
+              const isTop3 = idx < 3
+
+              return (
+                <div
+                  key={member.id}
+                  className="flex items-center gap-3 px-5 py-3.5 hover:bg-gray-50/60 transition-colors"
+                >
+                  {/* Rang */}
+                  <div className="w-7 text-center flex-shrink-0">
+                    {medal
+                      ? <span className="text-lg leading-none">{medal}</span>
+                      : <span className="text-xs font-bold text-[#9ca3af]">{idx + 1}</span>
+                    }
+                  </div>
+
+                  {/* Avatar */}
+                  <div
+                    className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 text-white"
+                    style={{ backgroundColor: isTop3 ? '#00bbb1' : '#d1d5db' }}
+                  >
+                    {member.full_name.charAt(0).toUpperCase()}
+                  </div>
+
+                  {/* Nom + rôle */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-[#1a1a1a] truncate">{member.full_name}</p>
+                    <p className="text-[11px] text-[#9ca3af]">{ROLE_LABELS_LB[member.role] ?? member.role}</p>
+                  </div>
+
+                  {/* Points */}
+                  <div className="text-right flex-shrink-0">
+                    <p className={`text-sm font-black ${isTop3 ? 'text-amber-500' : 'text-[#1a1a1a]'}`}>
+                      {member.points_total.toLocaleString('fr-CA')} pts
+                    </p>
+                    {member.points_current_month > 0 && (
+                      <p className="text-[10px] text-[#00bbb1] font-semibold">
+                        +{member.points_current_month} ce mois
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
   )
 }
 
@@ -356,6 +445,9 @@ export default function BoutiqueCatalogue() {
         initial={editing}
         onSaved={refetch}
       />
+
+      {/* Leaderboard */}
+      <TeamLeaderboard />
     </Layout>
   )
 }

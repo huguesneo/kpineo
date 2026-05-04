@@ -12,6 +12,7 @@ import Boutique from './pages/Boutique'
 import MesEchanges from './pages/MesEchanges'
 import BoutiqueCatalogue from './pages/BoutiqueCatalogue'
 import BoutiqueEchanges from './pages/BoutiqueEchanges'
+import MonDossier from './pages/MonDossier'
 
 function LoadingScreen() {
   return (
@@ -67,7 +68,7 @@ function AppRoutes() {
       <Route path="/boutique-catalogue" element={<AdminRoute><BoutiqueCatalogue /></AdminRoute>} />
       <Route path="/boutique-echanges"  element={<AdminRoute><BoutiqueEchanges /></AdminRoute>} />
 
-      <Route path="/mon-dossier" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/mon-dossier" element={<PrivateRoute><MonDossier /></PrivateRoute>} />
       <Route path="*"            element={<Navigate to="/dashboard" replace />} />
     </Routes>
   )
