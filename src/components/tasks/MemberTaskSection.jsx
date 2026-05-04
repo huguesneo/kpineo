@@ -294,6 +294,7 @@ export default function MemberTaskSection({
         userId={userId}
         defaultPriority={priority}
         onCreated={onUpdate}
+        isAdmin={false}
       />
     </div>
   )

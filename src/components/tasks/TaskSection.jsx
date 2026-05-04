@@ -94,6 +94,7 @@ export default function TaskSection({ tasks, priority, userId, onUpdate, isAdmin
         userId={userId}
         defaultPriority={priority}
         onCreated={onUpdate}
+        isAdmin={isAdmin}
       />
     </div>
   )
