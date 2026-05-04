@@ -16,9 +16,11 @@ import { fr } from 'date-fns/locale'
 const TABS = ['Mes objectifs', 'Mes tâches', 'Mes KPIs']
 
 const ROLE_LABELS = {
-  naturopathe: 'Naturopathe',
-  closer: 'Closer',
-  setter: 'Setter',
+  naturopathe:    'Naturopathe',
+  closer:         'Closer',
+  setter:         'Setter',
+  service_client: 'Service clients & gestion',
+  resp_vente:     'Resp. équipe de vente',
 }
 
 function ObjectivesTab({ userId }) {

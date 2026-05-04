@@ -16,19 +16,23 @@ import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 
 const ROLE_SCOPE_LABELS = {
-  all: 'Tous les rôles',
-  naturopathe: 'Naturopathe',
-  closer: 'Closer',
-  setter: 'Setter',
-  clinic: 'Clinique',
+  all:            'Tous les rôles',
+  naturopathe:    'Naturopathe',
+  closer:         'Closer',
+  setter:         'Setter',
+  service_client: 'Service clients & gestion',
+  resp_vente:     'Resp. équipe de vente',
+  clinic:         'Clinique',
 }
 
 const ROLE_SCOPE_VARIANTS = {
-  all: 'primary',
-  naturopathe: 'naturopathe',
-  closer: 'closer',
-  setter: 'setter',
-  clinic: 'success',
+  all:            'primary',
+  naturopathe:    'naturopathe',
+  closer:         'closer',
+  setter:         'setter',
+  service_client: 'service_client',
+  resp_vente:     'resp_vente',
+  clinic:         'success',
 }
 
 function AddKPITypeModal({ isOpen, onClose, onCreated }) {
@@ -101,11 +105,13 @@ function KPITypesSection() {
   }
 
   const grouped = {
-    all: types.filter(t => t.role_scope === 'all'),
-    naturopathe: types.filter(t => t.role_scope === 'naturopathe'),
-    closer: types.filter(t => t.role_scope === 'closer'),
-    setter: types.filter(t => t.role_scope === 'setter'),
-    clinic: types.filter(t => t.role_scope === 'clinic'),
+    all:            types.filter(t => t.role_scope === 'all'),
+    naturopathe:    types.filter(t => t.role_scope === 'naturopathe'),
+    closer:         types.filter(t => t.role_scope === 'closer'),
+    setter:         types.filter(t => t.role_scope === 'setter'),
+    service_client: types.filter(t => t.role_scope === 'service_client'),
+    resp_vente:     types.filter(t => t.role_scope === 'resp_vente'),
+    clinic:         types.filter(t => t.role_scope === 'clinic'),
   }
 
   return (

@@ -23,7 +23,14 @@ import { useUserPoints, usePointsTransactions, usePointsHistory } from '../hooks
 import { format, isAfter, parseISO } from 'date-fns'
 import { fr } from 'date-fns/locale'
 
-const ROLE_LABELS = { naturopathe: 'Naturopathe', closer: 'Closer', setter: 'Setter', admin: 'Admin' }
+const ROLE_LABELS = {
+  naturopathe:    'Naturopathe',
+  closer:         'Closer',
+  setter:         'Setter',
+  service_client: 'Service clients & gestion',
+  resp_vente:     'Resp. équipe de vente',
+  admin:          'Admin',
+}
 const TABS = ['Objectifs', 'Tâches', 'KPIs & Rapports', 'Plan de carrière', 'Points']
 
 function fmt(n) {

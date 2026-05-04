@@ -12,8 +12,15 @@ import { useMembers, updateMember } from '../hooks/useMembers'
 import { useAuth } from '../context/AuthContext'
 import { supabase, supabaseAdmin } from '../lib/supabase'
 
-const ROLE_LABELS = { naturopathe: 'Naturopathe', closer: 'Closer', setter: 'Setter', admin: 'Admin' }
-const ROLES = ['naturopathe', 'closer', 'setter', 'admin']
+const ROLE_LABELS = {
+  naturopathe:    'Naturopathe',
+  closer:         'Closer',
+  setter:         'Setter',
+  service_client: 'Service clients & gestion',
+  resp_vente:     'Resp. équipe de vente',
+  admin:          'Admin',
+}
+const ROLES = ['naturopathe', 'closer', 'setter', 'service_client', 'resp_vente', 'admin']
 
 function AddMemberModal({ isOpen, onClose, onCreated }) {
   const [form, setForm] = useState({ full_name: '', email: '', role: 'naturopathe', password: '' })
@@ -109,7 +116,7 @@ function AdminMembresView() {
   const [addOpen, setAddOpen] = useState(false)
   const [editMember, setEditMember] = useState(null)
   const { members, loading, refetch } = useMembers(roleFilter !== 'tous' ? { role: roleFilter } : {})
-  const roles = ['tous', 'naturopathe', 'closer', 'setter']
+  const roles = ['tous', 'naturopathe', 'closer', 'setter', 'service_client', 'resp_vente']
 
   return (
     <>
@@ -180,7 +187,7 @@ function AdminMembresView() {
 function MemberMembresView() {
   const [roleFilter, setRoleFilter] = useState('tous')
   const { members, loading } = useMembers(roleFilter !== 'tous' ? { role: roleFilter } : {})
-  const roles = ['tous', 'naturopathe', 'closer', 'setter']
+  const roles = ['tous', 'naturopathe', 'closer', 'setter', 'service_client', 'resp_vente']
 
   return (
     <>

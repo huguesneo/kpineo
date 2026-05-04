@@ -19,7 +19,14 @@ import {
 } from 'date-fns'
 import { fr } from 'date-fns/locale'
 
-const ROLE_LABELS = { naturopathe: 'Naturopathe', closer: 'Closer', setter: 'Setter', admin: 'Admin' }
+const ROLE_LABELS = {
+  naturopathe:    'Naturopathe',
+  closer:         'Closer',
+  setter:         'Setter',
+  service_client: 'Service clients & gestion',
+  resp_vente:     'Resp. équipe de vente',
+  admin:          'Admin',
+}
 
 // ─── Shared helpers ───────────────────────────────────────────
 function StatCard({ label, value, sub, color = '#00bbb1', icon }) {
@@ -591,12 +598,14 @@ function AdminDashboard() {
   }
 
   const filteredMembers = roleFilter === 'tous' ? members : members.filter(m => m.role === roleFilter)
-  const roles = ['tous', 'naturopathe', 'closer', 'setter']
+  const roles = ['tous', 'naturopathe', 'closer', 'setter', 'service_client', 'resp_vente']
 
   const ROLE_GROUPS = [
-    { role: 'naturopathe', label: 'Naturopathes', accent: '#00bbb1' },
-    { role: 'closer',      label: 'Closers',       accent: '#8b5cf6' },
-    { role: 'setter',      label: 'Setters',        accent: '#f59e0b' },
+    { role: 'naturopathe',    label: 'Naturopathes',              accent: '#00bbb1' },
+    { role: 'closer',         label: 'Closers',                   accent: '#8b5cf6' },
+    { role: 'setter',         label: 'Setters',                   accent: '#f59e0b' },
+    { role: 'service_client', label: 'Service clients & gestion', accent: '#ec4899' },
+    { role: 'resp_vente',     label: 'Resp. équipe de vente',     accent: '#6366f1' },
   ]
 
   function progressColor(pct) {

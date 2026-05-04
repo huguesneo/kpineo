@@ -51,10 +51,12 @@ const DEFAULT_RECURRENCE = {
 
 // ─── Role groups for group assignment ─────────────────────────────────────────
 const ROLE_GROUPS = [
-  { value: 'all',         label: 'Tout le monde', icon: '🌐' },
-  { value: 'naturopathe', label: 'Naturopathes',  icon: '🌿' },
-  { value: 'closer',      label: 'Closers',       icon: '💼' },
-  { value: 'setter',      label: 'Setters',       icon: '📞' },
+  { value: 'all',            label: 'Tout le monde',                icon: '🌐' },
+  { value: 'naturopathe',    label: 'Naturopathes',                 icon: '🌿' },
+  { value: 'closer',         label: 'Closers',                      icon: '💼' },
+  { value: 'setter',         label: 'Setters',                      icon: '📞' },
+  { value: 'service_client', label: 'Service clients & gestion',    icon: '🎧' },
+  { value: 'resp_vente',     label: 'Resp. équipe de vente',        icon: '🏆' },
 ]
 
 export default function TaskModal({

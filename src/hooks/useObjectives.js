@@ -103,6 +103,8 @@ export const OBJECTIVE_TYPES_BY_ROLE = {
     { value: 'daily_calls', label: 'Appels par jour' },
     { value: 'daily_bookings', label: 'Rendez-vous bookés par jour' },
   ],
+  service_client: [],
+  resp_vente:     [],
 }
 
 export const CLINIC_OBJECTIVE_TYPES = [

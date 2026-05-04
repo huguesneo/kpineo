@@ -129,4 +129,6 @@ export const KPI_TYPES_BY_ROLE = {
     { value: 'daily_calls', label: 'Appels' },
     { value: 'daily_bookings', label: 'Rendez-vous bookés' },
   ],
+  service_client: [],
+  resp_vente:     [],
 }
