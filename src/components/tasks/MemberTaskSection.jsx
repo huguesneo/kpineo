@@ -15,10 +15,10 @@ function getFrequencyGroup(rule) {
 const FREQ_ORDER = ['daily', 'weekly', 'monthly', 'other']
 
 const FREQ_CONFIG = {
-  daily:   { label: 'Quotidien',    icon: '☀️',  defaultOpen: true  },
-  weekly:  { label: 'Hebdomadaire', icon: '📅',  defaultOpen: false },
-  monthly: { label: 'Mensuel',      icon: '🗓️',  defaultOpen: false },
-  other:   { label: 'Récurrent',    icon: '🔁',  defaultOpen: false },
+  daily:   { label: 'Quotidien',    icon: '☀️',  defaultOpen: true },
+  weekly:  { label: 'Hebdomadaire', icon: '📅',  defaultOpen: true },
+  monthly: { label: 'Mensuel',      icon: '🗓️',  defaultOpen: true },
+  other:   { label: 'Récurrent',    icon: '🔁',  defaultOpen: true },
 }
 
 const PRIORITY_CONFIG = {
@@ -145,11 +145,22 @@ export default function MemberTaskSection({
   const [modalOpen, setModalOpen] = useState(false)
   const cfg = PRIORITY_CONFIG[priority]
 
-  const pending   = tasks.filter(t => !t.is_completed)
+  // Today's date for visibility filtering
+  const todayStr = new Date().toISOString().split('T')[0]
+
   const completed = tasks.filter(t => t.is_completed)
-  const total     = tasks.length
-  const pct       = total > 0 ? Math.round((completed.length / total) * 100) : 0
-  const allDone   = total > 0 && pending.length === 0
+
+  // Pending: exclude recurring tasks whose due_date hasn't arrived yet
+  // (a Thursday task only appears on/after Thursday)
+  const pending = tasks.filter(t => {
+    if (t.is_completed) return false
+    if (t.task_type === 'recurrente' && t.due_date && t.due_date > todayStr) return false
+    return true
+  })
+
+  const total   = completed.length + pending.length
+  const pct     = total > 0 ? Math.round((completed.length / total) * 100) : 0
+  const allDone = total > 0 && pending.length === 0
 
   // Split pending by type
   const recurring = pending.filter(t => t.task_type === 'recurrente')
@@ -222,8 +233,10 @@ export default function MemberTaskSection({
             <p className="text-sm text-[#9ca3af]">Aucune tâche pour le moment.</p>
           </div>
         ) : allDone ? (
-          <div className="px-4 py-6 text-center">
-            <p className="text-sm font-semibold text-emerald-600">✓ Toutes complétées</p>
+          <div className="px-4 py-8 text-center">
+            <p className="text-2xl mb-1">🎯</p>
+            <p className="text-sm font-bold text-emerald-600">Tout est clean !</p>
+            <p className="text-xs text-[#9ca3af] mt-0.5">Toutes les tâches sont complétées.</p>
           </div>
         ) : (
           <>
@@ -277,11 +290,6 @@ export default function MemberTaskSection({
                   onUpdate={onUpdate}
                   currentUserId={currentUserId}
                 />
-              </div>
-            ) : !hasPendingAppr ? (
-              /* All ponctuelles done/submitted — show clean state */
-              <div className={`px-4 py-3 text-center ${hasRecurring ? 'border-t border-[#f3f4f6]' : ''}`}>
-                <p className="text-xs font-semibold text-emerald-500">Tout est clean 🎯</p>
               </div>
             ) : null}
           </>
