@@ -204,6 +204,20 @@ export async function createTask(task) {
 }
 
 /**
+ * Crée une copie identique de la tâche pour chaque userId fourni.
+ * Utilisé pour l'assignation par groupe de rôles.
+ */
+export async function createTasksForUsers(taskPayload, userIds) {
+  const results = await Promise.all(
+    userIds.map(uid =>
+      supabase.from('tasks').insert({ ...taskPayload, user_id: uid }).select().single()
+    )
+  )
+  const errors = results.filter(r => r.error).map(r => r.error)
+  return { errors, count: userIds.length - errors.length }
+}
+
+/**
  * Coche / décoche une tâche.
  *
  * Règles :

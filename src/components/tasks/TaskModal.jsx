@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Modal from '../shared/Modal'
 import Button from '../shared/Button'
 import Input from '../shared/Input'
-import { createTask } from '../../hooks/useTasks'
+import { createTask, createTasksForUsers } from '../../hooks/useTasks'
 import { useAuth } from '../../context/AuthContext'
 import { useMembers } from '../../hooks/useMembers'
 
@@ -49,6 +49,14 @@ const DEFAULT_RECURRENCE = {
   end_date:  '',
 }
 
+// ─── Role groups for group assignment ─────────────────────────────────────────
+const ROLE_GROUPS = [
+  { value: 'all',         label: 'Tout le monde', icon: '🌐' },
+  { value: 'naturopathe', label: 'Naturopathes',  icon: '🌿' },
+  { value: 'closer',      label: 'Closers',       icon: '💼' },
+  { value: 'setter',      label: 'Setters',       icon: '📞' },
+]
+
 export default function TaskModal({
   isOpen,
   onClose,
@@ -60,6 +68,12 @@ export default function TaskModal({
   const { user } = useAuth()
   const { members } = useMembers()
 
+  // Show assignment UI only when admin creates without a pre-selected member
+  const showAssignment = isAdmin && !userId
+
+  const [assignMode,    setAssignMode]    = useState('specific') // 'specific' | 'groups'
+  const [selectedRoles, setSelectedRoles] = useState(new Set())
+
   const [form, setForm] = useState({
     user_id:        userId || '',
     title:          '',
@@ -70,7 +84,6 @@ export default function TaskModal({
     points:         0,
     priority_order: 0,
   })
-  // isRecurring est toujours synchronisé avec task_type
   const [recurrence, setRecurrence] = useState(DEFAULT_RECURRENCE)
   const [loading, setLoading]       = useState(false)
   const [error, setError]           = useState('')
@@ -90,17 +103,42 @@ export default function TaskModal({
         priority_order: 0,
       })
       setRecurrence(DEFAULT_RECURRENCE)
+      setAssignMode('specific')
+      setSelectedRoles(new Set())
       setError('')
     }
   }, [isOpen, userId, defaultPriority])
 
-  const needsMemberSelect = isAdmin && !userId
+  // Non-admin members available for assignment
+  const nonAdminMembers = useMemo(
+    () => members.filter(m => m.role !== 'admin' && m.is_active !== false),
+    [members]
+  )
+
+  // Preview: which members will receive the task in group mode
+  const targetMembers = useMemo(() => {
+    if (!showAssignment || assignMode !== 'groups') return []
+    if (selectedRoles.has('all')) return nonAdminMembers
+    return nonAdminMembers.filter(m => selectedRoles.has(m.role))
+  }, [showAssignment, assignMode, selectedRoles, nonAdminMembers])
+
+  function toggleRole(role) {
+    setSelectedRoles(prev => {
+      const next = new Set(prev)
+      if (role === 'all') {
+        return next.has('all') ? new Set() : new Set(['all'])
+      }
+      next.delete('all') // deselect "all" when individual role chosen
+      if (next.has(role)) next.delete(role)
+      else next.add(role)
+      return next
+    })
+  }
 
   function handleChange(e) {
     const { name, value } = e.target
     setForm(f => {
       const next = { ...f, [name]: value }
-      // Si priorité passe à prioritaire → forcer points à 0
       if (name === 'priority' && value === 'prioritaire') next.points = 0
       return next
     })
@@ -123,18 +161,7 @@ export default function TaskModal({
     })
   }
 
-  async function handleSubmit(e) {
-    e.preventDefault()
-    if (needsMemberSelect && !form.user_id) { setError('Veuillez sélectionner un membre.'); return }
-    if (!form.title.trim()) { setError('Le titre est obligatoire.'); return }
-    if (isRecurring && recurrence.type === 'weekly' && recurrence.weekdays.length === 0) {
-      setError('Sélectionnez au moins un jour de la semaine.')
-      return
-    }
-
-    setLoading(true)
-    setError('')
-
+  function buildBasePayload() {
     const recurrence_rule = isRecurring ? {
       type:      recurrence.type,
       interval:  Math.max(1, parseInt(recurrence.interval) || 1),
@@ -144,8 +171,7 @@ export default function TaskModal({
       end_date:  recurrence.end_type === 'date'  ? recurrence.end_date : null,
     } : null
 
-    const taskPayload = {
-      user_id:        userId || form.user_id,
+    const payload = {
       created_by:     user.id,
       title:          form.title.trim(),
       description:    form.description.trim() || null,
@@ -156,14 +182,53 @@ export default function TaskModal({
       priority_order: Number(form.priority_order) || 0,
     }
     if (recurrence_rule) {
-      taskPayload.recurrence_rule  = recurrence_rule
-      taskPayload.recurrence_index = 0
+      payload.recurrence_rule  = recurrence_rule
+      payload.recurrence_index = 0
+    }
+    return payload
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    if (!form.title.trim()) { setError('Le titre est obligatoire.'); return }
+    if (isRecurring && recurrence.type === 'weekly' && recurrence.weekdays.length === 0) {
+      setError('Sélectionnez au moins un jour de la semaine.')
+      return
     }
 
-    const { error: err } = await createTask(taskPayload)
+    setLoading(true)
+    setError('')
+    const payload = buildBasePayload()
 
-    setLoading(false)
-    if (err) { setError(err.message); return }
+    if (showAssignment && assignMode === 'groups') {
+      // ── Group creation ────────────────────────────────────────────────────
+      if (selectedRoles.size === 0) {
+        setError('Sélectionnez au moins un groupe.')
+        setLoading(false); return
+      }
+      if (targetMembers.length === 0) {
+        setError('Aucun membre actif dans ce groupe.')
+        setLoading(false); return
+      }
+
+      const { errors } = await createTasksForUsers(payload, targetMembers.map(m => m.id))
+      setLoading(false)
+      if (errors.length > 0) {
+        setError(`Erreur lors de la création (${errors.length} tâche${errors.length > 1 ? 's' : ''} non créée${errors.length > 1 ? 's' : ''}).`)
+        return
+      }
+    } else {
+      // ── Single member creation ────────────────────────────────────────────
+      const uid = userId || form.user_id
+      if (showAssignment && !uid) {
+        setError('Veuillez sélectionner un membre.')
+        setLoading(false); return
+      }
+      const { error: err } = await createTask({ ...payload, user_id: uid })
+      setLoading(false)
+      if (err) { setError(err.message); return }
+    }
+
     onCreated?.()
     onClose()
   }
@@ -172,25 +237,115 @@ export default function TaskModal({
     <Modal isOpen={isOpen} onClose={onClose} title="Nouvelle tâche" size="md">
       <form onSubmit={handleSubmit} className="space-y-5">
 
-        {/* Membre */}
-        {needsMemberSelect && (
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-semibold text-[#1a1a1a]">Membre assigné <span className="text-red-400">*</span></label>
-            <select
-              name="user_id"
-              value={form.user_id}
-              onChange={handleChange}
-              className="w-full px-3 py-2.5 text-sm border border-[#e5e7eb] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#00bbb1]"
-            >
-              <option value="">Choisir un membre…</option>
-              {members.filter(m => m.role !== 'admin').map(m => (
-                <option key={m.id} value={m.id}>{m.full_name}</option>
+        {/* ── Assignment ───────────────────────────────────────────────────── */}
+        {showAssignment && (
+          <div className="flex flex-col gap-2">
+            <label className="text-sm font-semibold text-[#1a1a1a]">
+              Assigner à <span className="text-red-400">*</span>
+            </label>
+
+            {/* Mode toggle */}
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { value: 'specific', label: '👤 Membre spécifique' },
+                { value: 'groups',   label: '👥 Groupe(s)' },
+              ].map(m => (
+                <button
+                  key={m.value}
+                  type="button"
+                  onClick={() => setAssignMode(m.value)}
+                  className={`py-2 px-3 rounded-xl border-2 text-sm font-semibold transition-all ${
+                    assignMode === m.value
+                      ? 'border-[#00bbb1] bg-[#00bbb1]/5 text-[#00bbb1]'
+                      : 'border-[#e5e7eb] text-[#6b7280] hover:border-[#9ca3af]'
+                  }`}
+                >
+                  {m.label}
+                </button>
               ))}
-            </select>
+            </div>
+
+            {/* Specific member dropdown */}
+            {assignMode === 'specific' && (
+              <select
+                name="user_id"
+                value={form.user_id}
+                onChange={handleChange}
+                className="w-full px-3 py-2.5 text-sm border border-[#e5e7eb] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#00bbb1]"
+              >
+                <option value="">Choisir un membre…</option>
+                {nonAdminMembers.map(m => (
+                  <option key={m.id} value={m.id}>{m.full_name}</option>
+                ))}
+              </select>
+            )}
+
+            {/* Group role pickers */}
+            {assignMode === 'groups' && (
+              <div className="space-y-2.5">
+                <div className="grid grid-cols-2 gap-2">
+                  {ROLE_GROUPS.map(rg => {
+                    const count = rg.value === 'all'
+                      ? nonAdminMembers.length
+                      : nonAdminMembers.filter(m => m.role === rg.value).length
+                    if (count === 0) return null
+                    const isSelected = selectedRoles.has(rg.value)
+                    return (
+                      <button
+                        key={rg.value}
+                        type="button"
+                        onClick={() => toggleRole(rg.value)}
+                        className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl border-2 text-left transition-all ${
+                          isSelected
+                            ? 'border-[#00bbb1] bg-[#00bbb1]/5'
+                            : 'border-[#e5e7eb] hover:border-[#9ca3af]'
+                        }`}
+                      >
+                        {/* Checkbox */}
+                        <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                          isSelected ? 'border-[#00bbb1] bg-[#00bbb1]' : 'border-[#d1d5db]'
+                        }`}>
+                          {isSelected && (
+                            <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-sm font-semibold ${isSelected ? 'text-[#00bbb1]' : 'text-[#1a1a1a]'}`}>
+                            {rg.icon} {rg.label}
+                          </p>
+                          <p className="text-[10px] text-[#9ca3af]">
+                            {count} membre{count > 1 ? 's' : ''}
+                          </p>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {/* Preview banner */}
+                {targetMembers.length > 0 && (
+                  <div className="flex items-start gap-2 px-3 py-2.5 bg-[#00bbb1]/5 rounded-xl border border-[#00bbb1]/20">
+                    <svg className="w-4 h-4 text-[#00bbb1] flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                    <div>
+                      <p className="text-xs font-bold text-[#00bbb1]">
+                        {targetMembers.length} copie{targetMembers.length > 1 ? 's' : ''} seront créées
+                      </p>
+                      <p className="text-[10px] text-[#6b7280] mt-0.5">
+                        {targetMembers.map(m => m.full_name.split(' ')[0]).join(', ')}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
-        {/* Type de tâche */}
+        {/* ── Type de tâche ────────────────────────────────────────────────── */}
         <div className="flex flex-col gap-1.5">
           <label className="text-sm font-semibold text-[#1a1a1a]">Type</label>
           <div className="grid grid-cols-2 gap-2">
@@ -214,7 +369,7 @@ export default function TaskModal({
           </div>
         </div>
 
-        {/* Titre */}
+        {/* ── Titre ────────────────────────────────────────────────────────── */}
         <Input
           label="Titre"
           name="title"
@@ -224,7 +379,7 @@ export default function TaskModal({
           required
         />
 
-        {/* Description */}
+        {/* ── Description ──────────────────────────────────────────────────── */}
         <div className="flex flex-col gap-1.5">
           <label className="text-sm font-semibold text-[#1a1a1a]">
             Description <span className="text-[#9ca3af] font-normal">(optionnel)</span>
@@ -239,7 +394,7 @@ export default function TaskModal({
           />
         </div>
 
-        {/* Priorité */}
+        {/* ── Priorité ─────────────────────────────────────────────────────── */}
         <div className="flex flex-col gap-1.5">
           <label className="text-sm font-semibold text-[#1a1a1a]">Section</label>
           <div className="grid grid-cols-2 gap-2">
@@ -262,7 +417,7 @@ export default function TaskModal({
           </div>
         </div>
 
-        {/* Points — seulement pour les secondaires */}
+        {/* ── Points ───────────────────────────────────────────────────────── */}
         {form.priority === 'secondaire' && (
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-semibold text-[#1a1a1a]">
@@ -286,13 +441,16 @@ export default function TaskModal({
             </div>
             {form.points > 0 && (
               <p className="text-[11px] text-amber-600 font-medium">
-                Le membre gagnera {form.points} pts en cochant cette tâche.
+                {showAssignment && assignMode === 'groups' && targetMembers.length > 1
+                  ? `Chaque membre gagnera ${form.points} pts en cochant cette tâche.`
+                  : `Le membre gagnera ${form.points} pts en cochant cette tâche.`
+                }
               </p>
             )}
           </div>
         )}
 
-        {/* Ordre d'affichage + Date */}
+        {/* ── Date + Ordre ─────────────────────────────────────────────────── */}
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-semibold text-[#1a1a1a]">
@@ -322,7 +480,7 @@ export default function TaskModal({
           </div>
         </div>
 
-        {/* Récurrence — visible uniquement si task_type = recurrente */}
+        {/* ── Récurrence ───────────────────────────────────────────────────── */}
         {isRecurring && (
           <div className="border border-[#00bbb1]/30 rounded-2xl overflow-hidden bg-[#fafafa]">
             <div className="flex items-center gap-2 px-4 py-3 border-b border-[#e5e7eb] bg-[#00bbb1]/5">
@@ -333,7 +491,7 @@ export default function TaskModal({
             </div>
 
             <div className="px-4 pb-4 pt-3 space-y-4">
-              {/* Type */}
+              {/* Fréquence */}
               <div>
                 <label className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide mb-2 block">Fréquence</label>
                 <div className="flex gap-1.5">
@@ -354,7 +512,7 @@ export default function TaskModal({
                 </div>
               </div>
 
-              {/* Interval */}
+              {/* Intervalle */}
               <div className="flex items-center gap-2">
                 <span className="text-sm text-[#6b7280]">Tous les</span>
                 <input
@@ -446,7 +604,12 @@ export default function TaskModal({
 
         <div className="flex justify-end gap-3 pt-1">
           <Button type="button" variant="secondary" onClick={onClose}>Annuler</Button>
-          <Button type="submit" loading={loading}>Créer la tâche</Button>
+          <Button type="submit" loading={loading}>
+            {showAssignment && assignMode === 'groups' && targetMembers.length > 1
+              ? `Créer pour ${targetMembers.length} membres`
+              : 'Créer la tâche'
+            }
+          </Button>
         </div>
       </form>
     </Modal>

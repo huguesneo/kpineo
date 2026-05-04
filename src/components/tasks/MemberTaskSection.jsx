@@ -153,12 +153,15 @@ export default function MemberTaskSection({
 
   // Split pending by type
   const recurring = pending.filter(t => t.task_type === 'recurrente')
-  const oneTime   = pending
+  // Ponctuelles: separate active queue from those awaiting admin approval
+  const allOneTime = pending
     .filter(t => t.task_type === 'ponctuelle')
     .sort((a, b) =>
       (a.priority_order ?? 0) - (b.priority_order ?? 0) ||
       new Date(a.created_at) - new Date(b.created_at)
     )
+  const oneTime     = allOneTime.filter(t => !t.pending_approval)
+  const pendingAppr = allOneTime.filter(t => t.pending_approval)
 
   // Group recurring by frequency
   const freqGroups = {}
@@ -168,8 +171,9 @@ export default function MemberTaskSection({
     freqGroups[g].push(task)
   })
 
-  const hasRecurring = recurring.length > 0
-  const hasOneTime   = oneTime.length > 0
+  const hasRecurring  = recurring.length > 0
+  const hasOneTime    = oneTime.length > 0
+  const hasPendingAppr = pendingAppr.length > 0
 
   return (
     <div>
@@ -238,10 +242,32 @@ export default function MemberTaskSection({
               ) : null
             )}
 
+            {/* ── Ponctuelles en attente d'approbation ── */}
+            {hasPendingAppr && (
+              <div className={`${hasRecurring ? 'border-t border-[#f3f4f6]' : ''}`}>
+                {(hasRecurring || hasOneTime) && (
+                  <p className="text-[10px] font-bold text-amber-500 uppercase tracking-wider px-4 pt-3 pb-1">
+                    ⏳ En attente d'approbation
+                  </p>
+                )}
+                <div className="divide-y divide-[#f3f4f6]">
+                  {pendingAppr.map(task => (
+                    <TaskItem
+                      key={task.id}
+                      task={task}
+                      onUpdate={onUpdate}
+                      isAdmin={false}
+                      currentUserId={currentUserId}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* ── Ponctuelles — progressive disclosure ── */}
             {hasOneTime ? (
-              <div className={hasRecurring ? 'border-t border-[#f3f4f6]' : ''}>
-                {hasRecurring && (
+              <div className={hasRecurring || hasPendingAppr ? 'border-t border-[#f3f4f6]' : ''}>
+                {(hasRecurring || hasPendingAppr) && (
                   <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wider px-4 pt-3 pb-1">
                     Ponctuelles
                   </p>
@@ -252,12 +278,12 @@ export default function MemberTaskSection({
                   currentUserId={currentUserId}
                 />
               </div>
-            ) : (
-              /* All ponctuelles done — show clean state */
+            ) : !hasPendingAppr ? (
+              /* All ponctuelles done/submitted — show clean state */
               <div className={`px-4 py-3 text-center ${hasRecurring ? 'border-t border-[#f3f4f6]' : ''}`}>
                 <p className="text-xs font-semibold text-emerald-500">Tout est clean 🎯</p>
               </div>
-            )}
+            ) : null}
           </>
         )}
       </div>

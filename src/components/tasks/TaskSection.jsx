@@ -25,7 +25,7 @@ export default function TaskSection({ tasks, priority, userId, onUpdate, isAdmin
 
   const cfg = CONFIG[priority]
   const all = tasks.filter(t => t.priority === priority)
-  const pending = all.filter(t => !t.is_completed)
+  const pending = all.filter(t => !t.is_completed && !t.pending_approval)
   const completed = all.filter(t => t.is_completed)
   const total = all.length
   const pct = total > 0 ? Math.round((completed.length / total) * 100) : 0

@@ -143,23 +143,33 @@ export function useUserPoints(userId) {
     if (!userId) { setLoading(false); return }
 
     async function load() {
-      // Reset mensuel + streak (idempotents)
-      await resetMonthlyPointsIfNeeded(userId)
-      await checkAndUpdateStreak(userId)
+      try {
+        // Reset mensuel + streak (idempotents)
+        await resetMonthlyPointsIfNeeded(userId)
+        await checkAndUpdateStreak(userId)
 
-      const { data } = await supabase
-        .from('user_points')
-        .select('*')
-        .eq('user_id', userId)
-        .maybeSingle()
+        const { data } = await supabase
+          .from('user_points')
+          .select('*')
+          .eq('user_id', userId)
+          .maybeSingle()
 
-      setPoints(data ?? {
-        points_total: 0,
-        points_current_month: 0,
-        points_pending: 0,
-        current_streak_days: 0,
-      })
-      setLoading(false)
+        setPoints(data ?? {
+          points_total: 0,
+          points_current_month: 0,
+          points_pending: 0,
+          current_streak_days: 0,
+        })
+      } catch {
+        setPoints({
+          points_total: 0,
+          points_current_month: 0,
+          points_pending: 0,
+          current_streak_days: 0,
+        })
+      } finally {
+        setLoading(false)
+      }
     }
 
     load()

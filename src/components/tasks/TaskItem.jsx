@@ -187,6 +187,11 @@ export default function TaskItem({
               {format(new Date(task.completed_at), "d MMM 'à' HH:mm", { locale: fr })}
             </span>
           )}
+          {showCompletedAt && task.priority === 'secondaire' && (task.points ?? 0) > 0 && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-100 rounded-full px-2 py-0.5">
+              +{task.points} pts
+            </span>
+          )}
           {showCompletedAt && (
             <span className={`text-[10px] font-semibold rounded-full px-2 py-0.5 ${
               task.priority === 'prioritaire' ? 'bg-red-50 text-red-500' : 'bg-amber-50 text-amber-600'

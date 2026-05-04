@@ -509,12 +509,30 @@ const TX_TYPE_LABELS = {
 
 const MONTHS_SHORT = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc']
 
+function safeFmt(dateStr) {
+  try {
+    if (!dateStr) return '—'
+    const d = new Date(dateStr)
+    if (isNaN(d.getTime())) return '—'
+    return format(d, "d MMM yyyy 'à' HH:mm", { locale: fr })
+  } catch {
+    return '—'
+  }
+}
+
 function PointsTab({ userId }) {
   const { points, loading: ptsLoading }             = useUserPoints(userId)
   const { transactions, loading: txLoading }         = usePointsTransactions(userId, { limit: 30 })
   const { history, loading: histLoading }            = usePointsHistory(userId)
+  const [renderError, setRenderError]                = useState(null)
 
   if (ptsLoading) return <SkeletonCard />
+  if (renderError) return (
+    <Card className="p-6 text-center">
+      <p className="text-sm text-red-500 font-semibold">Erreur de chargement</p>
+      <p className="text-xs text-[#9ca3af] mt-1">{renderError}</p>
+    </Card>
+  )
 
   const streak = points?.current_streak_days ?? 0
 
@@ -577,7 +595,7 @@ function PointsTab({ userId }) {
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-[#1a1a1a]">{cfg.label}</p>
                       <p className="text-[10px] text-[#9ca3af]">
-                        {format(new Date(tx.created_at), 'd MMM yyyy à HH:mm', { locale: fr })}
+                        {safeFmt(tx.created_at)}
                       </p>
                     </div>
                     <p className={`text-sm font-bold ${isPos ? 'text-emerald-600' : 'text-red-500'}`}>
