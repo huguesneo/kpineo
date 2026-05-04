@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { toggleTaskCompletion, deleteTask, stopRecurrence, formatRecurrenceLabel } from '../../hooks/useTasks'
 import { format, isPast, isToday, isTomorrow } from 'date-fns'
 import { fr } from 'date-fns/locale'
+import TaskModal from './TaskModal'
 
 function dueDateLabel(dateStr) {
   const d = new Date(dateStr + 'T00:00:00')
@@ -24,6 +25,7 @@ export default function TaskItem({
   const [isPending, setIsPending]     = useState(task.pending_approval ?? false)
   const [toggling, setToggling]       = useState(false)
   const [stopping, setStopping]       = useState(false)
+  const [editOpen,  setEditOpen]      = useState(false)
 
   // Animation "+X pts"
   const [pointsAnimMounted,  setPointsAnimMounted]  = useState(false)
@@ -231,6 +233,17 @@ export default function TaskItem({
 
       {/* Actions */}
       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+        {isAdmin && !optimistic && (
+          <button
+            onClick={() => setEditOpen(true)}
+            className="p-1.5 rounded-lg hover:bg-[#00bbb1]/10 text-[#d1d5db] hover:text-[#00bbb1] transition-colors"
+            title="Modifier"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+          </button>
+        )}
         {isAdmin && isRecurring && (
           <button
             onClick={handleStopRecurrence}
@@ -255,6 +268,17 @@ export default function TaskItem({
           </button>
         )}
       </div>
+
+      {/* Edit modal */}
+      {editOpen && (
+        <TaskModal
+          isOpen={editOpen}
+          onClose={() => setEditOpen(false)}
+          task={task}
+          isAdmin={isAdmin}
+          onCreated={onUpdate}
+        />
+      )}
     </div>
   )
 }

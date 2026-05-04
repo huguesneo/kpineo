@@ -194,6 +194,16 @@ export function formatRecurrenceLabel(rule) {
 
 // ─── CRUD ─────────────────────────────────────────────────────────────────────
 
+export async function updateTask(id, updates) {
+  const { data, error } = await supabase
+    .from('tasks')
+    .update(updates)
+    .eq('id', id)
+    .select()
+    .single()
+  return { data, error }
+}
+
 export async function createTask(task) {
   const { data, error } = await supabase
     .from('tasks')

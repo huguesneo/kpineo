@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import Modal from '../shared/Modal'
 import Button from '../shared/Button'
 import Input from '../shared/Input'
-import { createTask, createTasksForUsers } from '../../hooks/useTasks'
+import { createTask, createTasksForUsers, updateTask } from '../../hooks/useTasks'
 import { useAuth } from '../../context/AuthContext'
 import { useMembers } from '../../hooks/useMembers'
 
@@ -64,15 +64,18 @@ export default function TaskModal({
   defaultPriority = 'prioritaire',
   onCreated,
   isAdmin = true,
+  task = null,        // if provided → edit mode
 }) {
+  const isEditMode = !!task
   const { user } = useAuth()
   const { members } = useMembers()
 
-  // Show assignment UI only when admin creates without a pre-selected member
-  const showAssignment = isAdmin && !userId
+  // Show assignment UI only when admin creates without a pre-selected member (never in edit mode)
+  const showAssignment = isAdmin && !userId && !isEditMode
 
   const [assignMode,    setAssignMode]    = useState('specific') // 'specific' | 'groups'
   const [selectedRoles, setSelectedRoles] = useState(new Set())
+  const [customPtsMode, setCustomPtsMode] = useState(false)
 
   const [form, setForm] = useState({
     user_id:        userId || '',
@@ -92,22 +95,49 @@ export default function TaskModal({
 
   useEffect(() => {
     if (isOpen) {
-      setForm({
-        user_id:        userId || '',
-        title:          '',
-        description:    '',
-        due_date:       '',
-        priority:       defaultPriority,
-        task_type:      'ponctuelle',
-        points:         0,
-        priority_order: 0,
-      })
-      setRecurrence(DEFAULT_RECURRENCE)
-      setAssignMode('specific')
-      setSelectedRoles(new Set())
+      if (isEditMode) {
+        // ── Edit mode: pre-fill from existing task ────────────────────────
+        setForm({
+          user_id:        task.user_id,
+          title:          task.title          ?? '',
+          description:    task.description    ?? '',
+          due_date:       task.due_date        ?? '',
+          priority:       task.priority        ?? defaultPriority,
+          task_type:      task.task_type       ?? 'ponctuelle',
+          points:         task.points          ?? 0,
+          priority_order: task.priority_order  ?? 0,
+        })
+        const rule = task.recurrence_rule
+        setRecurrence(rule ? {
+          type:      rule.type      ?? 'weekly',
+          interval:  rule.interval  ?? 1,
+          weekdays:  rule.weekdays  ?? [1],
+          end_type:  rule.end_type  ?? 'never',
+          end_count: rule.end_count ?? 10,
+          end_date:  rule.end_date  ?? '',
+        } : DEFAULT_RECURRENCE)
+        // If existing points value isn't a preset → open custom mode
+        setCustomPtsMode(!POINTS_OPTIONS.includes(task.points ?? 0))
+      } else {
+        // ── Create mode ───────────────────────────────────────────────────
+        setForm({
+          user_id:        userId || '',
+          title:          '',
+          description:    '',
+          due_date:       '',
+          priority:       defaultPriority,
+          task_type:      'ponctuelle',
+          points:         0,
+          priority_order: 0,
+        })
+        setRecurrence(DEFAULT_RECURRENCE)
+        setAssignMode('specific')
+        setSelectedRoles(new Set())
+        setCustomPtsMode(false)
+      }
       setError('')
     }
-  }, [isOpen, userId, defaultPriority])
+  }, [isOpen, isEditMode, task, userId, defaultPriority])
 
   // Non-admin members available for assignment
   const nonAdminMembers = useMemo(
@@ -200,7 +230,12 @@ export default function TaskModal({
     setError('')
     const payload = buildBasePayload()
 
-    if (showAssignment && assignMode === 'groups') {
+    if (isEditMode) {
+      // ── Edit existing task ────────────────────────────────────────────────
+      const { error: err } = await updateTask(task.id, payload)
+      setLoading(false)
+      if (err) { setError(err.message); return }
+    } else if (showAssignment && assignMode === 'groups') {
       // ── Group creation ────────────────────────────────────────────────────
       if (selectedRoles.size === 0) {
         setError('Sélectionnez au moins un groupe.')
@@ -234,7 +269,7 @@ export default function TaskModal({
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Nouvelle tâche" size="md">
+    <Modal isOpen={isOpen} onClose={onClose} title={isEditMode ? 'Modifier la tâche' : 'Nouvelle tâche'} size="md">
       <form onSubmit={handleSubmit} className="space-y-5">
 
         {/* ── Assignment ───────────────────────────────────────────────────── */}
@@ -417,20 +452,22 @@ export default function TaskModal({
           </div>
         </div>
 
-        {/* ── Points ───────────────────────────────────────────────────────── */}
-        {form.priority === 'secondaire' && (
+        {/* ── Points (admin only) ──────────────────────────────────────────── */}
+        {form.priority === 'secondaire' && isAdmin && (
           <div className="flex flex-col gap-1.5">
             <label className="text-sm font-semibold text-[#1a1a1a]">
               Points <span className="text-[#9ca3af] font-normal">(récompense à la complétion)</span>
             </label>
+
+            {/* Preset buttons + custom toggle */}
             <div className="flex gap-2">
               {POINTS_OPTIONS.map(pts => (
                 <button
                   key={pts}
                   type="button"
-                  onClick={() => setForm(f => ({ ...f, points: pts }))}
+                  onClick={() => { setForm(f => ({ ...f, points: pts })); setCustomPtsMode(false) }}
                   className={`flex-1 py-2 rounded-xl text-sm font-bold border-2 transition-all ${
-                    form.points === pts
+                    !customPtsMode && form.points === pts
                       ? 'border-amber-400 bg-amber-50 text-amber-700'
                       : 'border-[#e5e7eb] text-[#6b7280] hover:border-amber-200'
                   }`}
@@ -438,7 +475,39 @@ export default function TaskModal({
                   {pts === 0 ? '—' : `+${pts}`}
                 </button>
               ))}
+              {/* Custom toggle */}
+              <button
+                type="button"
+                onClick={() => { setCustomPtsMode(c => !c); if (!customPtsMode) setForm(f => ({ ...f, points: 0 })) }}
+                className={`px-3 py-2 rounded-xl text-sm font-bold border-2 transition-all flex-shrink-0 ${
+                  customPtsMode
+                    ? 'border-amber-400 bg-amber-50 text-amber-700'
+                    : 'border-[#e5e7eb] text-[#6b7280] hover:border-amber-200'
+                }`}
+                title="Valeur personnalisée"
+              >
+                ✏️
+              </button>
             </div>
+
+            {/* Custom number input */}
+            {customPtsMode && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-[#6b7280]">+</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="9999"
+                  value={form.points || ''}
+                  onChange={e => setForm(f => ({ ...f, points: Math.max(0, parseInt(e.target.value) || 0) }))}
+                  placeholder="Ex: 75"
+                  autoFocus
+                  className="w-28 px-3 py-2 text-sm font-bold text-amber-700 border-2 border-amber-300 rounded-xl bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-300"
+                />
+                <span className="text-sm text-[#6b7280]">pts</span>
+              </div>
+            )}
+
             {form.points > 0 && (
               <p className="text-[11px] text-amber-600 font-medium">
                 {showAssignment && assignMode === 'groups' && targetMembers.length > 1
@@ -605,9 +674,11 @@ export default function TaskModal({
         <div className="flex justify-end gap-3 pt-1">
           <Button type="button" variant="secondary" onClick={onClose}>Annuler</Button>
           <Button type="submit" loading={loading}>
-            {showAssignment && assignMode === 'groups' && targetMembers.length > 1
-              ? `Créer pour ${targetMembers.length} membres`
-              : 'Créer la tâche'
+            {isEditMode
+              ? 'Enregistrer'
+              : showAssignment && assignMode === 'groups' && targetMembers.length > 1
+                ? `Créer pour ${targetMembers.length} membres`
+                : 'Créer la tâche'
             }
           </Button>
         </div>
