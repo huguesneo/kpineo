@@ -137,12 +137,15 @@ export default function OTNotifications() {
   // ── Admin states ──
   const [pendingRecs, setPendingRecs]         = useState([])
   const [pendingChanges, setPendingChanges]   = useState([])
+  const [pendingAdjs, setPendingAdjs]         = useState([])
   const [otDismissed, setOtDismissed]         = useState(new Set())
   const [changeDismissed, setChangeDismissed] = useState(new Set())
+  const [adjDismissed, setAdjDismissed]       = useState(new Set())
 
   // ── Member states ──
   const [approvedRecs, setApprovedRecs]       = useState([])
   const [reviewedChanges, setReviewedChanges] = useState([])
+  const [reviewedAdjs, setReviewedAdjs]       = useState([])
 
   // ── Boutique states ──
   const [redemptionToasts, setRedemptionToasts]   = useState([])   // admin: new pending
@@ -327,6 +330,89 @@ export default function OTNotifications() {
   }, [isAdmin, profile?.id])
 
   // ─────────────────────────────────────────────────────────────
+  // Admin : ajustements journaliers en attente
+  // ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isAdmin) return
+
+    async function load() {
+      const { data } = await supabase
+        .from('schedule_adjustments')
+        .select('*, profiles(full_name)')
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false })
+      if (!data?.length) return
+      setPendingAdjs(data)
+      if (!dingFired.current) { dingFired.current = true; playDing() }
+    }
+    load()
+
+    const channel = supabase.channel('adj-admin-notifs')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'schedule_adjustments' },
+        async (payload) => {
+          if (payload.new.status !== 'pending') return
+          const { data: prof } = await supabase.from('profiles').select('full_name').eq('id', payload.new.user_id).single()
+          const enriched = { ...payload.new, profiles: { full_name: prof?.full_name ?? 'Membre' } }
+          setPendingAdjs(prev => [enriched, ...prev.filter(r => r.id !== enriched.id)])
+          playDing()
+        }
+      )
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'schedule_adjustments' },
+        (payload) => {
+          if (payload.new.status !== 'pending') setPendingAdjs(prev => prev.filter(r => r.id !== payload.new.id))
+        }
+      )
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'schedule_adjustments' },
+        (payload) => { setPendingAdjs(prev => prev.filter(r => r.id !== payload.old?.id)) }
+      )
+      .subscribe()
+
+    return () => supabase.removeChannel(channel)
+  }, [isAdmin])
+
+  // ─────────────────────────────────────────────────────────────
+  // Membre : ajustements reviewés non vus
+  // ─────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (isAdmin || !profile?.id) return
+
+    function getSeenAdjIds() {
+      return new Set(JSON.parse(localStorage.getItem('adj_seen') ?? '[]'))
+    }
+
+    async function load() {
+      const { data } = await supabase
+        .from('schedule_adjustments').select('*')
+        .eq('user_id', profile.id)
+        .in('status', ['approved', 'rejected'])
+        .order('reviewed_at', { ascending: false })
+        .limit(10)
+      const seen = getSeenAdjIds()
+      const unseen = (data ?? []).filter(a => !seen.has(a.id))
+      setReviewedAdjs(unseen)
+      if (unseen.length > 0 && !dingFired.current) { dingFired.current = true; playDing() }
+    }
+    load()
+
+    const channel = supabase.channel(`adj-member-notifs-${profile.id}`)
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'schedule_adjustments',
+        filter: `user_id=eq.${profile.id}`,
+      }, (payload) => {
+        const status = payload.new.status
+        if (status === 'approved' || status === 'rejected') {
+          const seen = getSeenAdjIds()
+          if (!seen.has(payload.new.id)) {
+            setReviewedAdjs(prev => [payload.new, ...prev]); playDing()
+          }
+        }
+      })
+      .subscribe()
+
+    return () => supabase.removeChannel(channel)
+  }, [isAdmin, profile?.id])
+
+  // ─────────────────────────────────────────────────────────────
   // Admin : nouvelles demandes d'échange boutique
   // ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -398,29 +484,45 @@ export default function OTNotifications() {
     localStorage.setItem('pending_change_seen', JSON.stringify([...seen, id]))
     setReviewedChanges(prev => prev.filter(c => c.id !== id))
   }
+  function adjDismissAdmin(id) {
+    setAdjDismissed(prev => new Set([...prev, id]))
+  }
+  function adjViewAdmin(id) {
+    const rec = pendingAdjs.find(r => r.id === id)
+    setAdjDismissed(prev => new Set([...prev, id]))
+    navigate('/horaires', { state: { expandMemberId: rec?.user_id } })
+  }
   function redeemDismiss(id) {
     setRedeemDismissed(prev => new Set([...prev, id]))
   }
   function memberRedeemDismiss(id) {
     setMemberRedeemToasts(prev => prev.filter(r => r.id !== id))
   }
+  function memberAdjDismiss(id) {
+    const seen = JSON.parse(localStorage.getItem('adj_seen') ?? '[]')
+    localStorage.setItem('adj_seen', JSON.stringify([...seen, id]))
+    setReviewedAdjs(prev => prev.filter(a => a.id !== id))
+  }
 
   // ── Toasts à afficher ──
   const visibleOt      = (isAdmin && onDashboard) ? pendingRecs.filter(r => !otDismissed.has(r.id)) : []
   const visibleChanges = (isAdmin && onDashboard) ? pendingChanges.filter(r => !changeDismissed.has(r.id)) : []
+  const visibleAdjs    = (isAdmin && onDashboard) ? pendingAdjs.filter(r => !adjDismissed.has(r.id)) : []
   const visibleRedeems = isAdmin ? redemptionToasts.filter(r => !redeemDismissed.has(r.id)).slice(0, 2) : []
   const memberOtToasts       = !isAdmin ? approvedRecs.slice(0, 2) : []
   const memberChangeToasts   = !isAdmin ? reviewedChanges.slice(0, 2) : []
+  const memberAdjToasts      = !isAdmin ? reviewedAdjs.slice(0, 2) : []
   const memberRedeemVisible  = !isAdmin ? memberRedeemToasts.slice(0, 2) : []
 
   // Combine admin toasts (max 4 total)
   const allAdminToasts = [
     ...visibleOt.slice(0, 2).map(r => ({ ...r, _kind: 'ot' })),
     ...visibleChanges.slice(0, 2).map(r => ({ ...r, _kind: 'change' })),
+    ...visibleAdjs.slice(0, 2).map(r => ({ ...r, _kind: 'adj' })),
     ...visibleRedeems.map(r => ({ ...r, _kind: 'redeem' })),
   ].slice(0, 4)
 
-  const hasAny = allAdminToasts.length || memberOtToasts.length || memberChangeToasts.length || memberRedeemVisible.length
+  const hasAny = allAdminToasts.length || memberOtToasts.length || memberChangeToasts.length || memberAdjToasts.length || memberRedeemVisible.length
   if (!hasAny) return null
 
   return (
@@ -479,6 +581,36 @@ export default function OTNotifications() {
                 actionLabel="Voir"
                 onAction={() => adminChangeView(r.id)}
                 onDismiss={() => adminChangeDismiss(r.id)}
+              />
+            </div>
+          )
+        }
+
+        if (r._kind === 'adj') {
+          const name = r.profiles?.full_name ?? 'Un membre'
+          const delta = Number(r.adjusted_hours) - Number(r.normal_hours)
+          const isExtra = delta > 0
+          return (
+            <div key={`adj-${r.id}`} className="pointer-events-auto">
+              <Toast
+                delay={i * 80}
+                icon={
+                  <div className="w-10 h-10 rounded-full bg-amber-50 flex items-center justify-center text-sm font-bold text-amber-600">
+                    {name.charAt(0).toUpperCase()}
+                  </div>
+                }
+                title={name}
+                subtitle={
+                  <>
+                    Ajustement {isExtra ? 'heures sup.' : 'départ anticipé'} · {' '}
+                    <strong>{isExtra ? '+' : ''}{delta}h</strong>
+                    <br />
+                    <span className="capitalize">{fmtDayDate(r.date)}</span>
+                  </>
+                }
+                actionLabel="Voir"
+                onAction={() => adjViewAdmin(r.id)}
+                onDismiss={() => adjDismissAdmin(r.id)}
               />
             </div>
           )
@@ -548,6 +680,38 @@ export default function OTNotifications() {
               actionLabel={isAvailable ? 'Voir' : null}
               onAction={isAvailable ? () => { memberRedeemDismiss(r.id); navigate('/boutique/mes-echanges') } : null}
               onDismiss={() => memberRedeemDismiss(r.id)}
+            />
+          </div>
+        )
+      })}
+
+      {/* Membre : ajustements reviewés */}
+      {memberAdjToasts.map((a, i) => {
+        const isApproved = a.status === 'approved'
+        const delta = Number(a.adjusted_hours) - Number(a.normal_hours)
+        const isExtra = delta > 0
+        return (
+          <div key={`madj-${a.id}`} className="pointer-events-auto">
+            <Toast
+              delay={i * 300}
+              autoCloseSecs={5}
+              icon={
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xl ${
+                  isApproved ? 'bg-emerald-50' : 'bg-red-50'
+                }`}>
+                  {isApproved ? '✅' : '❌'}
+                </div>
+              }
+              title={isApproved ? 'Ajustement approuvé' : 'Ajustement refusé'}
+              subtitle={
+                <>
+                  Ton {isExtra ? 'heure supplémentaire' : 'départ anticipé'} du{' '}
+                  <span className="capitalize">{fmtDayDate(a.date)}</span>{' '}
+                  a été <strong>{isApproved ? 'approuvé' : 'refusé'}</strong>.
+                </>
+              }
+              onAction={null}
+              onDismiss={() => memberAdjDismiss(a.id)}
             />
           </div>
         )

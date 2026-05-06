@@ -7,6 +7,8 @@ import {
   upsertAbsenceAllowance, upsertOvertimeRecord, deleteOvertimeRecord, approveOvertimeRecord,
   requestChange, cancelChangeRequest, approveChange, rejectChange,
 } from '../../hooks/useSchedule'
+import { usePayPeriodConfig, getCurrentPayPeriod } from '../../hooks/usePayPeriod'
+import { useScheduleAdjustments, createAdjustment, approveAdjustment, rejectAdjustment, deleteAdjustment } from '../../hooks/useScheduleAdjustments'
 import { format, parseISO, eachDayOfInterval } from 'date-fns'
 import { fr } from 'date-fns/locale'
 
@@ -56,6 +58,159 @@ function fmtDate(d) {
 
 function fmtDayDate(d) {
   try { return format(parseISO(d), 'EEEE d MMMM', { locale: fr }) } catch { return d }
+}
+
+function getScheduledHoursForDate(schedules, dateStr) {
+  if (!dateStr || schedules.length === 0) return 0
+  try {
+    const s = getActiveSchedule(schedules, dateStr)
+    if (!s) return 0
+    return Number(s[JS_DAY_TO_KEY[parseISO(dateStr).getDay()]] ?? 0)
+  } catch { return 0 }
+}
+
+function calcPayPeriodHoursWithAdjustments(schedules, adjustments, periodStart, periodEnd) {
+  if (!periodStart || !periodEnd) return 0
+  const approvedAdj = new Map(
+    (adjustments ?? [])
+      .filter(a => a.status === 'approved' && a.date >= periodStart && a.date <= periodEnd)
+      .map(a => [a.date, a])
+  )
+  try {
+    return eachDayOfInterval({ start: parseISO(periodStart), end: parseISO(periodEnd) })
+      .reduce((total, d) => {
+        const ds = d.toISOString().split('T')[0]
+        const adj = approvedAdj.get(ds)
+        if (adj) {
+          const delta = Number(adj.adjusted_hours) - Number(adj.normal_hours)
+          // Extra hours go to bank and don't inflate pay period; early finish + bank compensation
+          return total + (delta >= 0
+            ? Number(adj.normal_hours)
+            : Number(adj.adjusted_hours) + Number(adj.bank_hours_applied ?? 0))
+        }
+        const s = getActiveSchedule(schedules, ds)
+        return total + (s ? Number(s[JS_DAY_TO_KEY[d.getDay()]] ?? 0) : 0)
+      }, 0)
+  } catch { return 0 }
+}
+
+// ─── Adjustment form ───────────────────────────────────────────
+function AdjustmentForm({ schedules, bankBalance, existingForDate, onSave, onCancel, saving }) {
+  const today = new Date().toISOString().split('T')[0]
+  const [date, setDate] = useState(today)
+  const [adjHoursStr, setAdjHoursStr] = useState('')
+  const [useBank, setUseBank] = useState(false)
+  const [bankApplyStr, setBankApplyStr] = useState('')
+  const [notes, setNotes] = useState('')
+
+  const normalHours = getScheduledHoursForDate(schedules, date)
+  const adjH = adjHoursStr !== '' ? Number(adjHoursStr) : null
+  const delta = adjH !== null ? adjH - normalHours : null
+  const isExtra = delta !== null && delta > 0
+  const isEarly = delta !== null && delta < 0
+  const wouldExceedBank = isExtra && (bankBalance + delta > 2)
+  const maxBankApply = isEarly ? Math.min(bankBalance, Math.abs(delta)) : 0
+  const bankApply = useBank ? Math.min(Number(bankApplyStr || maxBankApply), maxBankApply) : 0
+
+  const existing = existingForDate(date)
+  const blockedByExisting = existing && (existing.status === 'pending' || existing.status === 'approved')
+
+  function handleChangeDate(d) {
+    setDate(d)
+    setAdjHoursStr('')
+    setUseBank(false)
+    setBankApplyStr('')
+  }
+
+  function handleSubmit() {
+    if (adjH === null || delta === 0 || wouldExceedBank || normalHours === 0 || blockedByExisting) return
+    onSave({ date, adjusted_hours: adjH, normal_hours: normalHours, bank_hours_applied: bankApply, notes: notes || null })
+  }
+
+  return (
+    <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-3">
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs font-semibold text-[#6b7280] mb-1 block">Date</label>
+          <input type="date" value={date} max={today}
+            onChange={e => handleChangeDate(e.target.value)}
+            className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00bbb1]" />
+          <p className="text-[11px] text-[#9ca3af] mt-1">
+            {normalHours > 0 ? `Horaire prévu : ${normalHours}h` : 'Aucun horaire ce jour'}
+          </p>
+        </div>
+        <div>
+          <label className="text-xs font-semibold text-[#6b7280] mb-1 block">Heures travaillées</label>
+          <input type="number" min="0" max="24" step="0.5" value={adjHoursStr}
+            placeholder={normalHours > 0 ? String(normalHours) : '0'}
+            onChange={e => { setAdjHoursStr(e.target.value); setUseBank(false); setBankApplyStr('') }}
+            className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00bbb1]" />
+        </div>
+      </div>
+
+      {blockedByExisting && (
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-700 font-semibold">
+          {existing.status === 'pending'
+            ? 'Un ajustement est déjà en attente pour ce jour.'
+            : 'Un ajustement a déjà été approuvé pour ce jour.'}
+        </div>
+      )}
+
+      {!blockedByExisting && delta !== null && delta !== 0 && (
+        <div className={`rounded-lg p-3 text-xs space-y-2 ${
+          wouldExceedBank ? 'bg-red-50 border border-red-200' :
+          isExtra ? 'bg-emerald-50 border border-emerald-100' :
+          'bg-amber-50 border border-amber-200'
+        }`}>
+          {isExtra ? (
+            <>
+              <p className="font-semibold text-emerald-700">+{fmtH(delta)} → iront dans ta banque d'heures</p>
+              {wouldExceedBank
+                ? <p className="text-red-600 font-bold">⚠️ Dépasse la limite de 2h (banque actuelle : {fmtH(bankBalance)}). Demande impossible.</p>
+                : <p className="text-emerald-600">Banque après approbation : {fmtH(bankBalance + delta)} / 2h</p>
+              }
+            </>
+          ) : (
+            <>
+              <p className="font-semibold text-amber-700">{fmtH(Math.abs(delta))} de moins que prévu — période de paie réduite</p>
+              {bankBalance > 0 && maxBankApply > 0 && (
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={useBank} onChange={e => { setUseBank(e.target.checked); setBankApplyStr('') }}
+                    className="rounded accent-[#00bbb1]" />
+                  <span className="text-amber-800">Compenser avec des heures en banque ({fmtH(bankBalance)} disponible)</span>
+                </label>
+              )}
+              {useBank && maxBankApply > 0 && (
+                <div>
+                  <label className="text-[11px] font-semibold text-[#6b7280] mb-1 block">Heures à compenser (max {fmtH(maxBankApply)})</label>
+                  <input type="number" min="0.5" max={maxBankApply} step="0.5"
+                    value={bankApplyStr !== '' ? bankApplyStr : maxBankApply}
+                    onChange={e => setBankApplyStr(e.target.value)}
+                    className="w-24 px-2 py-1 text-sm border border-amber-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-400" />
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      <div>
+        <label className="text-xs font-semibold text-[#6b7280] mb-1 block">Note (optionnel)</label>
+        <input type="text" value={notes} onChange={e => setNotes(e.target.value)}
+          placeholder="Raison de l'ajustement..."
+          className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00bbb1]" />
+      </div>
+
+      <div className="flex justify-end gap-2">
+        <Button size="sm" variant="secondary" onClick={onCancel}>Annuler</Button>
+        <Button size="sm" loading={saving}
+          disabled={adjH === null || delta === 0 || wouldExceedBank || normalHours === 0 || blockedByExisting}
+          onClick={handleSubmit}>
+          Envoyer pour approbation
+        </Button>
+      </div>
+    </div>
+  )
 }
 
 // ─── Delete confirm inline ─────────────────────────────────────
@@ -282,6 +437,21 @@ export default function ScheduleManager({ userId, isAdmin }) {
   const { allowance, refetch: refetchAllow }                          = useAbsenceAllowance(userId, year)
   const { records: overtimeRecs, refetch: refetchOT }                 = useOvertimeRecords(userId, year)
   const { changes: pendingChanges, refetch: refetchPending }          = usePendingChanges(userId)
+  const { config: payConfig }                                         = usePayPeriodConfig()
+  const { adjustments, refetch: refetchAdj }                          = useScheduleAdjustments(userId)
+
+  const payPeriod = payConfig ? getCurrentPayPeriod(payConfig.reference_pay_date, payConfig.period_length_days) : null
+  const payPeriodHours = payPeriod ? calcPayPeriodHoursWithAdjustments(schedules, adjustments, payPeriod.start, payPeriod.end) : 0
+  const PAY_TARGET = 80
+
+  // Bank balance: sum of approved positive deltas (all-time) minus bank hours applied, capped at 2h
+  const bankEarned = adjustments
+    .filter(a => a.status === 'approved' && Number(a.adjusted_hours) > Number(a.normal_hours))
+    .reduce((sum, a) => sum + (Number(a.adjusted_hours) - Number(a.normal_hours)), 0)
+  const bankUsedTotal = adjustments
+    .filter(a => a.status === 'approved')
+    .reduce((sum, a) => sum + Number(a.bank_hours_applied ?? 0), 0)
+  const bankBalance = Math.max(0, Math.min(2, bankEarned) - bankUsedTotal)
 
   const [addingSched, setAddingSched] = useState(false)
   const [editingSchedId, setEditingSchedId] = useState(null)
@@ -303,8 +473,15 @@ export default function ScheduleManager({ userId, isAdmin }) {
   const [approvingOT, setApprovingOT] = useState(null)
 
   // Pending change actions
-  const [reviewingChange, setReviewingChange] = useState(null) // id en cours d'approbation/refus
+  const [reviewingChange, setReviewingChange] = useState(null)
   const [cancellingChange, setCancellingChange] = useState(null)
+
+  // Adjustment state
+  const [showAdjForm, setShowAdjForm] = useState(false)
+  const [adjSaving, setAdjSaving] = useState(false)
+  const [approvingAdj, setApprovingAdj] = useState(null)
+  const [rejectingAdj, setRejectingAdj] = useState(null)
+  const [confirmDelAdj, setConfirmDelAdj] = useState(null)
 
   // ── Computed balances ──
   const sickUsed     = absences.filter(a => a.type === 'sick').reduce((s, a) => s + Number(a.hours), 0)
@@ -390,6 +567,45 @@ export default function ScheduleManager({ userId, isAdmin }) {
     setApprovingOT(null)
   }
 
+  // ── Adjustment handlers ──
+
+  function existingAdjForDate(dateStr) {
+    return adjustments.find(a => a.date === dateStr) ?? null
+  }
+
+  async function handleCreateAdj(form) {
+    setAdjSaving(true)
+    // If there's a rejected adjustment for this date, delete it first (UNIQUE constraint)
+    const existing = existingAdjForDate(form.date)
+    if (existing && existing.status === 'rejected') {
+      await deleteAdjustment(existing.id)
+    }
+    await createAdjustment({ ...form, user_id: userId })
+    await refetchAdj()
+    setAdjSaving(false)
+    setShowAdjForm(false)
+  }
+
+  async function handleApproveAdj(id) {
+    setApprovingAdj(id)
+    await approveAdjustment(id, userId)
+    await refetchAdj()
+    setApprovingAdj(null)
+  }
+
+  async function handleRejectAdj(id) {
+    setRejectingAdj(id)
+    await rejectAdjustment(id, userId)
+    await refetchAdj()
+    setRejectingAdj(null)
+  }
+
+  async function handleDeleteAdj(id) {
+    await deleteAdjustment(id)
+    setConfirmDelAdj(null)
+    refetchAdj()
+  }
+
   // ── Pending changes handlers ──
 
   // Membre : demande de modification d'une absence
@@ -463,6 +679,60 @@ export default function ScheduleManager({ userId, isAdmin }) {
 
   return (
     <div className="space-y-6">
+
+      {/* ── Période de paie (membre seulement) ── */}
+      {!isAdmin && payPeriod && (
+        <Card className="p-5">
+          <h3 className="font-bold text-sm text-[#1a1a1a] mb-3">Période de paie en cours</h3>
+          <p className="text-xs text-[#6b7280] mb-4">
+            {format(parseISO(payPeriod.start), 'd MMM', { locale: fr })} – {format(parseISO(payPeriod.end), 'd MMM yyyy', { locale: fr })}
+          </p>
+          <div className="flex items-end justify-between mb-2">
+            <span className={`text-3xl font-bold ${
+              payPeriodHours >= PAY_TARGET ? 'text-emerald-600' : 'text-amber-600'
+            }`}>
+              {fmtH(payPeriodHours)}
+            </span>
+            <span className="text-sm text-[#9ca3af] font-semibold">/ {PAY_TARGET}h</span>
+          </div>
+          <div className="w-full bg-[#f3f4f6] rounded-full h-2.5">
+            <div
+              className={`h-2.5 rounded-full transition-all duration-700 ${
+                payPeriodHours >= PAY_TARGET ? 'bg-emerald-500' : 'bg-amber-400'
+              }`}
+              style={{ width: `${Math.min(100, (payPeriodHours / PAY_TARGET) * 100)}%` }}
+            />
+          </div>
+          {payPeriodHours < PAY_TARGET && (
+            <p className="text-xs text-amber-700 mt-2 font-semibold">
+              {fmtH(PAY_TARGET - payPeriodHours)} manquant pour atteindre la cible
+            </p>
+          )}
+        </Card>
+      )}
+
+      {/* ── Heures en banque (membre seulement) ── */}
+      {!isAdmin && bankEarned > 0 && (
+        <Card className="p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-bold text-sm text-[#1a1a1a]">Heures en banque</h3>
+            <span className="text-xs text-[#9ca3af]">max 2h</span>
+          </div>
+          <div className="flex items-end gap-2 mb-2">
+            <span className={`text-3xl font-bold ${bankBalance > 0 ? 'text-emerald-600' : 'text-[#9ca3af]'}`}>
+              {fmtH(bankBalance)}
+            </span>
+            <span className="text-sm text-[#9ca3af] mb-1">disponible</span>
+          </div>
+          <div className="w-full bg-[#f3f4f6] rounded-full h-2">
+            <div className="h-2 rounded-full bg-emerald-500 transition-all duration-700"
+              style={{ width: `${Math.min(100, (bankBalance / 2) * 100)}%` }} />
+          </div>
+          {bankUsedTotal > 0 && (
+            <p className="text-xs text-[#9ca3af] mt-2">{fmtH(bankUsedTotal)} utilisé pour compenser des absences</p>
+          )}
+        </Card>
+      )}
 
       {/* ── Alerte heures à rattraper ── */}
       {remainingMakeup > 0 && (
@@ -544,7 +814,12 @@ export default function ScheduleManager({ userId, isAdmin }) {
             <h3 className="font-bold text-sm text-[#1a1a1a]">Horaire hebdomadaire</h3>
             <p className="text-xs text-[#6b7280]">Cible naturopathe : 40h / semaine</p>
           </div>
-          <Button size="sm" onClick={() => { setAddingSched(true); setEditingSchedId(null) }}>+ Ajouter</Button>
+          {isAdmin
+            ? <Button size="sm" onClick={() => { setAddingSched(true); setEditingSchedId(null) }}>+ Ajouter</Button>
+            : <Button size="sm" onClick={() => { setShowAdjForm(v => !v) }}>
+                {showAdjForm ? 'Annuler' : 'Ajuster une journée'}
+              </Button>
+          }
         </div>
 
         {schedLoading ? (
@@ -634,6 +909,19 @@ export default function ScheduleManager({ userId, isAdmin }) {
             <ScheduleForm saving={schedSaving}
               onSave={form => handleSaveSched({ ...form, user_id: userId })}
               onCancel={() => setAddingSched(false)} />
+          </div>
+        )}
+
+        {showAdjForm && !isAdmin && (
+          <div className="mt-4">
+            <AdjustmentForm
+              schedules={schedules}
+              bankBalance={bankBalance}
+              existingForDate={existingAdjForDate}
+              saving={adjSaving}
+              onSave={handleCreateAdj}
+              onCancel={() => setShowAdjForm(false)}
+            />
           </div>
         )}
       </Card>
@@ -813,6 +1101,89 @@ export default function ScheduleManager({ userId, isAdmin }) {
                         </>
                       )}
                     </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </Card>
+
+      {/* ── Ajustements journaliers ── */}
+      <Card className="p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="font-bold text-sm text-[#1a1a1a]">Ajustements journaliers</h3>
+            <p className="text-xs text-[#6b7280]">Finir tôt ou faire des heures en banque (max 2h)</p>
+          </div>
+          {!isAdmin && (
+            <Button size="sm" variant="secondary" onClick={() => setShowAdjForm(v => !v)}>
+              {showAdjForm ? 'Annuler' : '+ Ajuster'}
+            </Button>
+          )}
+        </div>
+
+        {adjustments.length === 0 ? (
+          <p className="text-sm text-[#6b7280] py-2">Aucun ajustement enregistré.</p>
+        ) : (
+          <div className="space-y-2">
+            {adjustments.slice(0, 15).map(a => {
+              const delta = Number(a.adjusted_hours) - Number(a.normal_hours)
+              const isExtra = delta > 0
+              const statusColor = a.status === 'approved' ? 'text-emerald-600 bg-emerald-50'
+                : a.status === 'rejected' ? 'text-red-500 bg-red-50'
+                : 'text-amber-700 bg-amber-50'
+              const statusLabel = a.status === 'approved' ? 'Approuvé'
+                : a.status === 'rejected' ? 'Refusé'
+                : 'En attente'
+
+              return (
+                <div key={a.id} className="flex items-center justify-between px-3 py-2.5 rounded-xl border border-[#f3f4f6] bg-gray-50 text-xs gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-[#1a1a1a] capitalize">
+                      {fmtDayDate(a.date)}
+                    </p>
+                    <p className="text-[#9ca3af] mt-0.5">
+                      {fmtH(a.normal_hours)} prévu → {fmtH(a.adjusted_hours)} travaillé
+                      {Number(a.bank_hours_applied) > 0 && ` · ${fmtH(a.bank_hours_applied)} banque appliquée`}
+                      {a.notes && ` · ${a.notes}`}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className={`text-xs font-bold ${isExtra ? 'text-emerald-600' : 'text-amber-600'}`}>
+                      {delta > 0 ? '+' : ''}{fmtH(delta)}
+                    </span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${statusColor}`}>
+                      {statusLabel}
+                    </span>
+                    {/* Admin: approve/reject pending */}
+                    {isAdmin && a.status === 'pending' && (
+                      <div className="flex gap-1">
+                        <button onClick={() => handleApproveAdj(a.id)} disabled={approvingAdj === a.id}
+                          className="text-[10px] font-bold text-white bg-[#00bbb1] hover:bg-[#009e95] px-2 py-0.5 rounded-full disabled:opacity-50 transition-colors">
+                          {approvingAdj === a.id ? '...' : 'Approuver'}
+                        </button>
+                        <button onClick={() => handleRejectAdj(a.id)} disabled={rejectingAdj === a.id}
+                          className="text-[10px] font-bold text-white bg-red-400 hover:bg-red-500 px-2 py-0.5 rounded-full disabled:opacity-50 transition-colors">
+                          {rejectingAdj === a.id ? '...' : 'Refuser'}
+                        </button>
+                      </div>
+                    )}
+                    {/* Member: delete pending/rejected */}
+                    {!isAdmin && (a.status === 'pending' || a.status === 'rejected') && (
+                      confirmDelAdj === a.id ? (
+                        <DeleteConfirm id={a.id} confirmId={confirmDelAdj}
+                          onConfirm={handleDeleteAdj}
+                          onCancel={() => setConfirmDelAdj(null)} />
+                      ) : (
+                        <button onClick={() => setConfirmDelAdj(a.id)}
+                          className="text-[#9ca3af] hover:text-red-500 transition-colors">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                          </svg>
+                        </button>
+                      )
+                    )}
                   </div>
                 </div>
               )

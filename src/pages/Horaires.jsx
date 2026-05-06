@@ -5,6 +5,9 @@ import ScheduleManager from '../components/schedule/ScheduleManager'
 import { useAuth } from '../context/AuthContext'
 import { useMembers } from '../hooks/useMembers'
 import { useScheduleAlerts } from '../hooks/useSchedule'
+import { usePayPeriodConfig, getCurrentPayPeriod, updatePayPeriodConfig } from '../hooks/usePayPeriod'
+import { format, parseISO } from 'date-fns'
+import { fr } from 'date-fns/locale'
 
 export default function Horaires() {
   const { profile } = useAuth()
@@ -31,12 +34,30 @@ export default function Horaires() {
 function AdminHoraires() {
   const year = new Date().getFullYear()
   const location = useLocation()
+  const { profile } = useAuth()
   const { members: allMembers, loading } = useMembers()
   const members = useMemo(() => allMembers.filter(m => m.role !== 'admin'), [allMembers])
   const memberIds = useMemo(() => members.map(m => m.id), [members])
   const { alerts } = useScheduleAlerts(memberIds, year)
   const [expanded, setExpanded] = useState({})
   const scrollRefs = useRef({})
+
+  const { config: payConfig, loading: payLoading, refetch: refetchPayConfig } = usePayPeriodConfig()
+  const [editingPayPeriod, setEditingPayPeriod] = useState(false)
+  const [newRefDate, setNewRefDate] = useState('')
+  const [payPeriodSaving, setPayPeriodSaving] = useState(false)
+
+  const payPeriod = payConfig ? getCurrentPayPeriod(payConfig.reference_pay_date, payConfig.period_length_days) : null
+
+  async function handleSavePayPeriod() {
+    if (!newRefDate || !payConfig) return
+    setPayPeriodSaving(true)
+    await updatePayPeriodConfig(payConfig.id, newRefDate, profile?.id)
+    await refetchPayConfig()
+    setPayPeriodSaving(false)
+    setEditingPayPeriod(false)
+    setNewRefDate('')
+  }
 
   // Auto-ouvre et scroll vers le membre passé depuis le popup "Voir"
   useEffect(() => {
@@ -69,6 +90,67 @@ function AdminHoraires() {
     <div className="max-w-4xl mx-auto py-8 px-4">
       <h1 className="text-2xl font-bold text-[#1a1a1a] mb-6">Horaires</h1>
 
+      {/* ── Config période de paie ── */}
+      <div className="bg-white rounded-2xl border border-[#e5e7eb] shadow-sm p-5 mb-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="font-bold text-sm text-[#1a1a1a]">Période de paie</h2>
+            {payPeriod && !payLoading && (
+              <p className="text-xs text-[#6b7280] mt-0.5">
+                Période actuelle : {format(parseISO(payPeriod.start), 'd MMM', { locale: fr })} – {format(parseISO(payPeriod.end), 'd MMM yyyy', { locale: fr })}
+                {payConfig && (
+                  <span className="ml-2 text-[#9ca3af]">
+                    (réf. : {format(parseISO(payConfig.reference_pay_date), 'd MMM yyyy', { locale: fr })})
+                  </span>
+                )}
+              </p>
+            )}
+          </div>
+          {!editingPayPeriod && (
+            <button
+              onClick={() => { setEditingPayPeriod(true); setNewRefDate(payConfig?.reference_pay_date ?? '') }}
+              className="text-sm font-semibold text-[#00bbb1] hover:underline"
+            >
+              Modifier
+            </button>
+          )}
+        </div>
+
+        {editingPayPeriod && (
+          <div className="mt-4 flex items-end gap-3">
+            <div className="flex-1">
+              <label className="text-xs font-semibold text-[#6b7280] mb-1 block">
+                Nouvelle date de référence (jeudi de paie)
+              </label>
+              <input
+                type="date"
+                value={newRefDate}
+                onChange={e => setNewRefDate(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00bbb1]"
+              />
+              <p className="text-[11px] text-[#9ca3af] mt-1">
+                Choisir un jeudi de paie — toutes les périodes seront recalculées à partir de cette date.
+              </p>
+            </div>
+            <div className="flex gap-2 pb-5">
+              <button
+                onClick={() => { setEditingPayPeriod(false); setNewRefDate('') }}
+                className="px-3 py-2 text-sm font-semibold text-[#6b7280] bg-gray-100 hover:bg-gray-200 rounded-lg"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={handleSavePayPeriod}
+                disabled={payPeriodSaving || !newRefDate}
+                className="px-3 py-2 text-sm font-semibold text-white bg-[#00bbb1] hover:bg-[#009e95] rounded-lg disabled:opacity-50"
+              >
+                {payPeriodSaving ? '...' : 'Enregistrer'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
       {loading ? (
         <div className="space-y-3">
           {[...Array(4)].map((_, i) => (
@@ -83,8 +165,9 @@ function AdminHoraires() {
             const alert = alerts[m.id]
             const pendingOT = alert?.pendingOT ?? 0
             const pendingChanges = alert?.pendingChanges ?? 0
-            const badge = pendingOT + pendingChanges + (alert?.hasExcess ? 1 : 0)
-            const hasPendingAction = pendingOT > 0 || pendingChanges > 0
+            const pendingAdj = alert?.pendingAdj ?? 0
+            const badge = pendingOT + pendingChanges + pendingAdj + (alert?.hasExcess ? 1 : 0)
+            const hasPendingAction = pendingOT > 0 || pendingChanges > 0 || pendingAdj > 0
             const open = expanded[m.id] ?? false
 
             return (
@@ -108,9 +191,9 @@ function AdminHoraires() {
                     </div>
                   </div>
                   <div className="flex items-center gap-3">
-                    {pendingChanges > 0 && (
+                    {(pendingChanges > 0 || pendingAdj > 0) && (
                       <span className="bg-amber-500 text-white text-xs font-bold px-2 py-0.5 rounded-full flex items-center gap-1">
-                        ⏳ {pendingChanges}
+                        ⏳ {pendingChanges + pendingAdj}
                       </span>
                     )}
                     {pendingOT > 0 && (
