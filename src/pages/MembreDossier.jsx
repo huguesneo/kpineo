@@ -21,8 +21,10 @@ import { useKPIEntries, useEODReports, KPI_TYPE_LABELS } from '../hooks/useKPIs'
 import { useQuarterlyBonus } from '../hooks/useCareerPlan'
 import { useQBMemberRevenue, useQBMemberRevenueForMonth } from '../hooks/useQuickBooks'
 import { useUserPoints, usePointsTransactions, usePointsHistory } from '../hooks/usePoints'
-import { format, isAfter, parseISO } from 'date-fns'
+import { format, isAfter, parseISO, startOfMonth, endOfMonth } from 'date-fns'
+import { usePayPeriodConfig, getCurrentPayPeriod } from '../hooks/usePayPeriod'
 import { fr } from 'date-fns/locale'
+import { useSetterCommissions } from '../hooks/useSetterCommissions'
 
 const ROLE_LABELS = {
   naturopathe:    'Naturopathe',
@@ -675,6 +677,96 @@ function MemberPointsBadge({ userId }) {
   )
 }
 
+function SetterPayOverview({ member }) {
+  const { config: payConfig } = usePayPeriodConfig()
+  const payPeriod = payConfig ? getCurrentPayPeriod(payConfig.reference_pay_date, payConfig.period_length_days) : null
+
+  const today = format(new Date(), 'yyyy-MM-dd')
+  const [periodType, setPeriodType] = useState('paie') // 'paie' ou 'custom'
+  const [customStart, setCustomStart] = useState(today)
+  const [customEnd, setCustomEnd] = useState(today)
+
+  let startDate, endDate;
+  if (periodType === 'paie') {
+    startDate = payPeriod?.start || today
+    endDate = payPeriod?.end || today
+  } else {
+    startDate = customStart || today
+    endDate = customEnd || today
+  }
+
+  const { data, loading } = useSetterCommissions(member.full_name, startDate, endDate)
+
+  return (
+    <div className="mb-6">
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 mb-2">
+        <h2 className="text-sm font-bold text-[#6b7280] uppercase tracking-wide">Ma Paie (GHL)</h2>
+
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={() => setPeriodType('paie')}
+            className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg border transition-all ${
+              periodType === 'paie'
+                ? 'bg-[#00bbb1] border-[#00bbb1] text-white shadow-sm'
+                : 'bg-white border-[#e5e7eb] text-[#6b7280] hover:border-[#00bbb1]/40'
+            }`}
+          >
+            Période de paie
+          </button>
+
+          <span className="text-xs text-[#9ca3af] font-semibold">ou période libre :</span>
+
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-colors ${
+            periodType === 'custom' ? 'border-[#00bbb1] bg-[#00bbb1]/5' : 'border-[#e5e7eb] bg-white'
+          }`}>
+            <input
+              type="date"
+              value={customStart}
+              onChange={(e) => { setCustomStart(e.target.value); setPeriodType('custom') }}
+              className="bg-transparent text-xs font-semibold text-[#1a1a1a] focus:outline-none cursor-pointer"
+            />
+            <span className="text-[#9ca3af] text-xs">→</span>
+            <input
+              type="date"
+              value={customEnd}
+              min={customStart}
+              onChange={(e) => { setCustomEnd(e.target.value); setPeriodType('custom') }}
+              className="bg-transparent text-xs font-semibold text-[#1a1a1a] focus:outline-none cursor-pointer"
+            />
+          </div>
+        </div>
+      </div>
+
+      <p className="text-xs text-[#9ca3af] mb-4 font-semibold">
+        {periodType === 'paie' && payPeriod ? `Résultats de la paie en cours (${format(parseISO(payPeriod.start), 'd MMM', { locale: fr })} au ${format(parseISO(payPeriod.end), 'd MMM yyyy', { locale: fr })}).` : ''}
+        {periodType === 'custom' ? `Résultats du ${format(parseISO(customStart), 'd MMM', { locale: fr })} au ${format(parseISO(customEnd), 'd MMM yyyy', { locale: fr })}.` : ''}
+      </p>
+
+      {loading ? (
+        <div className="animate-pulse h-32 bg-gray-100 rounded-2xl mb-6" />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Card className="p-5">
+            <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide mb-1">Commissions Show-up</p>
+            <p className="text-2xl font-bold text-[#1a1a1a]">{Number(data.totalShowups).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}</p>
+            <p className="text-xs text-[#6b7280] mt-1">{data.showupCount} show-up(s)</p>
+          </Card>
+          <Card className="p-5">
+            <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide mb-1">Bonus de vente</p>
+            <p className="text-2xl font-bold text-[#1a1a1a]">{Number(data.totalBonus).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}</p>
+            <p className="text-xs text-[#6b7280] mt-1">{data.wonCount} vente(s)</p>
+          </Card>
+          <Card className="p-5 border-[#00bbb1]/40 bg-[#00bbb1]/5">
+            <p className="text-[10px] font-bold text-[#00bbb1] uppercase tracking-wide mb-1">Total à payer</p>
+            <p className="text-2xl font-bold text-[#00bbb1]">{Number(data.totalPay).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}</p>
+            <p className="text-xs text-[#00bbb1] mt-1">{data.bookedCount} booké(s)</p>
+          </Card>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function MembreDossier() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -732,8 +824,12 @@ export default function MembreDossier() {
         </div>
       </div>
 
-      {/* Revenus QuickBooks */}
-      <MemberQBRevenue member={member} revenue={qbRevenue} loading={qbLoading} refreshing={qbRefreshing} error={qbError} refetch={qbRefetch} />
+      {/* Revenus QuickBooks ou Paie Setter */}
+      {member.role === 'setter' ? (
+        <SetterPayOverview member={member} />
+      ) : (
+        <MemberQBRevenue member={member} revenue={qbRevenue} loading={qbLoading} refreshing={qbRefreshing} error={qbError} refetch={qbRefetch} />
+      )}
 
       {/* Onglets */}
       <div className="flex gap-1 border-b border-[#e5e7eb] mb-6">

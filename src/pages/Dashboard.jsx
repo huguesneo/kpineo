@@ -8,7 +8,8 @@ import BonusTracker from '../components/career/BonusTracker'
 import QuarterlyPanel from '../components/career/QuarterlyPanel'
 import { SkeletonCard, SkeletonTable } from '../components/shared/Skeleton'
 import { useAuth } from '../context/AuthContext'
-import { useClinicObjectives, OBJECTIVE_TYPE_LABELS } from '../hooks/useObjectives'
+import { useClinicObjectives, useObjectives, OBJECTIVE_TYPE_LABELS } from '../hooks/useObjectives'
+import { useSetterCommissions } from '../hooks/useSetterCommissions'
 import { useClinicKPIEntries } from '../hooks/useKPIs'
 import { useQuarterlyBonus } from '../hooks/useCareerPlan'
 import { useQBRevenue, useQBMemberRevenue, useQBMemberRevenueForMonth, useQBRevenueForMonth } from '../hooks/useQuickBooks'
@@ -18,6 +19,8 @@ import {
   format, startOfMonth, endOfMonth, startOfQuarter, endOfQuarter, parseISO,
 } from 'date-fns'
 import { fr } from 'date-fns/locale'
+import { usePayPeriodConfig, getCurrentPayPeriod } from '../hooks/usePayPeriod'
+
 
 const ROLE_LABELS = {
   naturopathe:    'Naturopathe',
@@ -508,6 +511,110 @@ function MemberQBRevenueSection({ revenue, loading, refreshing, onRefetch, isCur
   )
 }
 
+// ─── GHL Setter helpers (partagés AdminDashboard + MemberDashboard) ───────────
+const GHL_PIPELINE_SETTING = '3C5ggTxPoWBmiFAPlCKn'
+const GHL_STAGE_BOOKED  = 'Lead rencontre book'
+const GHL_STAGE_SHOWUP  = 'Show-up Confirmé.'
+const GHL_STAGE_BONUS   = 'bonus vente'
+const GHL_ALL_STAGES    = [GHL_STAGE_BOOKED, GHL_STAGE_SHOWUP, GHL_STAGE_BONUS]
+const GHL_SHOWUP_STAGES = [GHL_STAGE_SHOWUP, GHL_STAGE_BONUS]
+
+function ghlField(rawObj, key) {
+  return (rawObj?.customFields ?? []).find(f => f.key === key)?.value ?? null
+}
+function parseGHLDate(v) {
+  if (!v) return null
+  const n = Number(v)
+  if (!isNaN(n) && n > 0) { const d = new Date(n > 9_999_999_999 ? n : n * 1000); return isNaN(d.getTime()) ? null : d }
+  const d = new Date(v); return isNaN(d.getTime()) ? null : d
+}
+function inGHLMonth(v, month, year) {
+  const d = parseGHLDate(v)
+  return d ? d.getMonth() + 1 === month && d.getFullYear() === year : false
+}
+function computeSetterMonthStats(ghlOpps, memberFullName, month, year) {
+  const nl = memberFullName.trim().toLowerCase()
+  const opps = ghlOpps.filter(o =>
+    GHL_ALL_STAGES.includes(o.stage_name) &&
+    (ghlField(o.raw ?? {}, 'setter__nom') ?? '').trim().toLowerCase() === nl
+  )
+  const booked  = opps.filter(o => inGHLMonth(o.created_at_ghl, month, year))
+  const showups = opps.filter(o => GHL_SHOWUP_STAGES.includes(o.stage_name) && inGHLMonth(o.created_at_ghl, month, year))
+  const won     = opps.filter(o => o.stage_name === GHL_STAGE_BONUS && inGHLMonth(ghlField(o.raw ?? {}, 'date_de_close'), month, year))
+  const totalShowups = showups.reduce((s, o) => s + (Number(ghlField(o.raw ?? {}, 'setter__commission_showup')) || 0), 0)
+  const totalBonus   = won.reduce((s, o) => s + (Number(ghlField(o.raw ?? {}, 'setter__bonus_vente')) || 0), 0)
+  return { bookedCount: booked.length, showupCount: showups.length, wonCount: won.length, totalShowups, totalBonus, totalPay: totalShowups + totalBonus }
+}
+
+// ─── Admin Dashboard ──────────────────────────────────────────
+// AJOUTE LE COMPOSANT ICI
+function SetterDashboardRow({ member, idx, accent }) {
+  const navigate = useNavigate()
+  const now = new Date()
+  const startDate = format(startOfMonth(now), 'yyyy-MM-dd')
+  const endDate = format(endOfMonth(now), 'yyyy-MM-dd')
+  
+  // On utilise startDate et endDate
+  const { data, loading } = useSetterCommissions(member.full_name, startDate, endDate)
+  
+  const target = member.monthlyTarget
+  const totalPay = data?.totalPay ?? 0
+  const displayPct = target > 0 ? Math.min(100, Math.round((totalPay / target) * 100)) : null
+  const color = displayPct >= 80 ? '#10b981' : displayPct >= 50 ? '#f59e0b' : '#ef4444'
+
+  // Le reste du return <div... est strictement identique
+  return (
+    <div className="flex items-center gap-3">
+      {/* Rang */}
+      <span className="text-sm font-bold w-5 text-center" style={{ color: idx === 0 ? accent : '#d1d5db' }}>
+        {idx + 1}
+      </span>
+      {/* Avatar */}
+      <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 text-white" style={{ backgroundColor: accent }}>
+        {member.full_name.charAt(0).toUpperCase()}
+      </div>
+      {/* Nom & Stats GHL */}
+      <div className="w-28 flex-shrink-0 truncate">
+        <p className="font-semibold text-sm text-[#1a1a1a]">
+          {member.full_name.split(' ')[0]}
+        </p>
+        <p className="text-[10px] text-[#9ca3af] font-normal leading-tight mt-0.5">
+          {loading ? '...' : `${data.bookedCount} bookés · ${data.showupCount} shows`}
+        </p>
+      </div>
+      {/* Barre + montants */}
+      <div className="flex-1 min-w-0">
+        <div className="flex justify-between items-baseline mb-1">
+          <span className="text-xs text-[#6b7280]">
+            {loading ? '...' : `${totalPay} $`}
+            {target ? <span className="text-[#d1d5db]"> / {target} $</span> : ''}
+          </span>
+          <span className="text-xs font-bold ml-2 flex-shrink-0" style={{ color }}>
+            {displayPct !== null ? `${displayPct} %` : 'Aucun objectif'}
+          </span>
+        </div>
+        {displayPct !== null ? (
+          <div className="w-full bg-gray-100 rounded-full h-2">
+            <div
+              className="h-2 rounded-full transition-all duration-500"
+              style={{ width: `${displayPct}%`, backgroundColor: color }}
+            />
+          </div>
+        ) : (
+          <div className="w-full bg-gray-100 rounded-full h-2" />
+        )}
+      </div>
+      {/* Lien */}
+      <button
+        onClick={() => navigate(`/membres/${member.id}`)}
+        className="text-xs font-semibold text-[#00bbb1] hover:text-[#009e95] transition-colors flex-shrink-0"
+      >
+        Voir →
+      </button>
+    </div>
+  )
+}
+
 // ─── Admin Dashboard ──────────────────────────────────────────
 function AdminDashboard() {
   const navigate = useNavigate()
@@ -542,7 +649,7 @@ function AdminDashboard() {
     const quarterStart = format(startOfQuarter(new Date()), 'yyyy-MM-dd')
     const quarterEnd   = format(endOfQuarter(new Date()),   'yyyy-MM-dd')
 
-    const [profilesRes, eodRes, kpiRes, objRes, qbCacheRes, qObjRes] = await Promise.all([
+    const [profilesRes, eodRes, kpiRes, objRes, qbCacheRes, qObjRes, ghlOppsRes] = await Promise.all([
       supabase.from('profiles').select('*').eq('is_active', true).neq('role', 'admin'),
       supabase.from('end_of_day_reports').select('id', { count: 'exact', head: true }).eq('report_date', today),
       supabase.from('kpi_entries').select('user_id, kpi_type, value').eq('scope', 'individual').gte('entry_date', monthStart).lte('entry_date', monthEnd),
@@ -551,6 +658,8 @@ function AdminDashboard() {
       // Objectifs trimestriels revenus pour les naturopathes
       supabase.from('objectives').select('*').eq('scope', 'individual').eq('type', 'quarterly_revenue')
         .lte('period_start', quarterEnd).gte('period_end', quarterStart),
+      // Opportunités GHL pipeline Setting (pour les setters)
+      supabase.from('ghl_opportunities').select('stage_name, created_at_ghl, raw').eq('pipeline_id', GHL_PIPELINE_SETTING),
     ])
 
     const profiles = profilesRes.data || []
@@ -558,6 +667,10 @@ function AdminDashboard() {
     const objectives = objRes.data || []
     const qbCache = qbCacheRes.data || []
     const quarterlyObjectives = qObjRes.data || []
+    const ghlOpps = ghlOppsRes.data || []
+    const nowForGHL = new Date()
+    const ghlMonth = nowForGHL.getMonth() + 1
+    const ghlYear = nowForGHL.getFullYear()
 
     const QB_MONTHLY = { naturopathe: 'therapist_monthly', closer: 'closer_monthly', setter: 'setter_monthly' }
 
@@ -598,6 +711,13 @@ function AdminDashboard() {
         if (obj.target_value > 0) { totalPct += Math.min(100, (current / obj.target_value) * 100); count++ }
       })
 
+      const setterStats = profile.role === 'setter'
+        ? computeSetterMonthStats(ghlOpps, profile.full_name, ghlMonth, ghlYear)
+        : null
+      const setterCommTarget = profile.role === 'setter'
+        ? (userObjectives.find(o => o.type === 'setter_commission_target')?.target_value ?? null)
+        : null
+
       return {
         ...profile,
         progress: count > 0 ? Math.round(totalPct / count) : null,
@@ -605,6 +725,8 @@ function AdminDashboard() {
         qbQuarterly,
         monthlyTarget,
         quarterlyTarget,
+        setterStats,
+        setterCommTarget,
       }
     })
 
@@ -795,10 +917,16 @@ function AdminDashboard() {
                   {!isNaturo && <div className="mb-3" />}
                   <div className="space-y-4">
                     {groupMembers.map((m, idx) => {
-                      // For naturopathes: use quarterly data; for others: monthly
+                      // NOUVEAU : Si c'est un setter, on utilise la ligne spéciale GHL
+                      if (group.role === 'setter') {
+                        return <SetterDashboardRow key={m.id} member={m} idx={idx} accent={group.accent} />
+                      }
+
+                      // LOGIQUE EXISTANTE pour Naturopathes et Closers
+                      const isMemberSetter = false; // <-- Évite le crash "isMemberSetter is not defined"
                       const revenue = isNaturo ? m.qbQuarterly : m.qbMonthly
                       const target  = isNaturo ? m.quarterlyTarget : m.monthlyTarget
-                      const qPct    = (revenue !== null && target > 0)
+                      const qPct = (revenue !== null && target != null && target > 0)
                         ? Math.min(100, Math.round((revenue / target) * 100))
                         : null
                       const displayPct = isNaturo ? qPct : m.progress
@@ -816,9 +944,16 @@ function AdminDashboard() {
                             {m.full_name.charAt(0).toUpperCase()}
                           </div>
                           {/* Nom */}
-                          <p className="font-semibold text-sm text-[#1a1a1a] w-28 flex-shrink-0 truncate">
-                            {m.full_name.split(' ')[0]}
-                          </p>
+                          <div className="w-28 flex-shrink-0 min-w-0">
+                            <p className="font-semibold text-sm text-[#1a1a1a] truncate">
+                              {m.full_name.split(' ')[0]}
+                            </p>
+                            {isMemberSetter && m.setterStats && (
+                              <p className="text-[10px] text-[#9ca3af] truncate">
+                                {m.setterStats.bookedCount} bookés · {m.setterStats.showupCount} shows · {m.setterStats.wonCount} ventes
+                              </p>
+                            )}
+                          </div>
                           {/* Barre + montants */}
                           <div className="flex-1 min-w-0">
                             <div className="flex justify-between items-baseline mb-1">
@@ -870,10 +1005,34 @@ function MemberDashboard() {
   const [myObjectives, setMyObjectives] = useState([])
   const [myKpiEntries, setMyKpiEntries] = useState([])
 
+  const isSetter = profile?.role === 'setter'
   const nowMD = new Date()
+  const todayStr = format(nowMD, 'yyyy-MM-dd')
+  
   const [qbMonth, setQbMonth] = useState(nowMD.getMonth() + 1)
   const [qbYear, setQbYear] = useState(nowMD.getFullYear())
   const isQbCurrentMonth = qbMonth === nowMD.getMonth() + 1 && qbYear === nowMD.getFullYear()
+  
+  const { config: payConfig } = usePayPeriodConfig()
+  const payPeriod = payConfig ? getCurrentPayPeriod(payConfig.reference_pay_date, payConfig.period_length_days) : null
+
+  // Filtre Setter : Paie (GHL)
+  const [setterPeriodType, setSetterPeriodType] = useState('paie')
+  const [setterCustomStart, setSetterCustomStart] = useState(todayStr)
+  const [setterCustomEnd, setSetterCustomEnd] = useState(todayStr)
+
+  let setterStartDate, setterEndDate;
+  if (setterPeriodType === 'paie') {
+    setterStartDate = payPeriod?.start || todayStr
+    setterEndDate = payPeriod?.end || todayStr
+  } else {
+    setterStartDate = setterCustomStart || todayStr
+    setterEndDate = setterCustomEnd || todayStr
+  }
+
+  // Filtre Setter : Objectifs mensuels (Garde ces deux lignes pour ne pas faire crasher les objectifs en bas)
+  const [setterMonth, setSetterMonth] = useState(nowMD.getMonth() + 1)
+  const [setterYear, setSetterYear] = useState(nowMD.getFullYear())
 
   const { objectives: clinicObjectives } = useClinicObjectives()
   const monthDates = {
@@ -890,6 +1049,23 @@ function MemberDashboard() {
   )
   const { revenue: qbClinicRevenue } = useQBRevenue()
   const { bonus, achievement, loading: bonusLoading, quarterStart, quarterEnd } = useQuarterlyBonus(profile?.id, profile?.annual_bonus, memberQBRevenue, profile?.role)
+
+  // ── Setter KPIs ──
+  const { data: setterCommData, loading: setterCommLoading } = useSetterCommissions(
+    isSetter ? profile?.full_name : null,
+    setterStartDate, // <-- NOUVEAU
+    setterEndDate    // <-- NOUVEAU
+  )
+  const { objectives: setterObjAll } = useObjectives(isSetter ? profile?.id : null)
+  const setterPStart = `${setterYear}-${String(setterMonth).padStart(2, '0')}-01`
+  const setterPEnd = (() => {
+    const last = new Date(setterYear, setterMonth, 0).getDate()
+    return `${setterYear}-${String(setterMonth).padStart(2, '0')}-${String(last).padStart(2, '0')}`
+  })()
+  const setterMonthObjs = (setterObjAll ?? []).filter(o =>
+    ['setter_showup_target', 'setter_sales_target', 'setter_commission_target'].includes(o.type) &&
+    o.period_start === setterPStart && o.period_end === setterPEnd
+  )
 
   useEffect(() => {
     if (!profile?.id) return
@@ -978,8 +1154,127 @@ function MemberDashboard() {
         </>}
       </div>
 
+      {/* ── Setter : Ma Paie ── */}
+      {isSetter && (
+        <div className="mb-6">
+          <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 mb-2">
+            <h2 className="text-sm font-bold text-[#6b7280] uppercase tracking-wide">Ma Paie</h2>
+
+            <div className="flex items-center gap-3 flex-wrap">
+              <button
+                onClick={() => setSetterPeriodType('paie')}
+                className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg border transition-all ${
+                  setterPeriodType === 'paie'
+                    ? 'bg-[#00bbb1] border-[#00bbb1] text-white shadow-sm'
+                    : 'bg-white border-[#e5e7eb] text-[#6b7280] hover:border-[#00bbb1]/40'
+                }`}
+              >
+                Période de paie
+              </button>
+
+              <span className="text-xs text-[#9ca3af] font-semibold">ou période libre :</span>
+
+              <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-colors ${
+                setterPeriodType === 'custom' ? 'border-[#00bbb1] bg-[#00bbb1]/5' : 'border-[#e5e7eb] bg-white'
+              }`}>
+                <input
+                  type="date"
+                  value={setterCustomStart}
+                  onChange={(e) => { setSetterCustomStart(e.target.value); setSetterPeriodType('custom') }}
+                  className="bg-transparent text-xs font-semibold text-[#1a1a1a] focus:outline-none cursor-pointer"
+                />
+                <span className="text-[#9ca3af] text-xs">→</span>
+                <input
+                  type="date"
+                  value={setterCustomEnd}
+                  min={setterCustomStart}
+                  onChange={(e) => { setSetterCustomEnd(e.target.value); setSetterPeriodType('custom') }}
+                  className="bg-transparent text-xs font-semibold text-[#1a1a1a] focus:outline-none cursor-pointer"
+                />
+              </div>
+            </div>
+          </div>
+          
+          <p className="text-xs text-[#9ca3af] mb-4 font-semibold">
+            {setterPeriodType === 'paie' && payPeriod ? `Résultats de la paie en cours (${format(parseISO(payPeriod.start), 'd MMM', { locale: fr })} au ${format(parseISO(payPeriod.end), 'd MMM yyyy', { locale: fr })}).` : ''}
+            {setterPeriodType === 'custom' ? `Résultats du ${format(parseISO(setterCustomStart), 'd MMM', { locale: fr })} au ${format(parseISO(setterCustomEnd), 'd MMM yyyy', { locale: fr })}.` : ''}
+          </p>
+
+          {setterCommLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {[0, 1, 2].map(i => <SkeletonCard key={i} />)}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <StatCard
+                label="Commissions Show-up"
+                value={Number(setterCommData?.totalShowups ?? 0).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}
+                sub={`${setterCommData?.showupCount ?? 0} show-up${(setterCommData?.showupCount ?? 0) !== 1 ? 's' : ''}`}
+                color="#00bbb1"
+                icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>}
+              />
+              <StatCard
+                label="Bonus de Vente"
+                value={Number(setterCommData?.totalBonus ?? 0).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}
+                sub={`${setterCommData?.wonCount ?? 0} vente${(setterCommData?.wonCount ?? 0) !== 1 ? 's' : ''}`}
+                color="#6366f1"
+                icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+              />
+              <StatCard
+                label="Total à payer"
+                value={Number(setterCommData?.totalPay ?? 0).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}
+                sub={`${setterCommData?.bookedCount ?? 0} booké${(setterCommData?.bookedCount ?? 0) !== 1 ? 's' : ''}`}
+                color="#10b981"
+                icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Setter : Mes Objectifs du mois ── */}
+      {isSetter && (
+        <Card className="p-6 mb-6">
+          <h2 className="text-lg font-bold text-[#1a1a1a] mb-4">Mes Objectifs du mois</h2>
+          {setterCommLoading ? <SkeletonTable rows={3} /> : (
+            <div className="space-y-4">
+              {[
+                { type: 'setter_showup_target',    label: 'Show-ups',       current: setterCommData?.showupCount ?? 0, isCurrency: false },
+                { type: 'setter_sales_target',     label: 'Ventes',         current: setterCommData?.wonCount ?? 0,    isCurrency: false },
+                { type: 'setter_commission_target',label: 'Commissions ($)', current: setterCommData?.totalPay ?? 0,   isCurrency: true  },
+              ].map(({ type, label, current, isCurrency }) => {
+                const obj = setterMonthObjs.find(o => o.type === type)
+                const target = obj?.target_value ?? 0
+                const pct = target > 0 ? Math.min(100, Math.round((current / target) * 100)) : 0
+                const color = pct >= 80 ? '#10b981' : pct >= 50 ? '#f59e0b' : '#ef4444'
+                const fmt = v => isCurrency ? fmtCAD(v) : Number(v).toLocaleString('fr-CA')
+                return (
+                  <div key={type}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <p className="text-sm font-semibold text-[#1a1a1a]">{label}</p>
+                      <p className="text-sm font-bold text-[#1a1a1a]">
+                        {fmt(current)}
+                        {target > 0 && <span className="text-[#9ca3af] font-normal"> / {fmt(target)}</span>}
+                      </p>
+                    </div>
+                    {target > 0 ? (
+                      <ProgressBar pct={pct} color={color} />
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 bg-gray-100 rounded-full h-1.5" />
+                        <span className="text-xs text-[#9ca3af] w-20 text-right">Pas d'objectif</span>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </Card>
+      )}
+
       {/* Boni trimestriel */}
-      {profile?.annual_bonus && (
+      {!isSetter && profile?.annual_bonus && (
         <div className="mb-6">
           <h2 className="text-sm font-bold text-[#6b7280] uppercase tracking-wide mb-3">Mon boni trimestriel</h2>
           <BonusTracker
@@ -996,7 +1291,7 @@ function MemberDashboard() {
       )}
 
       {/* Objectifs trimestriels */}
-      {profile?.annual_bonus && (
+      {!isSetter && profile?.annual_bonus && (
         <div className="mb-6">
           <QuarterlyPanel
             userId={profile?.id}
@@ -1010,7 +1305,7 @@ function MemberDashboard() {
       )}
 
       {/* Mes revenus QuickBooks */}
-      {(memberQBRevenue || memberQBLoading) && (
+      {!isSetter && (memberQBRevenue || memberQBLoading) && (
         <MemberQBRevenueSection
           revenue={memberQBRevenue}
           loading={memberQBLoading}
@@ -1026,20 +1321,22 @@ function MemberDashboard() {
       )}
 
       {/* Revenu clinique mensuel */}
-      <div className="mb-6">
-        <h2 className="text-sm font-bold text-[#6b7280] uppercase tracking-wide mb-3">Revenu clinique</h2>
-        <ClinicMonthlyCard
-          objectives={clinicObjectives}
-          revenue={qbClinicRevenue?.monthly_revenue ?? null}
-          prevRevenue={qbClinicRevenue?.prev_monthly_revenue ?? null}
-          lastSynced={qbClinicRevenue?.last_synced_at}
-          fromCache={qbClinicRevenue?.from_cache}
-          entries={clinicEntriesMonth}
-        />
-      </div>
+      {!isSetter && (
+        <div className="mb-6">
+          <h2 className="text-sm font-bold text-[#6b7280] uppercase tracking-wide mb-3">Revenu clinique</h2>
+          <ClinicMonthlyCard
+            objectives={clinicObjectives}
+            revenue={qbClinicRevenue?.monthly_revenue ?? null}
+            prevRevenue={qbClinicRevenue?.prev_monthly_revenue ?? null}
+            lastSynced={qbClinicRevenue?.last_synced_at}
+            fromCache={qbClinicRevenue?.from_cache}
+            entries={clinicEntriesMonth}
+          />
+        </div>
+      )}
 
-      {/* Mes objectifs */}
-      <Card className="p-6">
+      {/* Mes objectifs (non-setters) */}
+      {!isSetter && <Card className="p-6">
         <h2 className="text-lg font-bold text-[#1a1a1a] mb-4">Mes objectifs du mois</h2>
         {loading ? <SkeletonTable rows={3} /> : activeObjectives.length === 0 ? (
           <p className="text-sm text-[#6b7280]">Aucun objectif actif ce mois-ci.</p>
@@ -1060,7 +1357,7 @@ function MemberDashboard() {
             })}
           </div>
         )}
-      </Card>
+      </Card>}
     </Layout>
   )
 }
