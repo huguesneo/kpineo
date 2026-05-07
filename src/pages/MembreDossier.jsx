@@ -11,6 +11,7 @@ import KPIModal from '../components/kpis/KPIModal'
 import CareerPlanEditor from '../components/career/CareerPlanEditor'
 import BonusTracker from '../components/career/BonusTracker'
 import QuarterlyPanel from '../components/career/QuarterlyPanel'
+import SetterObjectivesPanel from '../components/career/SetterObjectivesPanel'
 import { SkeletonCard } from '../components/shared/Skeleton'
 import MonthNavigator from '../components/shared/MonthNavigator'
 import { useMember } from '../hooks/useMembers'
@@ -335,6 +336,16 @@ function ObjectiveModal({ isOpen, onClose, userId, role, onCreated }) {
 
 function ObjectivesTab({ member, qbRevenue }) {
   const firstName = member?.full_name?.trim().split(/\s+/)[0] ?? ''
+
+  if (member?.role === 'setter') {
+    return (
+      <SetterObjectivesPanel
+        userId={member?.id}
+        isAdmin={true}
+      />
+    )
+  }
+
   return (
     <QuarterlyPanel
       userId={member?.id}

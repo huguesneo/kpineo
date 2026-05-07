@@ -100,8 +100,9 @@ export const OBJECTIVE_TYPES_BY_ROLE = {
     { value: 'daily_closes', label: 'Closes par jour' },
   ],
   setter: [
-    { value: 'daily_calls', label: 'Appels par jour' },
-    { value: 'daily_bookings', label: 'Rendez-vous bookés par jour' },
+    { value: 'setter_showup_target', label: 'Objectif de Show-ups (Nb)' },
+    { value: 'setter_sales_target', label: 'Objectif de Ventes (Nb)' },
+    { value: 'setter_commission_target', label: 'Objectif de Commissions ($)' },
   ],
   service_client: [],
   resp_vente:     [],
@@ -120,6 +121,9 @@ export const OBJECTIVE_TYPE_LABELS = {
   daily_calls: 'Appels par jour',
   daily_closes: 'Closes par jour',
   daily_bookings: 'Rendez-vous bookés/jour',
+  setter_showup_target: 'Objectif de Show-ups (Nb)',
+  setter_sales_target: 'Objectif de Ventes (Nb)',
+  setter_commission_target: 'Objectif de Commissions ($)',
   clinic_revenue: 'Revenu clinique mensuel',
   clinic_revenue_annual: 'Revenu clinique annuel',
 }
