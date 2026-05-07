@@ -9,6 +9,8 @@ import {
 } from '../../hooks/useSchedule'
 import { usePayPeriodConfig, getCurrentPayPeriod } from '../../hooks/usePayPeriod'
 import { useScheduleAdjustments, createAdjustment, approveAdjustment, rejectAdjustment, deleteAdjustment } from '../../hooks/useScheduleAdjustments'
+import { useUpcomingHolidays } from '../../hooks/useHolidays'
+import { usePunchEntries, upsertPunchEntry, deletePunchEntry } from '../../hooks/usePunchEntries'
 import { format, parseISO, eachDayOfInterval } from 'date-fns'
 import { fr } from 'date-fns/locale'
 
@@ -225,7 +227,7 @@ function DeleteConfirm({ id, confirmId, onConfirm, onCancel }) {
 }
 
 // ─── Schedule form ─────────────────────────────────────────────
-function ScheduleForm({ initial, onSave, onCancel, saving }) {
+function ScheduleForm({ initial, onSave, onCancel, saving, weeklyTarget = 40 }) {
   const today = new Date().toISOString().split('T')[0]
   const [form, setForm] = useState(initial ?? {
     effective_from: today, effective_to: '',
@@ -253,8 +255,8 @@ function ScheduleForm({ initial, onSave, onCancel, saving }) {
       <div>
         <div className="flex items-center justify-between mb-2">
           <p className="text-xs font-semibold text-[#6b7280]">Heures par jour</p>
-          <span className={`text-sm font-bold ${total === 40 ? 'text-emerald-600' : total > 40 ? 'text-amber-600' : 'text-[#6b7280]'}`}>
-            {total}h / 40h cible
+          <span className={`text-sm font-bold ${total === weeklyTarget ? 'text-emerald-600' : total > weeklyTarget ? 'text-amber-600' : 'text-[#6b7280]'}`}>
+            {total}h / {weeklyTarget}h cible
           </span>
         </div>
         <div className="grid grid-cols-7 gap-1.5">
@@ -428,9 +430,10 @@ function PendingChangeBanner({ change, isAdmin, onApprove, onReject, onCancel, r
 }
 
 // ─── Main ─────────────────────────────────────────────────────
-export default function ScheduleManager({ userId, isAdmin }) {
+export default function ScheduleManager({ userId, isAdmin, weeklyTarget = 40, punchMode = false }) {
   const year = new Date().getFullYear()
   const today = new Date().toISOString().split('T')[0]
+  const upcomingHolidays = useUpcomingHolidays(14)
 
   const { schedules, loading: schedLoading, refetch: refetchSched } = useSchedules(userId)
   const { absences, loading: absLoading, refetch: refetchAbs }       = useAbsences(userId, year)
@@ -439,10 +442,16 @@ export default function ScheduleManager({ userId, isAdmin }) {
   const { changes: pendingChanges, refetch: refetchPending }          = usePendingChanges(userId)
   const { config: payConfig }                                         = usePayPeriodConfig()
   const { adjustments, refetch: refetchAdj }                          = useScheduleAdjustments(userId)
+  const { entries: punchEntries, loading: punchLoading, refetch: refetchPunch } = usePunchEntries(punchMode ? userId : null, year)
 
   const payPeriod = payConfig ? getCurrentPayPeriod(payConfig.reference_pay_date, payConfig.period_length_days) : null
   const payPeriodHours = payPeriod ? calcPayPeriodHoursWithAdjustments(schedules, adjustments, payPeriod.start, payPeriod.end) : 0
-  const PAY_TARGET = 80
+  const PAY_TARGET = weeklyTarget * (payConfig?.period_length_days ?? 14) / 7
+
+  const punchPeriodHours = punchMode && payPeriod
+    ? punchEntries.filter(e => e.date >= payPeriod.start && e.date <= payPeriod.end)
+        .reduce((s, e) => s + Number(e.hours), 0)
+    : 0
 
   // Bank balance: sum of approved positive deltas (all-time) minus bank hours applied, capped at 2h
   const bankEarned = adjustments
@@ -482,6 +491,13 @@ export default function ScheduleManager({ userId, isAdmin }) {
   const [approvingAdj, setApprovingAdj] = useState(null)
   const [rejectingAdj, setRejectingAdj] = useState(null)
   const [confirmDelAdj, setConfirmDelAdj] = useState(null)
+
+  // Punch state
+  const [showPunchForm, setShowPunchForm] = useState(false)
+  const [punchForm, setPunchForm] = useState({ date: today, hours: '', notes: '' })
+  const [punchSaving, setPunchSaving] = useState(false)
+  const [confirmDelPunch, setConfirmDelPunch] = useState(null)
+  const [deletingPunch, setDeletingPunch] = useState(null)
 
   // ── Computed balances ──
   const sickUsed     = absences.filter(a => a.type === 'sick').reduce((s, a) => s + Number(a.hours), 0)
@@ -606,6 +622,26 @@ export default function ScheduleManager({ userId, isAdmin }) {
     refetchAdj()
   }
 
+  // ── Punch handlers ──
+
+  async function handleSavePunch() {
+    if (!punchForm.hours || !punchForm.date) return
+    setPunchSaving(true)
+    await upsertPunchEntry({ user_id: userId, date: punchForm.date, hours: Number(punchForm.hours), notes: punchForm.notes })
+    await refetchPunch()
+    setPunchSaving(false)
+    setShowPunchForm(false)
+    setPunchForm({ date: today, hours: '', notes: '' })
+  }
+
+  async function handleDeletePunch(id) {
+    setDeletingPunch(id)
+    await deletePunchEntry(id)
+    setConfirmDelPunch(null)
+    setDeletingPunch(null)
+    await refetchPunch()
+  }
+
   // ── Pending changes handlers ──
 
   // Membre : demande de modification d'une absence
@@ -680,39 +716,145 @@ export default function ScheduleManager({ userId, isAdmin }) {
   return (
     <div className="space-y-6">
 
-      {/* ── Période de paie (membre seulement) ── */}
-      {!isAdmin && payPeriod && (
+      {/* ── Rappel congés fériés ── */}
+      {upcomingHolidays.length > 0 && (
+        <div className="px-4 py-3 bg-purple-50 border border-purple-200 rounded-xl flex items-start gap-3">
+          <span className="text-purple-500 mt-0.5 flex-shrink-0">🎉</span>
+          <div>
+            <p className="text-xs font-bold text-purple-800 mb-0.5">Congé{upcomingHolidays.length > 1 ? 's' : ''} férié{upcomingHolidays.length > 1 ? 's' : ''} à venir</p>
+            {upcomingHolidays.map(h => (
+              <p key={h.id} className="text-xs text-purple-700">
+                <span className="font-semibold">{h.name}</span> — {format(parseISO(h.date), 'EEEE d MMMM', { locale: fr })}
+              </p>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Période de paie ── */}
+      {payPeriod && (
         <Card className="p-5">
           <h3 className="font-bold text-sm text-[#1a1a1a] mb-3">Période de paie en cours</h3>
           <p className="text-xs text-[#6b7280] mb-4">
             {format(parseISO(payPeriod.start), 'd MMM', { locale: fr })} – {format(parseISO(payPeriod.end), 'd MMM yyyy', { locale: fr })}
           </p>
-          <div className="flex items-end justify-between mb-2">
-            <span className={`text-3xl font-bold ${
-              payPeriodHours >= PAY_TARGET ? 'text-emerald-600' : 'text-amber-600'
-            }`}>
-              {fmtH(payPeriodHours)}
-            </span>
-            <span className="text-sm text-[#9ca3af] font-semibold">/ {PAY_TARGET}h</span>
-          </div>
-          <div className="w-full bg-[#f3f4f6] rounded-full h-2.5">
-            <div
-              className={`h-2.5 rounded-full transition-all duration-700 ${
-                payPeriodHours >= PAY_TARGET ? 'bg-emerald-500' : 'bg-amber-400'
-              }`}
-              style={{ width: `${Math.min(100, (payPeriodHours / PAY_TARGET) * 100)}%` }}
-            />
-          </div>
-          {payPeriodHours < PAY_TARGET && (
-            <p className="text-xs text-amber-700 mt-2 font-semibold">
-              {fmtH(PAY_TARGET - payPeriodHours)} manquant pour atteindre la cible
-            </p>
+          {punchMode ? (
+            <div className="flex items-end gap-2">
+              <span className="text-3xl font-bold text-[#1a1a1a]">{fmtH(punchPeriodHours)}</span>
+              <span className="text-sm text-[#9ca3af] mb-1">heures saisies</span>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-end justify-between mb-2">
+                <span className={`text-3xl font-bold ${
+                  payPeriodHours >= PAY_TARGET ? 'text-emerald-600' : 'text-amber-600'
+                }`}>
+                  {fmtH(payPeriodHours)}
+                </span>
+                <span className="text-sm text-[#9ca3af] font-semibold">/ {PAY_TARGET}h</span>
+              </div>
+              <div className="w-full bg-[#f3f4f6] rounded-full h-2.5">
+                <div
+                  className={`h-2.5 rounded-full transition-all duration-700 ${
+                    payPeriodHours >= PAY_TARGET ? 'bg-emerald-500' : 'bg-amber-400'
+                  }`}
+                  style={{ width: `${Math.min(100, (payPeriodHours / PAY_TARGET) * 100)}%` }}
+                />
+              </div>
+              {payPeriodHours < PAY_TARGET && (
+                <p className="text-xs text-amber-700 mt-2 font-semibold">
+                  {fmtH(PAY_TARGET - payPeriodHours)} manquant pour atteindre la cible
+                </p>
+              )}
+            </>
           )}
         </Card>
       )}
 
-      {/* ── Heures en banque (membre seulement) ── */}
-      {!isAdmin && bankEarned > 0 && (
+      {/* ── Saisie journalière (mode punch uniquement) ── */}
+      {punchMode && (
+        <Card className="p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="font-bold text-sm text-[#1a1a1a]">Saisie journalière</h3>
+              <p className="text-xs text-[#6b7280]">Entrez vos heures travaillées par journée</p>
+            </div>
+            <Button size="sm" onClick={() => { setShowPunchForm(v => !v); setPunchForm({ date: today, hours: '', notes: '' }) }}>
+              {showPunchForm ? 'Annuler' : '+ Ajouter'}
+            </Button>
+          </div>
+
+          {showPunchForm && (
+            <div className="mb-4 p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-[#6b7280] mb-1 block">Date</label>
+                  <input type="date" value={punchForm.date} max={today}
+                    onChange={e => setPunchForm(f => ({ ...f, date: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00bbb1]" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-[#6b7280] mb-1 block">Heures travaillées</label>
+                  <input type="number" min="0" max="24" step="0.5" value={punchForm.hours}
+                    placeholder="Ex : 7.5"
+                    onChange={e => setPunchForm(f => ({ ...f, hours: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00bbb1]" />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-[#6b7280] mb-1 block">Note (optionnel)</label>
+                <input type="text" value={punchForm.notes}
+                  onChange={e => setPunchForm(f => ({ ...f, notes: e.target.value }))}
+                  placeholder="Raison, projet…"
+                  onKeyDown={e => { if (e.key === 'Enter') handleSavePunch() }}
+                  className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00bbb1]" />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button size="sm" variant="secondary" onClick={() => setShowPunchForm(false)}>Annuler</Button>
+                <Button size="sm" loading={punchSaving}
+                  disabled={!punchForm.hours || !punchForm.date}
+                  onClick={handleSavePunch}>
+                  Enregistrer
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {punchLoading ? (
+            <div className="space-y-2">{[...Array(3)].map((_, i) => <div key={i} className="h-10 bg-gray-100 rounded-lg animate-pulse" />)}</div>
+          ) : punchEntries.length === 0 ? (
+            <p className="text-sm text-[#6b7280] py-2">Aucune entrée pour cette année.</p>
+          ) : (
+            <div className="space-y-2">
+              {punchEntries.slice(0, 30).map(e => (
+                <div key={e.id} className="flex items-center justify-between px-3 py-2.5 rounded-xl border border-[#f3f4f6] bg-gray-50 text-xs gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-[#1a1a1a] capitalize">{fmtDayDate(e.date)}</p>
+                    {e.notes && <p className="text-[#9ca3af] mt-0.5">{e.notes}</p>}
+                  </div>
+                  <span className="text-sm font-bold text-[#1a1a1a]">{fmtH(e.hours)}</span>
+                  {confirmDelPunch === e.id ? (
+                    <DeleteConfirm id={e.id} confirmId={confirmDelPunch}
+                      onConfirm={handleDeletePunch}
+                      onCancel={() => setConfirmDelPunch(null)} />
+                  ) : (
+                    <button onClick={() => setConfirmDelPunch(e.id)}
+                      disabled={deletingPunch === e.id}
+                      className="text-[#9ca3af] hover:text-red-500 transition-colors disabled:opacity-50">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* ── Heures en banque (membre seulement, hors punch) ── */}
+      {!punchMode && !isAdmin && bankEarned > 0 && (
         <Card className="p-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-bold text-sm text-[#1a1a1a]">Heures en banque</h3>
@@ -734,8 +876,8 @@ export default function ScheduleManager({ userId, isAdmin }) {
         </Card>
       )}
 
-      {/* ── Alerte heures à rattraper ── */}
-      {remainingMakeup > 0 && (
+      {/* ── Alerte heures à rattraper (hors punch) ── */}
+      {!punchMode && remainingMakeup > 0 && (
         <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl">
           <div className="flex items-start gap-3 mb-3">
             <span className="text-2xl mt-0.5">⚠️</span>
@@ -807,12 +949,12 @@ export default function ScheduleManager({ userId, isAdmin }) {
         </div>
       )}
 
-      {/* ── Horaire ── */}
-      <Card className="p-5">
+      {/* ── Horaire (hors punch) ── */}
+      {!punchMode && (<Card className="p-5">
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="font-bold text-sm text-[#1a1a1a]">Horaire hebdomadaire</h3>
-            <p className="text-xs text-[#6b7280]">Cible naturopathe : 40h / semaine</p>
+            <p className="text-xs text-[#6b7280]">Cible : {weeklyTarget}h / semaine</p>
           </div>
           {isAdmin
             ? <Button size="sm" onClick={() => { setAddingSched(true); setEditingSchedId(null) }}>+ Ajouter</Button>
@@ -835,7 +977,7 @@ export default function ScheduleManager({ userId, isAdmin }) {
 
               if (editingSchedId === s.id) {
                 return (
-                  <ScheduleForm key={s.id} initial={s} saving={schedSaving}
+                  <ScheduleForm key={s.id} initial={s} saving={schedSaving} weeklyTarget={weeklyTarget}
                     onSave={form => isAdmin
                       ? handleSaveSched({ ...form, id: s.id })
                       : requestScheduleModify(s, form)}
@@ -864,7 +1006,7 @@ export default function ScheduleManager({ userId, isAdmin }) {
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className={`text-sm font-bold ${total === 40 ? 'text-emerald-600' : total > 40 ? 'text-amber-600' : 'text-[#6b7280]'}`}>
+                      <span className={`text-sm font-bold ${total === weeklyTarget ? 'text-emerald-600' : total > weeklyTarget ? 'text-amber-600' : 'text-[#6b7280]'}`}>
                         {total}h/sem
                       </span>
                       {canEditSched(s) && !pc && (
@@ -906,7 +1048,7 @@ export default function ScheduleManager({ userId, isAdmin }) {
 
         {addingSched && (
           <div className="mt-4">
-            <ScheduleForm saving={schedSaving}
+            <ScheduleForm saving={schedSaving} weeklyTarget={weeklyTarget}
               onSave={form => handleSaveSched({ ...form, user_id: userId })}
               onCancel={() => setAddingSched(false)} />
           </div>
@@ -924,7 +1066,7 @@ export default function ScheduleManager({ userId, isAdmin }) {
             />
           </div>
         )}
-      </Card>
+      </Card>)}
 
       {/* ── Allocations (admin seulement) ── */}
       {isAdmin && (
