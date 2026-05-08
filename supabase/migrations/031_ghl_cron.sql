@@ -1,10 +1,12 @@
 -- ── GHL Incremental Sync — Cron toutes les 30 minutes ──────────
 --
--- AVANT D'APPLIQUER : exécute ces 2 lignes dans le SQL Editor de Supabase
--- en remplaçant les valeurs par celles de Settings → API :
+-- AVANT D'APPLIQUER : exécute cette ligne dans le SQL Editor de Supabase
+-- avec la valeur de Settings → API → anon public (clé publique, safe à stocker) :
 --
---   ALTER DATABASE postgres SET app.supabase_url = 'https://cbqwrmyctsfdqmenczhm.supabase.co';
---   ALTER DATABASE postgres SET app.service_role_key = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...';
+--   ALTER DATABASE postgres SET app.supabase_anon_key = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...';
+--
+-- NB : La anon key est déjà publique (dans le code frontend).
+--      La Edge Function utilise sa propre service_role_key en interne via Deno.env.
 --
 
 -- Extensions requises (déjà activées sur Supabase Cloud)
@@ -29,10 +31,10 @@ BEGIN
     RETURN;
   END IF;
 
-  v_url := current_setting('app.supabase_url') || '/functions/v1/gohighlevel-sync';
-  v_key := current_setting('app.service_role_key');
+  v_url := 'https://cbqwrmyctsfdqmenczhm.supabase.co/functions/v1/gohighlevel-sync';
+  v_key := current_setting('app.supabase_anon_key');
 
-  PERFORM extensions.http_post(
+  PERFORM net.http_post(
     url     := v_url,
     headers := jsonb_build_object(
       'Content-Type',  'application/json',
