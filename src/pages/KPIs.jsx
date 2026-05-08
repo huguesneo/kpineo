@@ -177,9 +177,11 @@ function ClinicObjectivesPanel({ isAdmin }) {
 export default function KPIs() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
+  const isRespVente = profile?.role === 'resp_vente'
+  const isAdminOrRespVente = isAdmin || isRespVente
 
   const [period, setPeriod] = useState('mois')
-  const [memberFilter, setMemberFilter] = useState(isAdmin ? '' : profile?.id || '')
+  const [memberFilter, setMemberFilter] = useState(isAdminOrRespVente ? '' : profile?.id || '')
   const [kpiModalOpen, setKpiModalOpen] = useState(false)
 
   const { from, to } = getPeriodDates(period)
@@ -189,15 +191,18 @@ export default function KPIs() {
     dateFrom: from, dateTo: to,
     ...(memberFilter && { userId: memberFilter }),
   }
-  if (!isAdmin) individualFilters.userId = profile?.id
+  if (!isAdminOrRespVente) individualFilters.userId = profile?.id
 
   const { entries, loading: kpiLoading, refetch: refetchEntries } = useKPIEntries(individualFilters)
   const { entries: clinicEntries, loading: clinicLoading, refetch: refetchClinic } = useClinicKPIEntries({ dateFrom: from, dateTo: to })
   const { reports, loading: eodLoading } = useEODReports({
     dateFrom: from, dateTo: to,
-    ...(isAdmin ? (memberFilter ? { userId: memberFilter } : {}) : { userId: profile?.id }),
+    ...(isAdminOrRespVente ? (memberFilter ? { userId: memberFilter } : {}) : { userId: profile?.id }),
   })
-  const { members } = useMembers()
+  const { members: allMembers } = useMembers()
+  const members = isRespVente
+    ? allMembers.filter(m => m.role === 'closer' || m.role === 'setter')
+    : allMembers
   const selectedMember = members.find(m => m.id === memberFilter)
 
   const periods = [
@@ -212,8 +217,8 @@ export default function KPIs() {
     <Layout>
       <Header title="KPIs" />
 
-      {/* Objectifs clinique */}
-      <ClinicObjectivesPanel isAdmin={isAdmin} />
+      {/* Objectifs clinique — admin uniquement */}
+      {!isRespVente && <ClinicObjectivesPanel isAdmin={isAdmin} />}
 
       {/* Filtres */}
       <div className="flex gap-3 mb-6 flex-wrap items-center">
@@ -224,7 +229,7 @@ export default function KPIs() {
             </button>
           ))}
         </div>
-        {isAdmin && (
+        {isAdminOrRespVente && (
           <select value={memberFilter} onChange={e => setMemberFilter(e.target.value)} className="px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#00bbb1]">
             <option value="">Tous les membres</option>
             {members.map(m => <option key={m.id} value={m.id}>{m.full_name}</option>)}

@@ -37,6 +37,10 @@ export function useSetterCommissions(memberFullName, startDate, endDate) {
     totalBonus: 0,
     totalPay: 0,
     opportunities: [],
+    manuelOpps: [],
+    autoOpps: [],
+    rebookOpps: [],
+    wonOpps: [],
   });
 
   const [loading, setLoading] = useState(true);
@@ -77,6 +81,10 @@ export function useSetterCommissions(memberFullName, startDate, endDate) {
         let commissionManuel = 0, commissionAuto = 0, commissionRebook = 0;
         let totalBonus = 0;
         const setterOpps = [];
+        const manuelOpps = [];
+        const autoOpps = [];
+        const rebookOpps = [];
+        const wonOpps = [];
 
         oppsData.forEach(opp => {
           const raw = opp.raw;
@@ -109,12 +117,15 @@ export function useSetterCommissions(memberFullName, startDate, endDate) {
                 if (typeDeBooking === 'manuel') {
                   manuelCount++;
                   commissionManuel += FLAT_MANUEL;
+                  manuelOpps.push(opp);
                 } else if (typeDeBooking === 'automatique' && prequelOui) {
                   autoCount++;
                   commissionAuto += FLAT_CONFIRM;
+                  autoOpps.push(opp);
                 } else if (typeDeBooking === 'rebooking' && prequelOui) {
                   rebookingCount++;
                   commissionRebook += FLAT_REBOOK;
+                  rebookOpps.push(opp);
                 }
               }
             }
@@ -128,6 +139,7 @@ export function useSetterCommissions(memberFullName, startDate, endDate) {
               if (!isNaN(closeDate.getTime()) && closeDate >= start && closeDate <= end) {
                 wonCount++;
                 totalBonus += Number(getFieldById(raw, FIELD_BONUS_VENTE) || 0);
+                wonOpps.push(opp);
               }
             }
           }
@@ -149,6 +161,10 @@ export function useSetterCommissions(memberFullName, startDate, endDate) {
           totalBonus,
           totalPay: totalShowups + totalBonus,
           opportunities: setterOpps,
+          manuelOpps,
+          autoOpps,
+          rebookOpps,
+          wonOpps,
         });
 
       } catch (err) {

@@ -616,7 +616,7 @@ function SetterDashboardRow({ member, idx, accent }) {
 }
 
 // ─── Admin Dashboard ──────────────────────────────────────────
-function AdminDashboard() {
+function AdminDashboard({ isSalesManager = false }) {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState({ total: 0, naturopathes: 0, closers: 0, eodToday: 0 })
@@ -649,8 +649,12 @@ function AdminDashboard() {
     const quarterStart = format(startOfQuarter(new Date()), 'yyyy-MM-dd')
     const quarterEnd   = format(endOfQuarter(new Date()),   'yyyy-MM-dd')
 
+    const profilesQuery = isSalesManager
+      ? supabase.from('profiles').select('*').eq('is_active', true).in('role', ['closer', 'setter'])
+      : supabase.from('profiles').select('*').eq('is_active', true).neq('role', 'admin')
+
     const [profilesRes, eodRes, kpiRes, objRes, qbCacheRes, qObjRes, ghlOppsRes] = await Promise.all([
-      supabase.from('profiles').select('*').eq('is_active', true).neq('role', 'admin'),
+      profilesQuery,
       supabase.from('end_of_day_reports').select('id', { count: 'exact', head: true }).eq('report_date', today),
       supabase.from('kpi_entries').select('user_id, kpi_type, value').eq('scope', 'individual').gte('entry_date', monthStart).lte('entry_date', monthEnd),
       supabase.from('objectives').select('*').eq('scope', 'individual').lte('period_start', monthEnd).gte('period_end', monthStart),
@@ -735,15 +739,22 @@ function AdminDashboard() {
   }
 
   const filteredMembers = roleFilter === 'tous' ? members : members.filter(m => m.role === roleFilter)
-  const roles = ['tous', 'naturopathe', 'closer', 'setter', 'service_client', 'resp_vente']
+  const roles = isSalesManager
+    ? ['tous', 'closer', 'setter']
+    : ['tous', 'naturopathe', 'closer', 'setter', 'service_client', 'resp_vente']
 
-  const ROLE_GROUPS = [
-    { role: 'naturopathe',    label: 'Naturopathes',              accent: '#00bbb1' },
-    { role: 'closer',         label: 'Closers',                   accent: '#8b5cf6' },
-    { role: 'setter',         label: 'Setters',                   accent: '#f59e0b' },
-    { role: 'service_client', label: 'Service clients & gestion', accent: '#ec4899' },
-    { role: 'resp_vente',     label: 'Resp. équipe de vente',     accent: '#6366f1' },
-  ]
+  const ROLE_GROUPS = isSalesManager
+    ? [
+        { role: 'closer', label: 'Closers', accent: '#8b5cf6' },
+        { role: 'setter', label: 'Setters', accent: '#f59e0b' },
+      ]
+    : [
+        { role: 'naturopathe',    label: 'Naturopathes',              accent: '#00bbb1' },
+        { role: 'closer',         label: 'Closers',                   accent: '#8b5cf6' },
+        { role: 'setter',         label: 'Setters',                   accent: '#f59e0b' },
+        { role: 'service_client', label: 'Service clients & gestion', accent: '#ec4899' },
+        { role: 'resp_vente',     label: 'Resp. équipe de vente',     accent: '#6366f1' },
+      ]
 
   function progressColor(pct) {
     if (pct === null) return '#d1d5db'
@@ -791,7 +802,8 @@ function AdminDashboard() {
         </>}
       </div>
 
-      {/* Clinic Revenue */}
+      {/* Clinic Revenue — admin uniquement */}
+      {!isSalesManager && (
       <div className="mb-6">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3 flex-wrap">
@@ -863,6 +875,7 @@ function AdminDashboard() {
           </div>
         )}
       </div>
+      )}
 
       {/* Team performance — groupé par rôle */}
       <div>
@@ -1388,5 +1401,7 @@ function MemberDashboard() {
 export default function Dashboard() {
   const { profile } = useAuth()
   if (!profile) return null
-  return profile.role === 'admin' ? <AdminDashboard /> : <MemberDashboard />
+  if (profile.role === 'admin') return <AdminDashboard />
+  if (profile.role === 'resp_vente') return <AdminDashboard isSalesManager />
+  return <MemberDashboard />
 }

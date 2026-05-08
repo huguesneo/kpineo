@@ -105,7 +105,12 @@ export const OBJECTIVE_TYPES_BY_ROLE = {
     { value: 'setter_commission_target', label: 'Objectif de Commissions ($)' },
   ],
   service_client: [],
-  resp_vente:     [],
+  resp_vente: [
+    { value: 'team_showup_rate',  label: "Taux de show-up de l'équipe (%)" },
+    { value: 'team_closing_rate', label: "Taux de closing de l'équipe (%)" },
+    { value: 'team_revenue',      label: "Revenus de l'équipe de vente ($)" },
+    { value: 'team_calls',        label: "Nombre d'appels équipe" },
+  ],
 }
 
 export const CLINIC_OBJECTIVE_TYPES = [
@@ -126,4 +131,8 @@ export const OBJECTIVE_TYPE_LABELS = {
   setter_commission_target: 'Objectif de Commissions ($)',
   clinic_revenue: 'Revenu clinique mensuel',
   clinic_revenue_annual: 'Revenu clinique annuel',
+  team_showup_rate:  "Taux de show-up équipe (%)",
+  team_closing_rate: "Taux de closing équipe (%)",
+  team_revenue:      "Revenus équipe de vente ($)",
+  team_calls:        "Appels équipe",
 }

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import Layout from '../components/layout/Layout'
 import Card from '../components/shared/Card'
 import Badge from '../components/shared/Badge'
@@ -34,7 +35,8 @@ const ROLE_LABELS = {
   resp_vente:     'Resp. équipe de vente',
   admin:          'Admin',
 }
-const TABS = ['Objectifs', 'Tâches', 'KPIs & Rapports', 'Plan de carrière', 'Points']
+const ALL_TABS = ['Objectifs', 'Tâches', 'KPIs & Rapports', 'Plan de carrière', 'Points']
+const SALES_MANAGER_TABS = ['Objectifs', 'Tâches', 'KPIs & Rapports']
 
 function fmt(n) {
   return Number(n ?? 0).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -677,6 +679,54 @@ function MemberPointsBadge({ userId }) {
   )
 }
 
+const DRILL_FIELD_DATE_CLOSE   = "UPqvJX8MkZ4thsPX2tjV";
+const DRILL_FIELD_TYPE_BOOKING = "YbAB98KAINZM7vzebAKh";
+
+function getDrillField(raw, fieldId) {
+  if (!raw?.customFields) return null;
+  const f = raw.customFields.find(cf => cf.id === fieldId);
+  if (!f) return null;
+  return f.fieldValueNumber ?? f.fieldValueString ?? f.fieldValueDate ?? null;
+}
+
+function SetterDrillDownModal({ isOpen, onClose, title, opps }) {
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title={title} size="lg">
+      {opps.length === 0 ? (
+        <p className="text-sm text-[#9ca3af] text-center py-6">Aucune entrée pour cette période.</p>
+      ) : (
+        <div className="space-y-2">
+          {opps.map(opp => {
+            const closeDateRaw = getDrillField(opp.raw, DRILL_FIELD_DATE_CLOSE);
+            const closeDate = closeDateRaw ? new Date(Number(closeDateRaw)) : null;
+            const typeBooking = getDrillField(opp.raw, DRILL_FIELD_TYPE_BOOKING);
+            return (
+              <div key={opp.id} className="flex flex-col gap-1 p-3 rounded-xl bg-[#f9fafb] border border-[#f3f4f6]">
+                <p className="text-sm font-semibold text-[#1a1a1a]">{opp.contact_name || '—'}</p>
+                <div className="flex flex-wrap gap-4">
+                  {opp.created_at_ghl && (
+                    <span className="text-xs text-[#6b7280]">
+                      RDV : <span className="font-medium text-[#374151]">{format(new Date(opp.created_at_ghl), 'd MMM yyyy', { locale: fr })}</span>
+                    </span>
+                  )}
+                  {closeDate && !isNaN(closeDate.getTime()) && (
+                    <span className="text-xs text-[#6b7280]">
+                      Close : <span className="font-medium text-[#374151]">{format(closeDate, 'd MMM yyyy', { locale: fr })}</span>
+                    </span>
+                  )}
+                  {typeBooking && (
+                    <span className="text-xs font-semibold text-[#00bbb1] capitalize">{typeBooking}</span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 function SetterPayOverview({ member }) {
   const { config: payConfig } = usePayPeriodConfig()
   const payPeriod = payConfig ? getCurrentPayPeriod(payConfig.reference_pay_date, payConfig.period_length_days) : null
@@ -696,6 +746,7 @@ function SetterPayOverview({ member }) {
   }
 
   const { data, loading } = useSetterCommissions(member.full_name, startDate, endDate)
+  const [drillDown, setDrillDown] = useState(null) // { title, opps }
 
   return (
     <div className="mb-6">
@@ -748,37 +799,77 @@ function SetterPayOverview({ member }) {
         <div className="space-y-3">
           {/* Ligne 1 : détail des commissions show-up */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Card className="p-5">
-              <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide mb-1">Commission Manuelle</p>
-              <p className="text-2xl font-bold text-[#1a1a1a]">{Number(data.commissionManuel).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}</p>
-              <p className="text-xs text-[#6b7280] mt-1">{data.manuelCount} show-up{data.manuelCount !== 1 ? 's' : ''} manuel{data.manuelCount !== 1 ? 's' : ''} × 40 $</p>
-            </Card>
-            <Card className="p-5">
-              <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide mb-1">Commission Confirmation</p>
-              <p className="text-2xl font-bold text-[#1a1a1a]">{Number(data.commissionAuto).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}</p>
-              <p className="text-xs text-[#6b7280] mt-1">{data.autoCount} confirmation{data.autoCount !== 1 ? 's' : ''} auto × 20 $</p>
-            </Card>
-            <Card className="p-5">
-              <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide mb-1">Commission Rebooking</p>
-              <p className="text-2xl font-bold text-[#1a1a1a]">{Number(data.commissionRebook).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}</p>
-              <p className="text-xs text-[#6b7280] mt-1">{data.rebookingCount} rebooking{data.rebookingCount !== 1 ? 's' : ''} × 20 $</p>
-            </Card>
+            <button
+              onClick={() => setDrillDown({ title: 'Commission Manuelle', opps: data.manuelOpps })}
+              className="text-left group focus:outline-none"
+            >
+              <Card className="p-5 cursor-pointer group-hover:border-[#00bbb1]/50 group-hover:shadow-sm transition-all">
+                <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide mb-1">Commission Manuelle</p>
+                <p className="text-2xl font-bold text-[#1a1a1a]">{Number(data.commissionManuel).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}</p>
+                <p className="text-xs text-[#6b7280] mt-1">{data.manuelCount} show-up{data.manuelCount !== 1 ? 's' : ''} manuel{data.manuelCount !== 1 ? 's' : ''} × 40 $</p>
+              </Card>
+            </button>
+            <button
+              onClick={() => setDrillDown({ title: 'Commission Confirmation', opps: data.autoOpps })}
+              className="text-left group focus:outline-none"
+            >
+              <Card className="p-5 cursor-pointer group-hover:border-[#00bbb1]/50 group-hover:shadow-sm transition-all">
+                <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide mb-1">Commission Confirmation</p>
+                <p className="text-2xl font-bold text-[#1a1a1a]">{Number(data.commissionAuto).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}</p>
+                <p className="text-xs text-[#6b7280] mt-1">{data.autoCount} confirmation{data.autoCount !== 1 ? 's' : ''} auto × 20 $</p>
+              </Card>
+            </button>
+            <button
+              onClick={() => setDrillDown({ title: 'Commission Rebooking', opps: data.rebookOpps })}
+              className="text-left group focus:outline-none"
+            >
+              <Card className="p-5 cursor-pointer group-hover:border-[#00bbb1]/50 group-hover:shadow-sm transition-all">
+                <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide mb-1">Commission Rebooking</p>
+                <p className="text-2xl font-bold text-[#1a1a1a]">{Number(data.commissionRebook).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}</p>
+                <p className="text-xs text-[#6b7280] mt-1">{data.rebookingCount} rebooking{data.rebookingCount !== 1 ? 's' : ''} × 20 $</p>
+              </Card>
+            </button>
           </div>
           {/* Ligne 2 : bonus vente + total */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Card className="p-5">
-              <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide mb-1">Bonus de Vente</p>
-              <p className="text-2xl font-bold text-[#1a1a1a]">{Number(data.totalBonus).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}</p>
-              <p className="text-xs text-[#6b7280] mt-1">{data.wonCount} vente{data.wonCount !== 1 ? 's' : ''}</p>
-            </Card>
-            <Card className="p-5 border-[#00bbb1]/40 bg-[#00bbb1]/5">
-              <p className="text-[10px] font-bold text-[#00bbb1] uppercase tracking-wide mb-1">Total à payer</p>
-              <p className="text-2xl font-bold text-[#00bbb1]">{Number(data.totalPay).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}</p>
-              <p className="text-xs text-[#00bbb1] mt-1">{data.showupCount} show-up{data.showupCount !== 1 ? 's' : ''} · {data.bookedCount} booké{data.bookedCount !== 1 ? 's' : ''}</p>
-            </Card>
+            <button
+              onClick={() => setDrillDown({ title: 'Bonus de Vente', opps: data.wonOpps })}
+              className="text-left group focus:outline-none"
+            >
+              <Card className="p-5 cursor-pointer group-hover:border-[#00bbb1]/50 group-hover:shadow-sm transition-all">
+                <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide mb-1">Bonus de Vente</p>
+                <p className="text-2xl font-bold text-[#1a1a1a]">{Number(data.totalBonus).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}</p>
+                <p className="text-xs text-[#6b7280] mt-1">{data.wonCount} vente{data.wonCount !== 1 ? 's' : ''}</p>
+              </Card>
+            </button>
+            <button
+              onClick={() => {
+                const seen = new Set();
+                const all = [...data.manuelOpps, ...data.autoOpps, ...data.rebookOpps, ...data.wonOpps].filter(o => {
+                  if (seen.has(o.id)) return false;
+                  seen.add(o.id);
+                  return true;
+                });
+                setDrillDown({ title: 'Total à payer', opps: all });
+              }}
+              className="text-left group focus:outline-none"
+            >
+              <Card className="p-5 border-[#00bbb1]/40 bg-[#00bbb1]/5 cursor-pointer group-hover:border-[#00bbb1]/70 group-hover:shadow-sm transition-all">
+                <p className="text-[10px] font-bold text-[#00bbb1] uppercase tracking-wide mb-1">Total à payer</p>
+                <p className="text-2xl font-bold text-[#00bbb1]">{Number(data.totalPay).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}</p>
+                <p className="text-xs text-[#00bbb1] mt-1">{data.showupCount} show-up{data.showupCount !== 1 ? 's' : ''} · {data.bookedCount} booké{data.bookedCount !== 1 ? 's' : ''}</p>
+              </Card>
+            </button>
           </div>
         </div>
       )}
+
+      <SetterDrillDownModal
+        isOpen={!!drillDown}
+        onClose={() => setDrillDown(null)}
+        title={drillDown?.title ?? ''}
+        opps={drillDown?.opps ?? []}
+      />
     </div>
   )
 }
@@ -786,6 +877,8 @@ function SetterPayOverview({ member }) {
 export default function MembreDossier() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { isRespVente } = useAuth()
+  const TABS = isRespVente ? SALES_MANAGER_TABS : ALL_TABS
   const [activeTab, setActiveTab] = useState(0)
   const { member, loading: memberLoading, refetch: refetchMember } = useMember(id)
   const { objectives, loading: objLoading, refetch: refetchObj } = useObjectives(id)
@@ -815,6 +908,14 @@ export default function MembreDossier() {
       </Layout>
     )
   }
+
+  // resp_vente ne peut gérer que les setter et closer
+  if (isRespVente && !['closer', 'setter'].includes(member.role)) {
+    navigate('/membres')
+    return null
+  }
+
+  const activeTabName = TABS[activeTab]
 
   return (
     <Layout>
@@ -865,19 +966,19 @@ export default function MembreDossier() {
       </div>
 
       {/* Contenu des onglets */}
-      {activeTab === 0 && (
+      {activeTabName === 'Objectifs' && (
         <ObjectivesTab member={member} qbRevenue={qbRevenue} />
       )}
-      {activeTab === 1 && (
+      {activeTabName === 'Tâches' && (
         <TasksTab member={member} tasks={tasks} loading={tasksLoading} refetch={refetchTasks} />
       )}
-      {activeTab === 2 && (
+      {activeTabName === 'KPIs & Rapports' && (
         <KPIsTab userId={id} userRole={member.role} />
       )}
-      {activeTab === 3 && (
+      {activeTabName === 'Plan de carrière' && (
         <CareerTab member={member} onMemberUpdated={refetchMember} qbRevenue={qbRevenue} />
       )}
-      {activeTab === 4 && (
+      {activeTabName === 'Points' && (
         <PointsTab userId={id} />
       )}
     </Layout>

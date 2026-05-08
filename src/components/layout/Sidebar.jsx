@@ -30,17 +30,17 @@ function NavItem({ to, icon, label, badge }) {
 }
 
 export default function Sidebar() {
-  const { signOut, profile } = useAuth()
-  const isAdmin = profile?.role === 'admin'
-  // Admin : compte toutes les tâches non complétées
+  const { signOut, profile, isAdmin, isRespVente } = useAuth()
+  const isAdminOrRespVente = isAdmin || isRespVente
+  // Admin/RespVente : compte toutes les tâches non complétées
   // Membre : uniquement les siennes (évite de voir le total de l'équipe)
-  const { count } = usePendingTasksCount(isAdmin ? null : profile?.id)
+  const { count } = usePendingTasksCount(isAdminOrRespVente ? null : profile?.id)
   const { count: approvalCount } = usePendingApprovalCount()
   const horaireAlertCount = useTotalHoraireAlertCount()
   // Boutique badge: admin = pending redemptions to review, member = available to use
   const { count: boutiqueCount } = usePendingRedemptionsCount(isAdmin ? null : profile?.id)
-  // Admin tâches badge = pending approvals (members show own pending tasks)
-  const tachesBadge = isAdmin ? (approvalCount > 0 ? approvalCount : count) : count
+  // Admin/RespVente tâches badge = pending approvals
+  const tachesBadge = isAdminOrRespVente ? (approvalCount > 0 ? approvalCount : count) : count
 
   return (
     <aside className="fixed left-0 top-0 h-screen w-60 bg-white border-r border-[#e5e7eb] flex flex-col z-40">
@@ -91,14 +91,14 @@ export default function Sidebar() {
 <NavItem
           to="/horaires"
           label="Horaires"
-          badge={isAdmin ? horaireAlertCount : null}
+          badge={isAdminOrRespVente ? horaireAlertCount : null}
           icon={
             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5m-9-6h.008v.008H12v-.008zM12 15h.008v.008H12V15zm0 2.25h.008v.008H12v-.008zM9.75 15h.008v.008H9.75V15zm0 2.25h.008v.008H9.75v-.008zM7.5 15h.008v.008H7.5V15zm0 2.25h.008v.008H7.5v-.008zm6.75-4.5h.008v.008h-.008v-.008zm0 2.25h.008v.008h-.008V15zm0 2.25h.008v.008h-.008v-.008zm2.25-4.5h.008v.008H16.5v-.008zm0 2.25h.008v.008H16.5V15z" />
             </svg>
           }
         />
-        {/* Plan de carrière — membre */}
+        {/* Plan de carrière — membre (incluant resp_vente) */}
         {!isAdmin && (
           <NavItem
             to="/mon-dossier"
@@ -110,7 +110,7 @@ export default function Sidebar() {
             }
           />
         )}
-        {/* Boutique — membre */}
+        {/* Boutique — membre (incluant resp_vente) */}
         {!isAdmin && (
           <NavItem
             to="/boutique"
@@ -123,7 +123,7 @@ export default function Sidebar() {
             }
           />
         )}
-        {/* Boutique — admin */}
+        {/* Boutique — admin seulement */}
         {isAdmin && (
           <>
             <NavItem

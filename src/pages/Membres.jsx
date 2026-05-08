@@ -236,14 +236,79 @@ function MemberMembresView() {
   )
 }
 
+// Vue resp_vente : lecture seule + accès dossier setter/closer
+function RespVenteMembresView() {
+  const navigate = useNavigate()
+  const [roleFilter, setRoleFilter] = useState('tous')
+  const { members, loading } = useMembers(roleFilter !== 'tous' ? { role: roleFilter } : {})
+  const roles = ['tous', 'naturopathe', 'closer', 'setter', 'service_client', 'resp_vente']
+  const SALES_ROLES = ['closer', 'setter']
+
+  return (
+    <>
+      <div className="flex gap-2 mb-6">
+        {roles.map(r => (
+          <button key={r} onClick={() => setRoleFilter(r)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${roleFilter === r ? 'bg-[#00bbb1] text-white' : 'bg-white text-[#6b7280] border border-[#e5e7eb] hover:bg-gray-50'}`}>
+            {r === 'tous' ? 'Tous' : ROLE_LABELS[r]}
+          </button>
+        ))}
+      </div>
+
+      <Card className="p-6">
+        {loading ? <SkeletonTable rows={5} /> : members.length === 0 ? (
+          <p className="text-sm text-[#6b7280] py-4">Aucun membre trouvé.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-[#e5e7eb]">
+                  <th className="text-left py-3 px-3 text-xs font-semibold text-[#6b7280] uppercase tracking-wide">Membre</th>
+                  <th className="text-left py-3 px-3 text-xs font-semibold text-[#6b7280] uppercase tracking-wide">Rôle</th>
+                  <th className="text-left py-3 px-3 text-xs font-semibold text-[#6b7280] uppercase tracking-wide">Statut</th>
+                  <th className="text-right py-3 px-3 text-xs font-semibold text-[#6b7280] uppercase tracking-wide">Dossier</th>
+                </tr>
+              </thead>
+              <tbody>
+                {members.map(m => (
+                  <tr key={m.id} className="border-b border-[#f5f5f7] hover:bg-gray-50 transition-colors">
+                    <td className="py-3 px-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-full bg-[#00bbb1]/10 flex items-center justify-center text-[#00bbb1] font-bold text-sm">
+                          {m.full_name.charAt(0).toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="font-semibold text-sm text-[#1a1a1a]">{m.full_name}</p>
+                          <p className="text-xs text-[#6b7280]">{m.email}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-3 px-3"><Badge variant={m.role}>{ROLE_LABELS[m.role] || m.role}</Badge></td>
+                    <td className="py-3 px-3"><Badge variant={m.is_active ? 'success' : 'default'}>{m.is_active ? 'Actif' : 'Inactif'}</Badge></td>
+                    <td className="py-3 px-3 text-right">
+                      {SALES_ROLES.includes(m.role) && (
+                        <Button size="sm" onClick={() => navigate(`/membres/${m.id}`)}>Gérer le dossier</Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </>
+  )
+}
+
 export default function Membres() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
+  const isRespVente = profile?.role === 'resp_vente'
 
   return (
     <Layout>
       <Header title="Membres" />
-      {isAdmin ? <AdminMembresView /> : <MemberMembresView />}
+      {isAdmin ? <AdminMembresView /> : isRespVente ? <RespVenteMembresView /> : <MemberMembresView />}
     </Layout>
   )
 }

@@ -314,16 +314,18 @@ function StatPill({ value, label, color }) {
 export default function Taches() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
+  const isRespVente = profile?.role === 'resp_vente'
+  const isAdminOrRespVente = isAdmin || isRespVente
 
   const [memberFilter, setMemberFilter] = useState('')
   const [addOpen, setAddOpen] = useState(false)
 
-  const taskFilters = isAdmin
+  const taskFilters = isAdminOrRespVente
     ? { ...(memberFilter && { userId: memberFilter }) }
     : { userId: profile?.id }
 
   const { tasks, loading, refetch } = useTasks(taskFilters)
-  const { members } = useMembers()
+  const { members: allMembers } = useMembers()
 
   const pendingCount = tasks.filter(t => !t.is_completed).length
   const doneCount    = tasks.filter(t => t.is_completed).length
@@ -331,7 +333,10 @@ export default function Taches() {
     !t.is_completed && t.due_date && new Date(t.due_date + 'T23:59:59') < new Date()
   ).length
 
-  const filteredMembers = members.filter(m => m.role !== 'admin')
+  // resp_vente ne voit que les setters/closers dans le filtre membre
+  const filteredMembers = isRespVente
+    ? allMembers.filter(m => m.role === 'closer' || m.role === 'setter')
+    : allMembers.filter(m => m.role !== 'admin')
   const currentUserId   = profile?.id
 
   // Weekly points earned (secondaire tasks completed this week)
@@ -345,14 +350,14 @@ export default function Taches() {
     )
     .reduce((sum, t) => sum + (t.points ?? 0), 0)
 
-  // Admin task section props
+  // Admin / RespVente task section props
   const taskSectionProps = {
     tasks,
     onUpdate:   refetch,
-    isAdmin,
-    showMember: isAdmin && !memberFilter,
+    isAdmin:    isAdminOrRespVente,
+    showMember: isAdminOrRespVente && !memberFilter,
     currentUserId,
-    userId:     isAdmin ? (memberFilter || null) : profile?.id,
+    userId:     isAdminOrRespVente ? (memberFilter || null) : profile?.id,
   }
 
   // Member task section props (shared)
@@ -369,7 +374,7 @@ export default function Taches() {
         <div>
           <h1 className="text-2xl font-bold text-[#1a1a1a]">Tâches</h1>
           <p className="text-sm text-[#9ca3af] mt-0.5">
-            {isAdmin ? 'Gérez les tâches de votre équipe' : 'Vos tâches du moment'}
+            {isAdminOrRespVente ? 'Gérez les tâches de votre équipe' : 'Vos tâches du moment'}
           </p>
         </div>
         <Button onClick={() => setAddOpen(true)}>
@@ -389,8 +394,8 @@ export default function Taches() {
         </div>
       </Card>
 
-      {/* Member filter (admin only) */}
-      {isAdmin && (
+      {/* Member filter (admin + resp_vente) */}
+      {isAdminOrRespVente && (
         <div className="flex items-center gap-2 mb-6 flex-wrap">
           <button
             onClick={() => setMemberFilter('')}
@@ -424,17 +429,17 @@ export default function Taches() {
           <SkeletonCard />
           <SkeletonCard />
         </div>
-      ) : isAdmin ? (
-        /* ── Admin view ── */
+      ) : isAdminOrRespVente ? (
+        /* ── Admin / RespVente view ── */
         <div className="space-y-6">
-          <TeamPointsOverview />
+          {isAdmin && <TeamPointsOverview />}
           <ApprovalSection memberFilter={memberFilter} onApproved={refetch} />
           <TaskSection {...taskSectionProps} priority="prioritaire" />
           <TaskSection {...taskSectionProps} priority="secondaire" />
           <CompletedSection
             tasks={tasks}
-            isAdmin={isAdmin}
-            showMember={isAdmin && !memberFilter}
+            isAdmin={isAdminOrRespVente}
+            showMember={isAdminOrRespVente && !memberFilter}
             currentUserId={currentUserId}
             onUpdate={refetch}
           />
@@ -487,9 +492,10 @@ export default function Taches() {
       <TaskModal
         isOpen={addOpen}
         onClose={() => setAddOpen(false)}
-        userId={isAdmin ? (memberFilter || null) : profile?.id}
+        userId={isAdminOrRespVente ? (memberFilter || null) : profile?.id}
         onCreated={refetch}
         isAdmin={isAdmin}
+        isRespVente={isRespVente}
       />
     </Layout>
   )

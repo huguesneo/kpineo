@@ -42,6 +42,14 @@ function AdminRoute({ children }) {
   return children
 }
 
+function SalesManagerRoute({ children }) {
+  const { user, profile, loading } = useAuth()
+  if (loading) return <LoadingScreen />
+  if (!user) return <Navigate to="/login" replace />
+  if (profile && profile.role !== 'admin' && profile.role !== 'resp_vente') return <Navigate to="/dashboard" replace />
+  return children
+}
+
 function PublicRoute({ children }) {
   const { user, loading } = useAuth()
   if (loading) return <LoadingScreen />
@@ -54,7 +62,7 @@ function AppRoutes() {
       <Route path="/login"           element={<PublicRoute><Login /></PublicRoute>} />
       <Route path="/dashboard"       element={<PrivateRoute><Dashboard /></PrivateRoute>} />
       <Route path="/membres"         element={<PrivateRoute><Membres /></PrivateRoute>} />
-      <Route path="/membres/:id"     element={<AdminRoute><MembreDossier /></AdminRoute>} />
+      <Route path="/membres/:id"     element={<SalesManagerRoute><MembreDossier /></SalesManagerRoute>} />
       <Route path="/taches"          element={<PrivateRoute><Taches /></PrivateRoute>} />
       <Route path="/kpis"            element={<PrivateRoute><KPIs /></PrivateRoute>} />
       <Route path="/horaires"        element={<PrivateRoute><Horaires /></PrivateRoute>} />

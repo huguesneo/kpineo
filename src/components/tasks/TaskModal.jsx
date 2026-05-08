@@ -66,14 +66,20 @@ export default function TaskModal({
   defaultPriority = 'prioritaire',
   onCreated,
   isAdmin = true,
+  isRespVente = false,
   task = null,        // if provided → edit mode
 }) {
   const isEditMode = !!task
   const { user } = useAuth()
-  const { members } = useMembers()
+  const { members: allMembers } = useMembers()
 
-  // Show assignment UI only when admin creates without a pre-selected member (never in edit mode)
-  const showAssignment = isAdmin && !userId && !isEditMode
+  // resp_vente ne voit que les setters/closers dans la liste membre
+  const members = isRespVente
+    ? allMembers.filter(m => m.role === 'closer' || m.role === 'setter')
+    : allMembers
+
+  // Show assignment UI when admin or resp_vente creates without a pre-selected member (never in edit mode)
+  const showAssignment = (isAdmin || isRespVente) && !userId && !isEditMode
 
   const [assignMode,    setAssignMode]    = useState('specific') // 'specific' | 'groups'
   const [selectedRoles, setSelectedRoles] = useState(new Set())
@@ -146,6 +152,11 @@ export default function TaskModal({
     () => members.filter(m => m.role !== 'admin' && m.is_active !== false),
     [members]
   )
+
+  // resp_vente ne peut assigner qu'aux closers/setters — pas de "Tout le monde"
+  const visibleRoleGroups = isRespVente
+    ? ROLE_GROUPS.filter(rg => rg.value === 'closer' || rg.value === 'setter')
+    : ROLE_GROUPS
 
   // Preview: which members will receive the task in group mode
   const targetMembers = useMemo(() => {
@@ -321,7 +332,7 @@ export default function TaskModal({
             {assignMode === 'groups' && (
               <div className="space-y-2.5">
                 <div className="grid grid-cols-2 gap-2">
-                  {ROLE_GROUPS.map(rg => {
+                  {visibleRoleGroups.map(rg => {
                     const count = rg.value === 'all'
                       ? nonAdminMembers.length
                       : nonAdminMembers.filter(m => m.role === rg.value).length
