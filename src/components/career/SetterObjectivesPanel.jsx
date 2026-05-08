@@ -5,9 +5,11 @@ import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 
 const SETTER_KPIS = [
-  { type: 'setter_showup_target',    label: 'Show-ups',    unit: 'Nb', isCurrency: false, color: '#00bbb1' },
-  { type: 'setter_sales_target',     label: 'Ventes',      unit: 'Nb', isCurrency: false, color: '#6366f1' },
-  { type: 'setter_commission_target',label: 'Commissions', unit: '$',  isCurrency: true,  color: '#10b981' },
+  { type: 'setter_showup_target',    label: 'Show-ups',              unit: 'Nb', isCurrency: false, color: '#00bbb1' },
+  { type: 'setter_confirm_target',   label: 'Confirmations auto',    unit: 'Nb', isCurrency: false, color: '#f59e0b' },
+  { type: 'setter_rebook_target',    label: 'Rebookings',            unit: 'Nb', isCurrency: false, color: '#8b5cf6' },
+  { type: 'setter_sales_target',     label: 'Ventes',                unit: 'Nb', isCurrency: false, color: '#6366f1' },
+  { type: 'setter_commission_target',label: 'Commissions totales',   unit: '$',  isCurrency: true,  color: '#10b981' },
 ]
 
 function fmtNum(n, isCurrency) {
@@ -156,7 +158,7 @@ export default function SetterObjectivesPanel({ userId, isAdmin = false }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {SETTER_KPIS.map(({ type, label, unit, isCurrency, color }) => {
           const obj = getObj(type)
           return (

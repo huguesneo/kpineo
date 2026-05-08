@@ -745,22 +745,38 @@ function SetterPayOverview({ member }) {
       {loading ? (
         <div className="animate-pulse h-32 bg-gray-100 rounded-2xl mb-6" />
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card className="p-5">
-            <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide mb-1">Commissions Show-up</p>
-            <p className="text-2xl font-bold text-[#1a1a1a]">{Number(data.totalShowups).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}</p>
-            <p className="text-xs text-[#6b7280] mt-1">{data.showupCount} show-up(s)</p>
-          </Card>
-          <Card className="p-5">
-            <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide mb-1">Bonus de vente</p>
-            <p className="text-2xl font-bold text-[#1a1a1a]">{Number(data.totalBonus).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}</p>
-            <p className="text-xs text-[#6b7280] mt-1">{data.wonCount} vente(s)</p>
-          </Card>
-          <Card className="p-5 border-[#00bbb1]/40 bg-[#00bbb1]/5">
-            <p className="text-[10px] font-bold text-[#00bbb1] uppercase tracking-wide mb-1">Total à payer</p>
-            <p className="text-2xl font-bold text-[#00bbb1]">{Number(data.totalPay).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}</p>
-            <p className="text-xs text-[#00bbb1] mt-1">{data.bookedCount} booké(s)</p>
-          </Card>
+        <div className="space-y-3">
+          {/* Ligne 1 : détail des commissions show-up */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Card className="p-5">
+              <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide mb-1">Commission Manuelle</p>
+              <p className="text-2xl font-bold text-[#1a1a1a]">{Number(data.commissionManuel).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}</p>
+              <p className="text-xs text-[#6b7280] mt-1">{data.manuelCount} show-up{data.manuelCount !== 1 ? 's' : ''} manuel{data.manuelCount !== 1 ? 's' : ''} × 40 $</p>
+            </Card>
+            <Card className="p-5">
+              <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide mb-1">Commission Confirmation</p>
+              <p className="text-2xl font-bold text-[#1a1a1a]">{Number(data.commissionAuto).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}</p>
+              <p className="text-xs text-[#6b7280] mt-1">{data.autoCount} confirmation{data.autoCount !== 1 ? 's' : ''} auto × 20 $</p>
+            </Card>
+            <Card className="p-5">
+              <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide mb-1">Commission Rebooking</p>
+              <p className="text-2xl font-bold text-[#1a1a1a]">{Number(data.commissionRebook).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}</p>
+              <p className="text-xs text-[#6b7280] mt-1">{data.rebookingCount} rebooking{data.rebookingCount !== 1 ? 's' : ''} × 20 $</p>
+            </Card>
+          </div>
+          {/* Ligne 2 : bonus vente + total */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Card className="p-5">
+              <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide mb-1">Bonus de Vente</p>
+              <p className="text-2xl font-bold text-[#1a1a1a]">{Number(data.totalBonus).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}</p>
+              <p className="text-xs text-[#6b7280] mt-1">{data.wonCount} vente{data.wonCount !== 1 ? 's' : ''}</p>
+            </Card>
+            <Card className="p-5 border-[#00bbb1]/40 bg-[#00bbb1]/5">
+              <p className="text-[10px] font-bold text-[#00bbb1] uppercase tracking-wide mb-1">Total à payer</p>
+              <p className="text-2xl font-bold text-[#00bbb1]">{Number(data.totalPay).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}</p>
+              <p className="text-xs text-[#00bbb1] mt-1">{data.showupCount} show-up{data.showupCount !== 1 ? 's' : ''} · {data.bookedCount} booké{data.bookedCount !== 1 ? 's' : ''}</p>
+            </Card>
+          </div>
         </div>
       )}
     </div>

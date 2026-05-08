@@ -1063,7 +1063,7 @@ function MemberDashboard() {
     return `${setterYear}-${String(setterMonth).padStart(2, '0')}-${String(last).padStart(2, '0')}`
   })()
   const setterMonthObjs = (setterObjAll ?? []).filter(o =>
-    ['setter_showup_target', 'setter_sales_target', 'setter_commission_target'].includes(o.type) &&
+    ['setter_showup_target', 'setter_confirm_target', 'setter_rebook_target', 'setter_sales_target', 'setter_commission_target'].includes(o.type) &&
     o.period_start === setterPStart && o.period_end === setterPEnd
   )
 
@@ -1201,32 +1201,53 @@ function MemberDashboard() {
           </p>
 
           {setterCommLoading ? (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {[0, 1, 2].map(i => <SkeletonCard key={i} />)}
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">{[0, 1, 2].map(i => <SkeletonCard key={i} />)}</div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{[0, 1].map(i => <SkeletonCard key={i} />)}</div>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <StatCard
-                label="Commissions Show-up"
-                value={Number(setterCommData?.totalShowups ?? 0).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}
-                sub={`${setterCommData?.showupCount ?? 0} show-up${(setterCommData?.showupCount ?? 0) !== 1 ? 's' : ''}`}
-                color="#00bbb1"
-                icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>}
-              />
-              <StatCard
-                label="Bonus de Vente"
-                value={Number(setterCommData?.totalBonus ?? 0).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}
-                sub={`${setterCommData?.wonCount ?? 0} vente${(setterCommData?.wonCount ?? 0) !== 1 ? 's' : ''}`}
-                color="#6366f1"
-                icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
-              />
-              <StatCard
-                label="Total à payer"
-                value={Number(setterCommData?.totalPay ?? 0).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}
-                sub={`${setterCommData?.bookedCount ?? 0} booké${(setterCommData?.bookedCount ?? 0) !== 1 ? 's' : ''}`}
-                color="#10b981"
-                icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
-              />
+            <div className="space-y-3">
+              {/* Ligne 1 : détail des commissions show-up */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <StatCard
+                  label="Commission Manuelle"
+                  value={Number(setterCommData?.commissionManuel ?? 0).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}
+                  sub={`${setterCommData?.manuelCount ?? 0} show-up${(setterCommData?.manuelCount ?? 0) !== 1 ? 's' : ''} manuel${(setterCommData?.manuelCount ?? 0) !== 1 ? 's' : ''} × 40 $`}
+                  color="#00bbb1"
+                  icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>}
+                />
+                <StatCard
+                  label="Commission Confirmation"
+                  value={Number(setterCommData?.commissionAuto ?? 0).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}
+                  sub={`${setterCommData?.autoCount ?? 0} confirmation${(setterCommData?.autoCount ?? 0) !== 1 ? 's' : ''} auto × 20 $`}
+                  color="#f59e0b"
+                  icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+                />
+                <StatCard
+                  label="Commission Rebooking"
+                  value={Number(setterCommData?.commissionRebook ?? 0).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}
+                  sub={`${setterCommData?.rebookingCount ?? 0} rebooking${(setterCommData?.rebookingCount ?? 0) !== 1 ? 's' : ''} × 20 $`}
+                  color="#8b5cf6"
+                  icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>}
+                />
+              </div>
+              {/* Ligne 2 : bonus vente + total */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <StatCard
+                  label="Bonus de Vente"
+                  value={Number(setterCommData?.totalBonus ?? 0).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}
+                  sub={`${setterCommData?.wonCount ?? 0} vente${(setterCommData?.wonCount ?? 0) !== 1 ? 's' : ''}`}
+                  color="#6366f1"
+                  icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+                />
+                <StatCard
+                  label="Total à payer"
+                  value={Number(setterCommData?.totalPay ?? 0).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}
+                  sub={`${setterCommData?.showupCount ?? 0} show-up${(setterCommData?.showupCount ?? 0) !== 1 ? 's' : ''} · ${setterCommData?.bookedCount ?? 0} booké${(setterCommData?.bookedCount ?? 0) !== 1 ? 's' : ''}`}
+                  color="#10b981"
+                  icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+                />
+              </div>
             </div>
           )}
         </div>
@@ -1239,9 +1260,11 @@ function MemberDashboard() {
           {setterCommLoading ? <SkeletonTable rows={3} /> : (
             <div className="space-y-4">
               {[
-                { type: 'setter_showup_target',    label: 'Show-ups',       current: setterCommData?.showupCount ?? 0, isCurrency: false },
-                { type: 'setter_sales_target',     label: 'Ventes',         current: setterCommData?.wonCount ?? 0,    isCurrency: false },
-                { type: 'setter_commission_target',label: 'Commissions ($)', current: setterCommData?.totalPay ?? 0,   isCurrency: true  },
+                { type: 'setter_showup_target',    label: 'Show-ups',               current: setterCommData?.showupCount    ?? 0, isCurrency: false },
+                { type: 'setter_confirm_target',   label: 'Confirmations auto',      current: setterCommData?.autoCount      ?? 0, isCurrency: false },
+                { type: 'setter_rebook_target',    label: 'Rebookings',              current: setterCommData?.rebookingCount ?? 0, isCurrency: false },
+                { type: 'setter_sales_target',     label: 'Ventes',                  current: setterCommData?.wonCount       ?? 0, isCurrency: false },
+                { type: 'setter_commission_target',label: 'Commissions totales ($)',  current: setterCommData?.totalPay       ?? 0, isCurrency: true  },
               ].map(({ type, label, current, isCurrency }) => {
                 const obj = setterMonthObjs.find(o => o.type === type)
                 const target = obj?.target_value ?? 0

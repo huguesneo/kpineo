@@ -1,44 +1,49 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
-// Constantes des IDs GoHighLevel
 const PIPELINE_SETTING_ID = "3C5ggTxPoWBmiFAPlCKn";
-const FIELD_SETTER_NOM = "II5NrZGZrIScYItkxCi8";
-const FIELD_COMMISSION_SHOWUP = "sMwYAtL24soFUoWyBQ0p";
-const FIELD_DATE_CLOSE = "UPqvJX8MkZ4thsPX2tjV";
-const FIELD_BONUS_VENTE = "ID_A_REMPLIR"; // Remplacer par le vrai ID plus tard
 
-/**
- * Extrait la valeur d'un champ personnalisé depuis l'objet raw GHL
- */
-function getCustomFieldValue(rawObj, fieldId) {
-  if (!rawObj || !rawObj.customFields) return null;
-  
+// IDs des champs custom GHL (confirmés via raw JSON)
+const FIELD_SETTER_NOM    = "II5NrZGZrIScYItkxCi8"; // setter__nom
+const FIELD_TYPE_BOOKING  = "YbAB98KAINZM7vzebAKh"; // setter__type_de_booking
+const FIELD_DATE_CLOSE    = "UPqvJX8MkZ4thsPX2tjV"; // date_de_close (timestamp Unix)
+const FIELD_BONUS_VENTE   = "ID_A_REMPLIR";          // setter__bonus_vente (à remplir)
+
+// Montants flat hardcodés (logique métier)
+const FLAT_MANUEL  = 40;
+const FLAT_CONFIRM = 20;
+const FLAT_REBOOK  = 20;
+
+// GHL stocke par `id`, pas par `key`
+function getFieldById(rawObj, fieldId) {
+  if (!rawObj?.customFields || fieldId === 'ID_A_REMPLIR') return null;
   const field = rawObj.customFields.find(f => f.id === fieldId);
   if (!field) return null;
-
-  // L'API GHL type fortement la réponse, on prend la première valeur existante
   return field.fieldValueNumber ?? field.fieldValueString ?? field.fieldValueDate ?? null;
 }
 
-// NOUVEAU : On utilise startDate et endDate au lieu de month et year
 export function useSetterCommissions(memberFullName, startDate, endDate) {
   const [data, setData] = useState({
     bookedCount: 0,
     showupCount: 0,
+    manuelCount: 0,
+    autoCount: 0,
+    rebookingCount: 0,
     wonCount: 0,
+    commissionManuel: 0,
+    commissionAuto: 0,
+    commissionRebook: 0,
     totalShowups: 0,
     totalBonus: 0,
     totalPay: 0,
-    opportunities: []
+    opportunities: [],
   });
-  
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     async function fetchCommissions() {
-      // NOUVEAU : On vérifie les nouvelles variables
       if (!memberFullName || !startDate || !endDate) {
         setLoading(false);
         return;
@@ -48,103 +53,102 @@ export function useSetterCommissions(memberFullName, startDate, endDate) {
       setError(null);
 
       try {
-        // NOUVEAU : Création des objets Date pour comparer précisément (de 00h00 à 23h59)
         const start = new Date(startDate + 'T00:00:00');
-        const end = new Date(endDate + 'T23:59:59');
+        const end   = new Date(endDate   + 'T23:59:59');
 
-        // 1. Récupérer le pipeline pour mapper les IDs d'étapes à leurs noms
-        const { data: pipelineData, error: pipeError } = await supabase
-          .from('ghl_pipelines')
-          .select('stages')
-          .eq('ghl_id', PIPELINE_SETTING_ID)
-          .single();
+        const [{ data: pipelineData, error: pipeError }, { data: oppsData, error: oppsError }] = await Promise.all([
+          supabase.from('ghl_pipelines').select('stages').eq('ghl_id', PIPELINE_SETTING_ID).single(),
+          supabase.from('ghl_opportunities').select('*').eq('pipeline_id', PIPELINE_SETTING_ID),
+        ]);
 
         if (pipeError) throw pipeError;
-
-        const stagesMap = {};
-        if (pipelineData?.stages) {
-          pipelineData.stages.forEach(stage => {
-            stagesMap[stage.id] = stage.name;
-          });
-        }
-
-        // 2. Récupérer toutes les opportunités du pipeline Setting
-        const { data: oppsData, error: oppsError } = await supabase
-          .from('ghl_opportunities')
-          .select('*')
-          .eq('pipeline_id', PIPELINE_SETTING_ID);
-
         if (oppsError) throw oppsError;
 
+        // Map stageId → stageName depuis le pipeline
+        const stagesMap = {};
+        (pipelineData?.stages ?? []).forEach(stage => {
+          if (stage.id) stagesMap[stage.id] = stage.name;
+        });
+
         const nameLower = memberFullName.toLowerCase();
-        let bookedCount = 0;
-        let showupCount = 0;
+        let bookedCount = 0, showupCount = 0;
+        let manuelCount = 0, autoCount = 0, rebookingCount = 0;
         let wonCount = 0;
-        let totalShowups = 0;
+        let commissionManuel = 0, commissionAuto = 0, commissionRebook = 0;
         let totalBonus = 0;
         const setterOpps = [];
 
-        // 3. Filtrer et calculer les métriques
         oppsData.forEach(opp => {
           const raw = opp.raw;
-          
-          // Vérifier si cette opportunité appartient au Setter
-          const setterName = getCustomFieldValue(raw, FIELD_SETTER_NOM);
-          if (!setterName || String(setterName).toLowerCase() !== nameLower) {
-            return;
-          }
+
+          // Filtre par setter nom (via ID de champ)
+          const setterName = getFieldById(raw, FIELD_SETTER_NOM);
+          if (!setterName || String(setterName).toLowerCase() !== nameLower) return;
 
           setterOpps.push(opp);
 
-          // Résoudre le vrai nom de l'étape
-          const stageName = (stagesMap[opp.pipeline_stage_id] || '').toLowerCase();
-          
+          // Résolution du stage depuis le pipeline (stage_name en DB est souvent vide)
+          const stageName     = (stagesMap[opp.pipeline_stage_id] || opp.stage_name || '').toLowerCase();
           const isShowupStage = stageName.includes('show-up confirm') || stageName.includes('bonus vente');
-          const isWonStage = stageName.includes('bonus vente');
+          const isWonStage    = stageName.includes('bonus vente');
 
-          // Vérifier la création pour les Books et Show-ups (basé sur created_at_ghl)
+          const typeDeBooking = String(getFieldById(raw, FIELD_TYPE_BOOKING) || '').toLowerCase();
+          // La prequal est un checkbox GHL — si absent des customFields, considéré non-coché
+          const prequelOui = false; // TODO: ajouter FIELD_PREQUAL quand l'ID est connu
+
+          // Books : comptés à la date de création
           if (opp.created_at_ghl) {
             const createdDate = new Date(opp.created_at_ghl);
-            // NOUVEAU : On vérifie si la date tombe DANS l'intervalle sélectionné
-            const isCreatedInPeriod = createdDate >= start && createdDate <= end;
+            if (createdDate >= start && createdDate <= end) {
+              bookedCount++;
 
-            if (isCreatedInPeriod) {
-              bookedCount++; // Ajout aux books de la période
-
+              // Show-ups dans stage show-up, créés dans la période
               if (isShowupStage) {
                 showupCount++;
-                const showupCom = Number(getCustomFieldValue(raw, FIELD_COMMISSION_SHOWUP) || 0);
-                totalShowups += showupCom;
+
+                if (typeDeBooking === 'manuel') {
+                  manuelCount++;
+                  commissionManuel += FLAT_MANUEL;
+                } else if (typeDeBooking === 'automatique' && prequelOui) {
+                  autoCount++;
+                  commissionAuto += FLAT_CONFIRM;
+                } else if (typeDeBooking === 'rebooking' && prequelOui) {
+                  rebookingCount++;
+                  commissionRebook += FLAT_REBOOK;
+                }
               }
             }
           }
 
-          // Vérifier le Won (basé sur le champ custom FIELD_DATE_CLOSE en timestamp Unix)
+          // Ventes : stage bonus vente, date de close dans la période
           if (isWonStage) {
-            const closeDateMs = getCustomFieldValue(raw, FIELD_DATE_CLOSE);
-            if (closeDateMs) {
-              // Convertir le timestamp Unix en Date locale
-              const closeDate = new Date(Number(closeDateMs));
-              
-              // NOUVEAU : On vérifie si la date tombe DANS l'intervalle sélectionné
-              if (closeDate >= start && closeDate <= end) {
+            const closeDateRaw = getFieldById(raw, FIELD_DATE_CLOSE);
+            if (closeDateRaw) {
+              const closeDate = new Date(Number(closeDateRaw));
+              if (!isNaN(closeDate.getTime()) && closeDate >= start && closeDate <= end) {
                 wonCount++;
-                const bonusCom = Number(getCustomFieldValue(raw, FIELD_BONUS_VENTE) || 0);
-                totalBonus += bonusCom;
+                totalBonus += Number(getFieldById(raw, FIELD_BONUS_VENTE) || 0);
               }
             }
           }
         });
 
-        // 4. Mettre à jour l'état final
+        const totalShowups = commissionManuel + commissionAuto + commissionRebook;
+
         setData({
           bookedCount,
           showupCount,
+          manuelCount,
+          autoCount,
+          rebookingCount,
           wonCount,
+          commissionManuel,
+          commissionAuto,
+          commissionRebook,
           totalShowups,
           totalBonus,
           totalPay: totalShowups + totalBonus,
-          opportunities: setterOpps
+          opportunities: setterOpps,
         });
 
       } catch (err) {
@@ -156,7 +160,7 @@ export function useSetterCommissions(memberFullName, startDate, endDate) {
     }
 
     fetchCommissions();
-  }, [memberFullName, startDate, endDate]); // NOUVEAU : mise à jour des dépendances
+  }, [memberFullName, startDate, endDate]);
 
   return { data, loading, error };
 }
