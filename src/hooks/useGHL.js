@@ -47,12 +47,28 @@ export function useGHLConfig() {
   return { config, loading, saveLocationId, refetch: load }
 }
 
-// ─── Sync contacts depuis GHL ────────────────────────────────
-export async function syncGHLContacts(locationId) {
-  const { data, error } = await supabase.functions.invoke('gohighlevel-sync', {
-    body: { action: 'sync_contacts', locationId },
-  })
-  return { data, error: error?.message ?? data?.error ?? null }
+// ─── Sync contacts depuis GHL (paginé, 2000 par appel) ───────
+export async function syncGHLContacts(locationId, onProgress = null) {
+  let totalSynced = 0
+  let cursor = undefined
+
+  while (true) {
+    const { data, error } = await supabase.functions.invoke('gohighlevel-sync', {
+      body: { action: 'sync_contacts', locationId, startAfterCursor: cursor, maxContacts: 2000 },
+    })
+
+    if (error || data?.error) {
+      return { data: { synced: totalSynced }, error: error?.message ?? data?.error ?? null }
+    }
+
+    totalSynced += data?.synced ?? 0
+    if (onProgress) onProgress(totalSynced)
+
+    cursor = data?.nextCursor ?? null
+    if (!cursor) break
+  }
+
+  return { data: { synced: totalSynced }, error: null }
 }
 
 // ─── Sync opportunités depuis GHL ────────────────────────────

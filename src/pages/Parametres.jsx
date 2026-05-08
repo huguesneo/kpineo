@@ -181,6 +181,7 @@ function GHLSection() {
   const savedLocationId = config?.location_id ?? null
   const { locations, loading: connLoading, error: connError, refetch: retestConn } = useGHLConnection(savedLocationId, !configLoading)
   const [syncingContacts, setSyncingContacts] = useState(false)
+  const [syncProgress, setSyncProgress] = useState(0)
   const [syncingOpps, setSyncingOpps] = useState(false)
   const [syncMsg, setSyncMsg] = useState(null)
   const [manualId, setManualId] = useState('')
@@ -190,8 +191,8 @@ function GHLSection() {
 
   async function handleSyncContacts() {
     if (!savedLocationId) return
-    setSyncingContacts(true); setSyncMsg(null)
-    const { data, error } = await syncGHLContacts(savedLocationId)
+    setSyncingContacts(true); setSyncProgress(0); setSyncMsg(null)
+    const { data, error } = await syncGHLContacts(savedLocationId, (n) => setSyncProgress(n))
     setSyncingContacts(false)
     setSyncMsg(error ? { type: 'error', msg: error } : { type: 'success', msg: `${data.synced} contacts synchronisés` })
   }
@@ -247,7 +248,7 @@ function GHLSection() {
       {isConnected && savedLocationId && (
         <div className="border-t border-[#e5e7eb] px-4 py-3 bg-gray-50 flex flex-wrap items-center gap-2">
           <Button size="sm" variant="secondary" onClick={handleSyncContacts} loading={syncingContacts}>
-            {syncingContacts ? 'Sync…' : 'Sync Contacts'}
+            {syncingContacts ? `Sync… (${syncProgress.toLocaleString()})` : 'Sync Contacts'}
           </Button>
           <Button size="sm" variant="secondary" onClick={handleSyncOpps} loading={syncingOpps}>
             {syncingOpps ? 'Sync…' : 'Sync Pipeline'}

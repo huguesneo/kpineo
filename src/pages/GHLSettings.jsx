@@ -36,6 +36,7 @@ export default function GHLSettings() {
   const [selectedLocation, setSelectedLocation] = useState(null)
   const [saving, setSaving] = useState(false)
   const [syncingContacts, setSyncingContacts] = useState(false)
+  const [syncProgress, setSyncProgress] = useState(0)
   const [syncingOpps, setSyncingOpps] = useState(false)
   const [contactsResult, setContactsResult] = useState(null)
   const [oppsResult, setOppsResult] = useState(null)
@@ -67,8 +68,9 @@ export default function GHLSettings() {
     const locId = activeLocationId
     if (!locId) return
     setSyncingContacts(true)
+    setSyncProgress(0)
     setContactsResult(null)
-    const { data, error } = await syncGHLContacts(locId)
+    const { data, error } = await syncGHLContacts(locId, (n) => setSyncProgress(n))
     setSyncingContacts(false)
     if (error) { setContactsResult({ error }); return }
     setContactsResult({ message: `${data.synced} contacts synchronisés` })
@@ -246,7 +248,9 @@ export default function GHLSettings() {
                 onClick={handleSyncContacts}
                 loading={syncingContacts}
               >
-                {syncingContacts ? 'Synchronisation…' : 'Synchroniser les contacts'}
+                {syncingContacts
+                  ? `Synchronisation… (${syncProgress.toLocaleString()} contacts)`
+                  : 'Synchroniser les contacts'}
               </Button>
               <SyncResult result={contactsResult} />
             </div>

@@ -16,18 +16,22 @@ function ghlHeaders(apiKey: string) {
   }
 }
 
-// ─── Fetch paginé GHL ────────────────────────────────────────
-async function fetchAllContacts(
+// ─── Fetch paginé GHL avec batch upsert ────────────────────────────────────────
+async function fetchAndUpsertContacts(
   apiKey: string,
   locationId: string,
-  startAfter?: string
-): Promise<Record<string, unknown>[]> {
-  const results: Record<string, unknown>[] = []
-  let nextCursor: string | undefined = undefined
+  supabase: ReturnType<typeof createClient>,
+  startAfterCursor?: string,
+  maxContacts = 2000
+): Promise<{ synced: number; nextCursor: string | null }> {
+  let synced = 0
+  let nextCursor: string | null = null
+  let cursor: string | undefined = startAfterCursor
+  const BATCH_SIZE = 500
 
-  while (true) {
+  while (synced < maxContacts) {
     const params = new URLSearchParams({ locationId, limit: '100' })
-    if (nextCursor) params.set('startAfter', nextCursor)
+    if (cursor) params.set('startAfter', cursor)
 
     const res = await fetch(`${GHL_BASE}/contacts/?${params}`, { headers: ghlHeaders(apiKey) })
     if (!res.ok) {
@@ -36,17 +40,43 @@ async function fetchAllContacts(
     }
     const data = await res.json() as Record<string, unknown>
     const contacts = (data?.contacts ?? []) as Record<string, unknown>[]
-    results.push(...contacts)
+
+    const rows = contacts.map(c => ({
+      ghl_id:         String(c.id ?? ''),
+      location_id:    locationId,
+      first_name:     String(c.firstName ?? ''),
+      last_name:      String(c.lastName ?? ''),
+      email:          String(c.email ?? ''),
+      phone:          String(c.phone ?? ''),
+      tags:           (c.tags ?? []) as string[],
+      source:         String(c.source ?? ''),
+      created_at_ghl: c.dateAdded ? new Date(c.dateAdded as string).toISOString() : null,
+      raw:            c,
+      synced_at:      new Date().toISOString(),
+    }))
+
+    // Upsert par batch de BATCH_SIZE pour éviter les timeouts Supabase
+    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+      await supabase.from('ghl_contacts').upsert(rows.slice(i, i + BATCH_SIZE), { onConflict: 'ghl_id' })
+    }
+    synced += rows.length
 
     const meta = data?.meta as Record<string, unknown>
     if (contacts.length < 100 || !meta?.nextPageUrl) break
-    // Extract cursor from nextPageUrl if available
+
     const next = String(meta?.nextPageUrl ?? '')
     const m = next.match(/startAfter=([^&]+)/)
     if (!m) break
-    nextCursor = m[1]
+    cursor = m[1]
+
+    // Si on a atteint la limite, retourner le curseur pour reprendre plus tard
+    if (synced >= maxContacts) {
+      nextCursor = cursor
+      break
+    }
   }
-  return results
+
+  return { synced, nextCursor }
 }
 
 async function fetchPipelines(apiKey: string, locationId: string): Promise<Record<string, unknown>[]> {
@@ -104,12 +134,14 @@ Deno.serve(async (req) => {
 
     const DEFAULT_LOCATION_ID = Deno.env.get('GHL_LOCATION_ID') ?? 'YG2spvWJqnD75L3V95UJ'
 
-    let action = 'test', locationId = ''
+    let action = 'test', locationId = '', startAfterCursor: string | undefined, maxContacts = 2000
     try {
       const text = await req.text()
       const b = text ? JSON.parse(text) : {}
       action = b?.action ?? 'test'
       locationId = b?.locationId ?? ''
+      startAfterCursor = b?.startAfterCursor ?? undefined
+      maxContacts = b?.maxContacts ?? 2000
     } catch { /* ok */ }
 
     // ── Test de connexion ──
@@ -143,25 +175,10 @@ Deno.serve(async (req) => {
 
     // ── Sync contacts ──
     if (action === 'sync_contacts') {
-      const contacts = await fetchAllContacts(apiKey, locationId)
-      const rows = contacts.map(c => ({
-        ghl_id:       String(c.id ?? ''),
-        location_id:  locationId,
-        first_name:   String(c.firstName ?? ''),
-        last_name:    String(c.lastName ?? ''),
-        email:        String(c.email ?? ''),
-        phone:        String(c.phone ?? ''),
-        tags:         (c.tags ?? []) as string[],
-        source:       String(c.source ?? ''),
-        created_at_ghl: c.dateAdded ? new Date(c.dateAdded as string).toISOString() : null,
-        raw:          c,
-        synced_at:    new Date().toISOString(),
-      }))
-
-      if (rows.length > 0) {
-        await supabase.from('ghl_contacts').upsert(rows, { onConflict: 'ghl_id' })
-      }
-      return json({ ok: true, synced: rows.length })
+      const { synced, nextCursor } = await fetchAndUpsertContacts(
+        apiKey, locationId, supabase, startAfterCursor, maxContacts
+      )
+      return json({ ok: true, synced, nextCursor })
     }
 
     // ── Sync opportunités ──
@@ -185,6 +202,15 @@ Deno.serve(async (req) => {
         )
       }
 
+      // Construire le map stageId → stageName depuis les pipelines synced
+      const stageNameMap: Record<string, string> = {}
+      for (const p of pipelines) {
+        const stages = (p.stages ?? []) as Array<{ id: string; name: string }>
+        for (const s of stages) {
+          if (s.id) stageNameMap[s.id] = s.name
+        }
+      }
+
       // Upsert opportunités
       const oppRows = opps.map(o => ({
         ghl_id:        String(o.id ?? ''),
@@ -193,7 +219,7 @@ Deno.serve(async (req) => {
         contact_name:  String(o.contact?.name ?? ''),
         pipeline_id:   String(o.pipelineId ?? ''),
         pipeline_stage_id: String(o.pipelineStageId ?? ''),
-        stage_name:    String(o.pipelineStage?.name ?? o.stage?.name ?? ''),
+        stage_name:    stageNameMap[String(o.pipelineStageId ?? '')] ?? String(o.pipelineStage?.name ?? o.stage?.name ?? ''),
         status:        String(o.status ?? ''),
         monetary_value: Number(o.monetaryValue ?? 0),
         assigned_to:   String(o.assignedTo ?? ''),
