@@ -16,13 +16,14 @@ function ghlHeaders(apiKey: string) {
   }
 }
 
-// ─── Fetch paginé GHL avec batch upsert ────────────────────────────────────────
+// ─── Fetch paginé GHL avec batch upsert ──────────────────────
 async function fetchAndUpsertContacts(
   apiKey: string,
   locationId: string,
   supabase: ReturnType<typeof createClient>,
   startAfterCursor?: string,
-  maxContacts = 2000
+  maxContacts = 2000,
+  sinceDate?: string
 ): Promise<{ synced: number; nextCursor: string | null }> {
   let synced = 0
   let nextCursor: string | null = null
@@ -32,6 +33,7 @@ async function fetchAndUpsertContacts(
   while (synced < maxContacts) {
     const params = new URLSearchParams({ locationId, limit: '100' })
     if (cursor) params.set('startAfter', cursor)
+    if (sinceDate) params.set('startDate', sinceDate)
 
     const res = await fetch(`${GHL_BASE}/contacts/?${params}`, { headers: ghlHeaders(apiKey) })
     if (!res.ok) {
@@ -55,7 +57,6 @@ async function fetchAndUpsertContacts(
       synced_at:      new Date().toISOString(),
     }))
 
-    // Upsert par batch de BATCH_SIZE pour éviter les timeouts Supabase
     for (let i = 0; i < rows.length; i += BATCH_SIZE) {
       await supabase.from('ghl_contacts').upsert(rows.slice(i, i + BATCH_SIZE), { onConflict: 'ghl_id' })
     }
@@ -69,7 +70,6 @@ async function fetchAndUpsertContacts(
     if (!m) break
     cursor = m[1]
 
-    // Si on a atteint la limite, retourner le curseur pour reprendre plus tard
     if (synced >= maxContacts) {
       nextCursor = cursor
       break
@@ -79,6 +79,7 @@ async function fetchAndUpsertContacts(
   return { synced, nextCursor }
 }
 
+// ─── Pipelines + Opportunités ─────────────────────────────────
 async function fetchPipelines(apiKey: string, locationId: string): Promise<Record<string, unknown>[]> {
   const res = await fetch(`${GHL_BASE}/opportunities/pipelines/?locationId=${locationId}`, {
     headers: ghlHeaders(apiKey),
@@ -91,14 +92,11 @@ async function fetchPipelines(apiKey: string, locationId: string): Promise<Recor
 async function fetchOpportunities(
   apiKey: string,
   locationId: string,
-  pipelineId?: string
 ): Promise<Record<string, unknown>[]> {
   const results: Record<string, unknown>[] = []
   let page = 1
   while (true) {
     const params = new URLSearchParams({ location_id: locationId, limit: '100', page: String(page) })
-    if (pipelineId) params.set('pipeline_id', pipelineId)
-
     const res = await fetch(`${GHL_BASE}/opportunities/search?${params}`, { headers: ghlHeaders(apiKey) })
     if (!res.ok) {
       console.error('GHL opportunities failed:', res.status, await res.text())
@@ -112,6 +110,62 @@ async function fetchOpportunities(
     page++
   }
   return results
+}
+
+async function syncOpportunities(
+  apiKey: string,
+  locationId: string,
+  supabase: ReturnType<typeof createClient>
+): Promise<{ pipelines: number; opportunities: number }> {
+  const [pipelines, opps] = await Promise.all([
+    fetchPipelines(apiKey, locationId),
+    fetchOpportunities(apiKey, locationId),
+  ])
+
+  if (pipelines.length > 0) {
+    await supabase.from('ghl_pipelines').upsert(
+      pipelines.map(p => ({
+        ghl_id:      String(p.id ?? ''),
+        location_id: locationId,
+        name:        String(p.name ?? ''),
+        stages:      p.stages ?? [],
+        synced_at:   new Date().toISOString(),
+      })),
+      { onConflict: 'ghl_id' }
+    )
+  }
+
+  const stageNameMap: Record<string, string> = {}
+  for (const p of pipelines) {
+    const stages = (p.stages ?? []) as Array<{ id: string; name: string }>
+    for (const s of stages) {
+      if (s.id) stageNameMap[s.id] = s.name
+    }
+  }
+
+  const oppRows = opps.map(o => ({
+    ghl_id:            String(o.id ?? ''),
+    location_id:       locationId,
+    contact_id:        String(o.contactId ?? ''),
+    contact_name:      String((o.contact as Record<string, unknown>)?.name ?? ''),
+    pipeline_id:       String(o.pipelineId ?? ''),
+    pipeline_stage_id: String(o.pipelineStageId ?? ''),
+    stage_name:        stageNameMap[String(o.pipelineStageId ?? '')] ?? String((o.pipelineStage as Record<string, unknown>)?.name ?? ''),
+    status:            String(o.status ?? ''),
+    monetary_value:    Number(o.monetaryValue ?? 0),
+    assigned_to:       String(o.assignedTo ?? ''),
+    source:            String(o.source ?? ''),
+    created_at_ghl:    o.createdAt ? new Date(o.createdAt as string).toISOString() : null,
+    closed_at:         o.closedDate ? new Date(o.closedDate as string).toISOString() : null,
+    raw:               o,
+    synced_at:         new Date().toISOString(),
+  }))
+
+  if (oppRows.length > 0) {
+    await supabase.from('ghl_opportunities').upsert(oppRows, { onConflict: 'ghl_id' })
+  }
+
+  return { pipelines: pipelines.length, opportunities: oppRows.length }
 }
 
 // ─── Handler ─────────────────────────────────────────────────
@@ -147,9 +201,7 @@ Deno.serve(async (req) => {
     // ── Test de connexion ──
     if (action === 'test') {
       const testLocId = locationId || DEFAULT_LOCATION_ID
-
       if (testLocId) {
-        // Validate with contacts endpoint — works with sub-account PIT tokens
         const testRes = await fetch(
           `${GHL_BASE}/contacts/?locationId=${testLocId}&limit=1`,
           { headers: ghlHeaders(apiKey) }
@@ -160,81 +212,68 @@ Deno.serve(async (req) => {
         }
         return json({ ok: true, locations: [{ id: testLocId, name: 'NEO Performance' }] })
       }
-
-      // No locationId — try agency endpoint
       const agencyRes = await fetch(`${GHL_BASE}/locations/search?limit=10`, { headers: ghlHeaders(apiKey) })
       if (agencyRes.ok) {
         const data = await agencyRes.json()
         return json({ ok: true, locations: data?.locations ?? [] })
       }
-
       return json({ ok: true, locations: [] })
     }
 
     if (!locationId) return json({ error: 'locationId requis' }, 400)
 
-    // ── Sync contacts ──
+    // ── Sync contacts (full, paginée) ──
     if (action === 'sync_contacts') {
       const { synced, nextCursor } = await fetchAndUpsertContacts(
         apiKey, locationId, supabase, startAfterCursor, maxContacts
       )
+      // Mettre à jour last_synced_at seulement à la fin (pas de nextCursor)
+      if (!nextCursor) {
+        await supabase.from('ghl_config')
+          .update({ last_synced_at: new Date().toISOString() })
+          .eq('location_id', locationId)
+      }
       return json({ ok: true, synced, nextCursor })
     }
 
-    // ── Sync opportunités ──
+    // ── Sync opportunités (full) ──
     if (action === 'sync_opportunities') {
-      const [pipelines, opps] = await Promise.all([
-        fetchPipelines(apiKey, locationId),
-        fetchOpportunities(apiKey, locationId),
-      ])
+      const result = await syncOpportunities(apiKey, locationId, supabase)
+      await supabase.from('ghl_config')
+        .update({ last_synced_at: new Date().toISOString() })
+        .eq('location_id', locationId)
+      return json({ ok: true, ...result })
+    }
 
-      // Upsert pipelines
-      if (pipelines.length > 0) {
-        await supabase.from('ghl_pipelines').upsert(
-          pipelines.map(p => ({
-            ghl_id: String(p.id ?? ''),
-            location_id: locationId,
-            name: String(p.name ?? ''),
-            stages: p.stages ?? [],
-            synced_at: new Date().toISOString(),
-          })),
-          { onConflict: 'ghl_id' }
-        )
-      }
+    // ── Sync incrémentale (cron toutes les 30 min) ──
+    if (action === 'sync_incremental') {
+      const locId = locationId || DEFAULT_LOCATION_ID
 
-      // Construire le map stageId → stageName depuis les pipelines synced
-      const stageNameMap: Record<string, string> = {}
-      for (const p of pipelines) {
-        const stages = (p.stages ?? []) as Array<{ id: string; name: string }>
-        for (const s of stages) {
-          if (s.id) stageNameMap[s.id] = s.name
-        }
-      }
+      // Lire la dernière sync depuis ghl_config
+      const { data: cfg } = await supabase
+        .from('ghl_config')
+        .select('last_synced_at')
+        .eq('location_id', locId)
+        .maybeSingle()
 
-      // Upsert opportunités
-      const oppRows = opps.map(o => ({
-        ghl_id:        String(o.id ?? ''),
-        location_id:   locationId,
-        contact_id:    String(o.contactId ?? ''),
-        contact_name:  String(o.contact?.name ?? ''),
-        pipeline_id:   String(o.pipelineId ?? ''),
-        pipeline_stage_id: String(o.pipelineStageId ?? ''),
-        stage_name:    stageNameMap[String(o.pipelineStageId ?? '')] ?? String(o.pipelineStage?.name ?? o.stage?.name ?? ''),
-        status:        String(o.status ?? ''),
-        monetary_value: Number(o.monetaryValue ?? 0),
-        assigned_to:   String(o.assignedTo ?? ''),
-        source:        String(o.source ?? ''),
-        created_at_ghl: o.createdAt ? new Date(o.createdAt as string).toISOString() : null,
-        closed_at:     o.closedDate ? new Date(o.closedDate as string).toISOString() : null,
-        raw:           o,
-        synced_at:     new Date().toISOString(),
-      }))
+      const sinceDate = cfg?.last_synced_at ?? undefined
+      const now = new Date().toISOString()
 
-      if (oppRows.length > 0) {
-        await supabase.from('ghl_opportunities').upsert(oppRows, { onConflict: 'ghl_id' })
-      }
+      // Nouveaux contacts depuis la dernière sync seulement
+      const { synced: newContacts } = await fetchAndUpsertContacts(
+        apiKey, locId, supabase, undefined, 5000, sinceDate
+      )
 
-      return json({ ok: true, pipelines: pipelines.length, opportunities: oppRows.length })
+      // Opportunités : toujours full sync (changements de stage fréquents)
+      const { pipelines, opportunities } = await syncOpportunities(apiKey, locId, supabase)
+
+      // Mettre à jour le timestamp de dernière sync
+      await supabase.from('ghl_config')
+        .update({ last_synced_at: now })
+        .eq('location_id', locId)
+
+      console.log(`Incremental sync: +${newContacts} contacts, ${opportunities} opps (since ${sinceDate ?? 'beginning'})`)
+      return json({ ok: true, newContacts, pipelines, opportunities, syncedAt: now })
     }
 
     return json({ error: `Action inconnue: ${action}` }, 400)
