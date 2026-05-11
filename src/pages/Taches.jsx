@@ -10,12 +10,14 @@ import TaskSection from '../components/tasks/TaskSection'
 import MemberTaskSection from '../components/tasks/MemberTaskSection'
 import TaskItem from '../components/tasks/TaskItem'
 import TaskModal from '../components/tasks/TaskModal'
+import CloserEODForm from '../components/eod/CloserEODForm'
 import { SkeletonCard } from '../components/shared/Skeleton'
 import { useTasks, usePendingApprovalTasks, approveTask, rejectTask } from '../hooks/useTasks'
 import { useMembers } from '../hooks/useMembers'
 import { useAuth } from '../context/AuthContext'
 import { useUserPoints } from '../hooks/usePoints'
 import { useTeamPoints } from '../hooks/useRewards'
+import { useCloserEODMissedBadge } from '../hooks/useCloserEOD'
 
 // ─── TeamPointsOverview (admin) ──────────────────────────────────────────────
 
@@ -312,10 +314,17 @@ function StatPill({ value, label, color }) {
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function Taches() {
-  const { profile } = useAuth()
+  const { profile, hasCloserRole } = useAuth()
   const isAdmin = profile?.role === 'admin'
   const isRespVente = profile?.role === 'resp_vente'
   const isAdminOrRespVente = isAdmin || isRespVente
+  const isCloserMember = hasCloserRole && !isAdminOrRespVente
+
+  const eodMissed = useCloserEODMissedBadge(
+    isCloserMember ? profile?.id : null,
+    isCloserMember ? profile?.ghl_user_id : null,
+    isCloserMember ? profile?.full_name : null,
+  )
 
   const [memberFilter, setMemberFilter] = useState('')
   const [addOpen, setAddOpen] = useState(false)
@@ -469,6 +478,26 @@ export default function Taches() {
             currentUserId={currentUserId}
             onUpdate={refetch}
           />
+
+          {/* Section EOD pour les closers */}
+          {isCloserMember && (
+            <div>
+              <p className="text-xs font-bold text-[#6b7280] uppercase tracking-wider px-1 mb-2 flex items-center gap-2">
+                Rapport End of Day
+                {eodMissed > 0 && (
+                  <span className="bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    Hier manquant
+                  </span>
+                )}
+              </p>
+              <CloserEODForm
+                userId={profile?.id}
+                ghlUserId={profile?.ghl_user_id ?? null}
+                closerName={profile?.full_name ?? null}
+                missedYesterday={eodMissed > 0}
+              />
+            </div>
+          )}
 
           {/* Boutique link */}
           <div className="text-center pb-2">

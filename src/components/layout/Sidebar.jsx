@@ -4,6 +4,7 @@ import { usePendingTasksCount, usePendingApprovalCount } from '../../hooks/useTa
 import { useTotalHoraireAlertCount } from '../../hooks/useSchedule'
 import { usePendingRedemptionsCount } from '../../hooks/useRewards'
 import { useUnassignedSales } from '../../hooks/useCloserData'
+import { useCloserEODMissedBadge } from '../../hooks/useCloserEOD'
 
 const NEO_LOGO = 'https://assets.cdn.filesafe.space/YG2spvWJqnD75L3V95UJ/media/6941c9327109a899ec69b43c.png'
 
@@ -37,7 +38,13 @@ export default function Sidebar() {
   const { count: approvalCount } = usePendingApprovalCount()
   const horaireAlertCount = useTotalHoraireAlertCount()
   const { count: boutiqueCount } = usePendingRedemptionsCount(isAdmin ? null : profile?.id)
-  const tachesBadge = isAdminOrRespVente ? (approvalCount > 0 ? approvalCount : count) : count
+  const baseTachesBadge = isAdminOrRespVente ? (approvalCount > 0 ? approvalCount : count) : count
+  const eodMissed = useCloserEODMissedBadge(
+    !isAdminOrRespVente && hasCloserRole ? profile?.id : null,
+    !isAdminOrRespVente && hasCloserRole ? profile?.ghl_user_id : null,
+    !isAdminOrRespVente && hasCloserRole ? profile?.full_name : null,
+  )
+  const tachesBadge = baseTachesBadge + eodMissed
 
   // Badge "Équipe de vente" : ventes sans closer pour le mois courant (admin only)
   const _now = new Date()
@@ -75,7 +82,7 @@ export default function Sidebar() {
         />
         <NavItem
           to="/taches"
-          label="Tâches"
+          label={hasCloserRole && !isAdminOrRespVente ? 'Tâches & EOD' : 'Tâches'}
           badge={tachesBadge}
           icon={
             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>

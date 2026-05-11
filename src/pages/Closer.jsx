@@ -6,6 +6,7 @@ import Header from '../components/layout/Header'
 import Card from '../components/shared/Card'
 import { SkeletonCard } from '../components/shared/Skeleton'
 import CloserObjectivesPanel from '../components/career/CloserObjectivesPanel'
+import AppointmentStatusPopup from '../components/closer/AppointmentStatusPopup'
 import { useAuth } from '../context/AuthContext'
 import { useObjectives } from '../hooks/useObjectives'
 import { usePayPeriodConfig, getCurrentPayPeriod } from '../hooks/usePayPeriod'
@@ -533,6 +534,15 @@ export default function Closer() {
           cashFilteredPayments.map((p, i) => <PaymentRow key={i} payment={p} />)
         )}
       </Modal>
+
+      {/* ── Popup statut rendez-vous (45 min après le RDV) ── */}
+      {profile?.id && (
+        <AppointmentStatusPopup
+          userId={profile.id}
+          ghlUserId={profile.ghl_user_id ?? null}
+          closerName={profile.full_name ?? null}
+        />
+      )}
     </Layout>
   )
 }
