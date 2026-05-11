@@ -79,6 +79,100 @@ async function fetchAndUpsertContacts(
   return { synced, nextCursor }
 }
 
+// ─── Calendriers Closer ───────────────────────────────────────
+const GHL_CLOSER_CALENDAR_IDS = [
+  '4227QzeKvFczi5BZyHOC', // Rencontre découverte 1
+  'DIN6EPtG7eNU3Gf6ZRoC', // Rencontre découverte 2
+  'ucyJmhYKKDDm7U5JmaJ8', // Rencontre découverte 3
+  'BQK4NoyrVNuJA3e1VHDH', // Rencontre de suivi
+]
+
+async function fetchCalendarEvents(
+  apiKey: string,
+  locationId: string,
+  calendarId: string,
+  startTimeMs: number,
+  endTimeMs: number
+): Promise<Record<string, unknown>[]> {
+  const params = new URLSearchParams({
+    locationId,
+    calendarId,
+    startTime: String(startTimeMs),
+    endTime:   String(endTimeMs),
+  })
+  const url = `${GHL_BASE}/calendars/events?${params}`
+  console.log(`[GHL] GET ${url}`)
+  const res = await fetch(url, { headers: ghlHeaders(apiKey) })
+  const rawText = await res.text()
+  if (!res.ok) {
+    console.error(`[GHL] calendar events FAILED [${calendarId}]: ${res.status} ${rawText}`)
+    return []
+  }
+  console.log(`[GHL] calendar events OK [${calendarId}]: ${res.status} — body: ${rawText.slice(0, 500)}`)
+  let data: Record<string, unknown>
+  try { data = JSON.parse(rawText) } catch { return [] }
+  // GHL retourne tantôt "events", tantôt "appointments"
+  const items = (data?.events ?? data?.appointments ?? []) as Record<string, unknown>[]
+  console.log(`[GHL] [${calendarId}] found ${items.length} item(s), keys: ${Object.keys(data).join(', ')}`)
+  return items
+}
+
+async function syncAppointments(
+  apiKey: string,
+  locationId: string,
+  supabase: ReturnType<typeof createClient>,
+  startTimeMs: number,
+  endTimeMs: number,
+  calendarIds: string[] = GHL_CLOSER_CALENDAR_IDS
+): Promise<{ synced: number }> {
+  let synced = 0
+  for (const calendarId of calendarIds) {
+    const events = await fetchCalendarEvents(apiKey, locationId, calendarId, startTimeMs, endTimeMs)
+    const rows = events.map(e => {
+      const contact = e.contact as Record<string, unknown> | undefined
+      // Extraire l'URL de meeting (Google Meet, Zoom, etc.)
+      let meetingUrl = ''
+      const loc = e.location ?? e.address ?? ''
+      if (typeof loc === 'string' && (loc.startsWith('https://') || loc.startsWith('http://'))) {
+        meetingUrl = loc
+      } else if (e.googleMeetLink && typeof e.googleMeetLink === 'string') {
+        meetingUrl = e.googleMeetLink
+      }
+      const rawTitle = String(contact?.name ?? e.title ?? e.contactName ?? '')
+      // GHL stores "Client Name Consultation/Rencontre ... Closer NEO" — extract client name only
+      const cleanedTitle = rawTitle.replace(/\s+(Consultation|Rencontre|Suivi).*/i, '').trim()
+      const contactName = cleanedTitle || rawTitle
+      return {
+        ghl_id:           String(e.id ?? ''),
+        location_id:      locationId,
+        calendar_id:      calendarId,
+        contact_id:       String(e.contactId ?? ''),
+        contact_name:     contactName,
+        contact_email:    String(contact?.email ?? ''),
+        assigned_user_id: String(e.assignedUserId ?? e.userId ?? ''),
+        start_time:       e.startTime ? new Date(e.startTime as string).toISOString() : null,
+        end_time:         e.endTime   ? new Date(e.endTime   as string).toISOString() : null,
+        status:           String(e.appoinmentStatus ?? e.appointmentStatus ?? ''),
+        meeting_url:      meetingUrl,
+        notes:            String(e.notes ?? ''),
+        raw:              e,
+        synced_at:        new Date().toISOString(),
+      }
+    })
+    if (rows.length > 0) {
+      await supabase.from('ghl_appointments').upsert(rows, { onConflict: 'ghl_id' })
+      synced += rows.length
+    }
+  }
+
+  // Enrichir les noms depuis ghl_contacts pour les RDV sans nom
+  const { data: filled, error: fillErr } = await supabase.rpc('fill_appointment_contact_names')
+  if (fillErr) console.error('[GHL] fill_appointment_contact_names error:', fillErr.message)
+  else console.log(`[GHL] Filled ${filled} appointment contact names from ghl_contacts`)
+
+  return { synced }
+}
+
 // ─── Pipelines + Opportunités ─────────────────────────────────
 async function fetchPipelines(apiKey: string, locationId: string): Promise<Record<string, unknown>[]> {
   const res = await fetch(`${GHL_BASE}/opportunities/pipelines/?locationId=${locationId}`, {
@@ -245,6 +339,17 @@ Deno.serve(async (req) => {
       return json({ ok: true, ...result })
     }
 
+    // ── Sync rendez-vous closers ──
+    if (action === 'sync_appointments') {
+      const locId = locationId || DEFAULT_LOCATION_ID
+      // Fenêtre : 3 mois passés → fin du mois prochain (en millisecondes pour l'API GHL)
+      const now = new Date()
+      const aptStartMs = new Date(now.getFullYear(), now.getMonth() - 6, 1).getTime()
+      const aptEndMs   = new Date(now.getFullYear(), now.getMonth() + 2, 0).getTime()
+      const result = await syncAppointments(apiKey, locId, supabase, aptStartMs, aptEndMs)
+      return json({ ok: true, ...result })
+    }
+
     // ── Sync incrémentale (cron toutes les 30 min) ──
     if (action === 'sync_incremental') {
       const locId = locationId || DEFAULT_LOCATION_ID
@@ -257,7 +362,8 @@ Deno.serve(async (req) => {
         .maybeSingle()
 
       const sinceDate = cfg?.last_synced_at ?? undefined
-      const now = new Date().toISOString()
+      const now = new Date()
+      const nowIso = now.toISOString()
 
       // Nouveaux contacts depuis la dernière sync seulement
       const { synced: newContacts } = await fetchAndUpsertContacts(
@@ -267,13 +373,18 @@ Deno.serve(async (req) => {
       // Opportunités : toujours full sync (changements de stage fréquents)
       const { pipelines, opportunities } = await syncOpportunities(apiKey, locId, supabase)
 
+      // Rendez-vous closers : fenêtre glissante 3 mois passés → fin mois prochain
+      const aptStartMs = new Date(now.getFullYear(), now.getMonth() - 6, 1).getTime()
+      const aptEndMs   = new Date(now.getFullYear(), now.getMonth() + 2, 0).getTime()
+      const { synced: appointments } = await syncAppointments(apiKey, locId, supabase, aptStartMs, aptEndMs)
+
       // Mettre à jour le timestamp de dernière sync
       await supabase.from('ghl_config')
-        .update({ last_synced_at: now })
+        .update({ last_synced_at: nowIso })
         .eq('location_id', locId)
 
-      console.log(`Incremental sync: +${newContacts} contacts, ${opportunities} opps (since ${sinceDate ?? 'beginning'})`)
-      return json({ ok: true, newContacts, pipelines, opportunities, syncedAt: now })
+      console.log(`Incremental sync: +${newContacts} contacts, ${opportunities} opps, ${appointments} appts (since ${sinceDate ?? 'beginning'})`)
+      return json({ ok: true, newContacts, pipelines, opportunities, appointments, syncedAt: nowIso })
     }
 
     return json({ error: `Action inconnue: ${action}` }, 400)

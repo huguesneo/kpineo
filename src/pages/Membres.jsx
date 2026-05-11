@@ -67,38 +67,109 @@ function AddMemberModal({ isOpen, onClose, onCreated }) {
   )
 }
 
+const SECONDARY_ROLE_OPTIONS = [
+  { value: 'closer', label: 'Closer' },
+  { value: 'setter', label: 'Setter' },
+]
+
 function EditMemberModal({ isOpen, onClose, member, onSaved }) {
-  const [form, setForm] = useState({ full_name: member?.full_name || '', role: member?.role || 'naturopathe', is_active: member?.is_active ?? true })
+  const [form, setForm] = useState({
+    full_name:       member?.full_name || '',
+    role:            member?.role || 'naturopathe',
+    secondary_roles: member?.secondary_roles ?? [],
+    is_active:       member?.is_active ?? true,
+    new_password:    '',
+  })
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError]     = useState('')
 
   function handleChange(e) {
     const val = e.target.type === 'checkbox' ? e.target.checked : e.target.value
     setForm(f => ({ ...f, [e.target.name]: val }))
   }
 
+  function toggleSecondary(role) {
+    setForm(f => {
+      const current = f.secondary_roles ?? []
+      const next = current.includes(role) ? current.filter(r => r !== role) : [...current, role]
+      return { ...f, secondary_roles: next }
+    })
+  }
+
+  // Si le rôle principal change, retirer ce rôle des secondaires
+  function handleRoleChange(e) {
+    const newRole = e.target.value
+    setForm(f => ({
+      ...f,
+      role: newRole,
+      secondary_roles: (f.secondary_roles ?? []).filter(r => r !== newRole),
+    }))
+  }
+
   async function handleSubmit(e) {
-    e.preventDefault(); setLoading(true)
-    const { error: err } = await updateMember(member.id, form)
+    e.preventDefault(); setLoading(true); setError('')
+    const { new_password, ...profileUpdates } = form
+    const { error: profileErr } = await updateMember(member.id, profileUpdates)
+    if (profileErr) { setError(profileErr.message); setLoading(false); return }
+    if (new_password.trim()) {
+      const client = supabaseAdmin || supabase
+      const { error: pwErr } = await client.auth.admin.updateUserById(member.id, { password: new_password.trim() })
+      if (pwErr) { setError(pwErr.message); setLoading(false); return }
+    }
     setLoading(false)
-    if (err) { setError(err.message); return }
     onSaved?.(); onClose()
   }
+
+  const availableSecondary = SECONDARY_ROLE_OPTIONS.filter(o => o.value !== form.role)
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Modifier le membre">
       <form onSubmit={handleSubmit} className="space-y-4">
         <Input label="Nom complet" name="full_name" value={form.full_name} onChange={handleChange} />
+
         <div className="flex flex-col gap-1">
-          <label className="text-sm font-semibold text-[#1a1a1a]">Rôle</label>
-          <select name="role" value={form.role} onChange={handleChange} className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#00bbb1]">
+          <label className="text-sm font-semibold text-[#1a1a1a]">Rôle principal</label>
+          <select name="role" value={form.role} onChange={handleRoleChange} className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#00bbb1]">
             {ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
           </select>
         </div>
+
+        {availableSecondary.length > 0 && (
+          <div className="flex flex-col gap-2">
+            <label className="text-sm font-semibold text-[#1a1a1a]">Rôles secondaires</label>
+            <div className="flex gap-3">
+              {availableSecondary.map(({ value, label }) => {
+                const active = (form.secondary_roles ?? []).includes(value)
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => toggleSecondary(value)}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-semibold transition-all ${
+                      active
+                        ? 'bg-[#3b82f6]/10 text-[#3b82f6] border-[#3b82f6]/40'
+                        : 'bg-white text-[#6b7280] border-[#e5e7eb] hover:border-[#3b82f6]/40 hover:text-[#3b82f6]'
+                    }`}
+                  >
+                    <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${active ? 'bg-[#3b82f6] border-[#3b82f6]' : 'border-[#d1d5db]'}`}>
+                      {active && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>}
+                    </span>
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+            <p className="text-[11px] text-[#9ca3af]">
+              Un rôle secondaire donne accès aux pages et dashboards de ce rôle dans le menu.
+            </p>
+          </div>
+        )}
+
         <label className="flex items-center gap-3 cursor-pointer">
           <input type="checkbox" name="is_active" checked={form.is_active} onChange={handleChange} className="w-4 h-4 accent-[#00bbb1]" />
           <span className="text-sm font-semibold text-[#1a1a1a]">Membre actif</span>
         </label>
+        <Input label="Nouveau mot de passe (optionnel)" name="new_password" type="password" value={form.new_password} onChange={handleChange} placeholder="Laisser vide pour ne pas changer" />
         {error && <p className="text-sm text-red-500">{error}</p>}
         <div className="flex justify-end gap-3 pt-2">
           <Button type="button" variant="secondary" onClick={onClose}>Annuler</Button>
@@ -159,7 +230,16 @@ function AdminMembresView() {
                         </div>
                       </div>
                     </td>
-                    <td className="py-3 px-3"><Badge variant={m.role}>{ROLE_LABELS[m.role] || m.role}</Badge></td>
+                    <td className="py-3 px-3">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <Badge variant={m.role}>{ROLE_LABELS[m.role] || m.role}</Badge>
+                        {(m.secondary_roles ?? []).map(r => (
+                          <span key={r} className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#3b82f6]/10 text-[#3b82f6]">
+                            +{ROLE_LABELS[r] || r}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
                     <td className="py-3 px-3"><Badge variant={m.is_active ? 'success' : 'default'}>{m.is_active ? 'Actif' : 'Inactif'}</Badge></td>
                     <td className="py-3 px-3 text-right">
                       <div className="flex items-center justify-end gap-2">
@@ -285,7 +365,7 @@ function RespVenteMembresView() {
                     <td className="py-3 px-3"><Badge variant={m.role}>{ROLE_LABELS[m.role] || m.role}</Badge></td>
                     <td className="py-3 px-3"><Badge variant={m.is_active ? 'success' : 'default'}>{m.is_active ? 'Actif' : 'Inactif'}</Badge></td>
                     <td className="py-3 px-3 text-right">
-                      {SALES_ROLES.includes(m.role) && (
+                      {(SALES_ROLES.includes(m.role) || (m.secondary_roles ?? []).some(r => SALES_ROLES.includes(r))) && (
                         <Button size="sm" onClick={() => navigate(`/membres/${m.id}`)}>Gérer le dossier</Button>
                       )}
                     </td>

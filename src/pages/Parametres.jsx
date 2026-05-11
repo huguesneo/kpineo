@@ -11,7 +11,7 @@ import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { useKPITypes, createKPIType, deactivateKPIType } from '../hooks/useKPITypes'
 import { useQBConnection, connectQuickBooks, disconnectQuickBooks } from '../hooks/useQuickBooks'
-import { useGHLConnection, useGHLConfig, syncGHLContacts, syncGHLOpportunities } from '../hooks/useGHL'
+import { useGHLConnection, useGHLConfig, syncGHLContacts, syncGHLOpportunities, syncGHLAppointments } from '../hooks/useGHL'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 
@@ -183,6 +183,7 @@ function GHLSection() {
   const [syncingContacts, setSyncingContacts] = useState(false)
   const [syncProgress, setSyncProgress] = useState(0)
   const [syncingOpps, setSyncingOpps] = useState(false)
+  const [syncingAppts, setSyncingAppts] = useState(false)
   const [syncMsg, setSyncMsg] = useState(null)
   const [manualId, setManualId] = useState('')
   const [savingManual, setSavingManual] = useState(false)
@@ -203,6 +204,14 @@ function GHLSection() {
     const { data, error } = await syncGHLOpportunities(savedLocationId)
     setSyncingOpps(false)
     setSyncMsg(error ? { type: 'error', msg: error } : { type: 'success', msg: `${data.pipelines} pipeline(s), ${data.opportunities} opportunités synchronisées` })
+  }
+
+  async function handleSyncAppts() {
+    if (!savedLocationId) return
+    setSyncingAppts(true); setSyncMsg(null)
+    const { data, error } = await syncGHLAppointments(savedLocationId)
+    setSyncingAppts(false)
+    setSyncMsg(error ? { type: 'error', msg: error } : { type: 'success', msg: `${data?.synced ?? 0} rendez-vous synchronisés (3 mois)` })
   }
 
   async function handleSaveManualId() {
@@ -252,6 +261,9 @@ function GHLSection() {
           </Button>
           <Button size="sm" variant="secondary" onClick={handleSyncOpps} loading={syncingOpps}>
             {syncingOpps ? 'Sync…' : 'Sync Pipeline'}
+          </Button>
+          <Button size="sm" variant="secondary" onClick={handleSyncAppts} loading={syncingAppts}>
+            {syncingAppts ? 'Sync…' : 'Sync RDV'}
           </Button>
           {config?.last_synced_at && (
             <p className="text-xs text-[#9ca3af] ml-auto">

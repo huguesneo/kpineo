@@ -18,9 +18,21 @@ import { supabase } from '../lib/supabase'
 import {
   format, startOfMonth, endOfMonth, startOfQuarter, endOfQuarter, parseISO,
 } from 'date-fns'
+import { useCloserMonthStats, useCloserAppointments, useCloserSales, useCloserCashCollected, APPT_STATUS_LABELS, APPT_STATUS_COLORS, COMMISSION_RATE } from '../hooks/useCloserData'
 import { fr } from 'date-fns/locale'
 import { usePayPeriodConfig, getCurrentPayPeriod } from '../hooks/usePayPeriod'
+import SetterEODForm from '../components/eod/SetterEODForm'
 
+
+function fmtDate(d) {
+  if (!d) return '—'
+  return format(new Date(d), 'd MMM yyyy', { locale: fr })
+}
+
+function fmtDateTime(d) {
+  if (!d) return '—'
+  return format(new Date(d), "d MMM yyyy 'à' HH:mm", { locale: fr })
+}
 
 const ROLE_LABELS = {
   naturopathe:    'Naturopathe',
@@ -32,21 +44,24 @@ const ROLE_LABELS = {
 }
 
 // ─── Shared helpers ───────────────────────────────────────────
-function StatCard({ label, value, sub, color = '#00bbb1', icon }) {
-  return (
-    <Card className="p-5">
+function StatCard({ label, value, sub, color = '#00bbb1', icon, onClick, compact = false }) {
+  const inner = (
+    <Card className={`p-5 ${onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`}>
       <div className="flex items-start justify-between">
         <div>
           <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide mb-2">{label}</p>
-          <p className="text-3xl font-bold text-[#1a1a1a]">{value}</p>
+          <p className={`${compact ? 'text-2xl' : 'text-3xl'} font-bold text-[#1a1a1a]`}>{value}</p>
           {sub && <p className="text-xs text-[#6b7280] mt-1">{sub}</p>}
         </div>
         <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0" style={{ backgroundColor: color + '18' }}>
           <span style={{ color }}>{icon}</span>
         </div>
       </div>
+      {onClick && <p className="text-xs font-semibold mt-3" style={{ color }}>Cliquer pour voir le détail →</p>}
     </Card>
   )
+  if (onClick) return <button className="text-left w-full" onClick={onClick}>{inner}</button>
+  return inner
 }
 
 function ProgressBar({ pct, color }) {
@@ -615,11 +630,107 @@ function SetterDashboardRow({ member, idx, accent }) {
   )
 }
 
+// ─── Closer Dashboard Row ─────────────────────────────────────
+function CloserDashboardRow({ member, idx, accent }) {
+  const navigate = useNavigate()
+  const now = new Date()
+  const startDate = format(startOfMonth(now), 'yyyy-MM-dd')
+  const endDate   = format(endOfMonth(now),   'yyyy-MM-dd')
+  const { stats, loading } = useCloserMonthStats(member.full_name, startDate, endDate)
+
+  const target      = member.monthlyTarget
+  const cashMonthly = member.qbMonthly ?? 0
+  const displayPct  = (target && target > 0) ? Math.min(100, Math.round((cashMonthly / target) * 100)) : null
+  const color = displayPct >= 80 ? '#10b981' : displayPct >= 50 ? '#f59e0b' : '#ef4444'
+
+  return (
+    <div className="flex items-center gap-3">
+      <span className="text-sm font-bold w-5 text-center" style={{ color: idx === 0 ? accent : '#d1d5db' }}>{idx + 1}</span>
+      <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 text-white" style={{ backgroundColor: accent }}>
+        {member.full_name.charAt(0).toUpperCase()}
+      </div>
+      <div className="w-28 flex-shrink-0 truncate">
+        <p className="font-semibold text-sm text-[#1a1a1a]">{member.full_name.split(' ')[0]}</p>
+        <p className="text-[10px] text-[#9ca3af] font-normal leading-tight mt-0.5">
+          {loading ? '...' : stats
+            ? `${stats.salesCount} vente${stats.salesCount !== 1 ? 's' : ''} · ${stats.closeRate !== null ? stats.closeRate + ' %' : '—'} close`
+            : '—'}
+        </p>
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex justify-between items-baseline mb-1">
+          <span className="text-xs text-[#6b7280]">
+            {cashMonthly > 0 ? cashMonthly.toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 }) : '—'}
+            {target ? <span className="text-[#d1d5db]"> / {Number(target).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}</span> : ''}
+          </span>
+          <span className="text-xs font-bold ml-2 flex-shrink-0" style={{ color: displayPct !== null ? color : '#d1d5db' }}>
+            {displayPct !== null ? `${displayPct} %` : 'Aucun objectif'}
+          </span>
+        </div>
+        {displayPct !== null ? (
+          <div className="w-full bg-gray-100 rounded-full h-2">
+            <div className="h-2 rounded-full transition-all duration-500" style={{ width: `${displayPct}%`, backgroundColor: color }} />
+          </div>
+        ) : <div className="w-full bg-gray-100 rounded-full h-2" />}
+      </div>
+      <button onClick={() => navigate(`/membres/${member.id}`)} className="text-xs font-semibold text-[#00bbb1] hover:text-[#009e95] transition-colors flex-shrink-0">
+        Voir →
+      </button>
+    </div>
+  )
+}
+
 // ─── Admin Dashboard ──────────────────────────────────────────
+function EODTodayModal({ isOpen, onClose, submitters, navigate }) {
+  if (!isOpen) return null
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-bold text-[#1a1a1a]">Rapports EOD — aujourd'hui</h2>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 text-[#9ca3af]">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        {submitters.length === 0 ? (
+          <p className="text-sm text-[#9ca3af] text-center py-6">Aucun rapport soumis aujourd'hui.</p>
+        ) : (
+          <div className="space-y-2">
+            {submitters.map(s => (
+              <div key={s.user_id} className="flex items-center justify-between px-4 py-3 bg-[#f9fafb] rounded-xl border border-[#f0f0f0]">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-[#00bbb1]/10 flex items-center justify-center text-[#00bbb1] font-bold text-sm">
+                    {(s.profiles?.full_name ?? '?').charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-[#1a1a1a]">{s.profiles?.full_name ?? '—'}</p>
+                    <p className="text-xs text-[#9ca3af]">{ROLE_LABELS[s.profiles?.role] ?? s.profiles?.role}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => { onClose(); navigate(`/membres/${s.user_id}`) }}
+                  className="text-xs font-semibold text-[#00bbb1] hover:text-[#009e95] transition-colors"
+                >
+                  Voir →
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function AdminDashboard({ isSalesManager = false }) {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
-  const [stats, setStats] = useState({ total: 0, naturopathes: 0, closers: 0, eodToday: 0 })
+  const [stats, setStats] = useState({ total: 0, naturopathes: 0, closers: 0, setters: 0, eodToday: 0 })
+  const [eodSubmitters, setEodSubmitters] = useState([])
+  const [eodModalOpen, setEodModalOpen] = useState(false)
   const [members, setMembers] = useState([])
   const [roleFilter, setRoleFilter] = useState('tous')
 
@@ -649,13 +760,11 @@ function AdminDashboard({ isSalesManager = false }) {
     const quarterStart = format(startOfQuarter(new Date()), 'yyyy-MM-dd')
     const quarterEnd   = format(endOfQuarter(new Date()),   'yyyy-MM-dd')
 
-    const profilesQuery = isSalesManager
-      ? supabase.from('profiles').select('*').eq('is_active', true).in('role', ['closer', 'setter'])
-      : supabase.from('profiles').select('*').eq('is_active', true).neq('role', 'admin')
+    const profilesQuery = supabase.from('profiles').select('*').eq('is_active', true).neq('role', 'admin')
 
     const [profilesRes, eodRes, kpiRes, objRes, qbCacheRes, qObjRes, ghlOppsRes] = await Promise.all([
       profilesQuery,
-      supabase.from('end_of_day_reports').select('id', { count: 'exact', head: true }).eq('report_date', today),
+      supabase.from('end_of_day_reports').select('user_id, role, profiles(id, full_name, role)').eq('report_date', today),
       supabase.from('kpi_entries').select('user_id, kpi_type, value').eq('scope', 'individual').gte('entry_date', monthStart).lte('entry_date', monthEnd),
       supabase.from('objectives').select('*').eq('scope', 'individual').lte('period_start', monthEnd).gte('period_end', monthStart),
       supabase.from('member_revenue_cache').select('first_name, therapist_monthly, therapist_quarterly, closer_monthly, setter_monthly'),
@@ -667,6 +776,7 @@ function AdminDashboard({ isSalesManager = false }) {
     ])
 
     const profiles = profilesRes.data || []
+    const eodReports = eodRes.data || []
     const kpiEntries = kpiRes.data || []
     const objectives = objRes.data || []
     const qbCache = qbCacheRes.data || []
@@ -678,11 +788,13 @@ function AdminDashboard({ isSalesManager = false }) {
 
     const QB_MONTHLY = { naturopathe: 'therapist_monthly', closer: 'closer_monthly', setter: 'setter_monthly' }
 
+    setEodSubmitters(eodReports)
     setStats({
       total: profiles.length,
       naturopathes: profiles.filter(p => p.role === 'naturopathe').length,
-      closers: profiles.filter(p => p.role === 'closer').length,
-      eodToday: eodRes.count || 0,
+      closers: profiles.filter(p => p.role === 'closer' || (p.secondary_roles ?? []).includes('closer')).length,
+      setters: profiles.filter(p => p.role === 'setter' || (p.secondary_roles ?? []).includes('setter')).length,
+      eodToday: eodReports.length,
     })
 
     const membersWithProgress = profiles.map(profile => {
@@ -715,10 +827,11 @@ function AdminDashboard({ isSalesManager = false }) {
         if (obj.target_value > 0) { totalPct += Math.min(100, (current / obj.target_value) * 100); count++ }
       })
 
-      const setterStats = profile.role === 'setter'
+      const hasSetterRole = profile.role === 'setter' || (profile.secondary_roles ?? []).includes('setter')
+      const setterStats = hasSetterRole
         ? computeSetterMonthStats(ghlOpps, profile.full_name, ghlMonth, ghlYear)
         : null
-      const setterCommTarget = profile.role === 'setter'
+      const setterCommTarget = hasSetterRole
         ? (userObjectives.find(o => o.type === 'setter_commission_target')?.target_value ?? null)
         : null
 
@@ -738,19 +851,21 @@ function AdminDashboard({ isSalesManager = false }) {
     setLoading(false)
   }
 
-  const filteredMembers = roleFilter === 'tous' ? members : members.filter(m => m.role === roleFilter)
+  const filteredMembers = roleFilter === 'tous'
+    ? members
+    : members.filter(m => m.role === roleFilter || (m.secondary_roles ?? []).includes(roleFilter))
   const roles = isSalesManager
     ? ['tous', 'closer', 'setter']
     : ['tous', 'naturopathe', 'closer', 'setter', 'service_client', 'resp_vente']
 
   const ROLE_GROUPS = isSalesManager
     ? [
-        { role: 'closer', label: 'Closers', accent: '#8b5cf6' },
+        { role: 'closer', label: 'Closers', accent: '#3b82f6' },
         { role: 'setter', label: 'Setters', accent: '#f59e0b' },
       ]
     : [
         { role: 'naturopathe',    label: 'Naturopathes',              accent: '#00bbb1' },
-        { role: 'closer',         label: 'Closers',                   accent: '#8b5cf6' },
+        { role: 'closer',         label: 'Closers',                   accent: '#3b82f6' },
         { role: 'setter',         label: 'Setters',                   accent: '#f59e0b' },
         { role: 'service_client', label: 'Service clients & gestion', accent: '#ec4899' },
         { role: 'resp_vente',     label: 'Resp. équipe de vente',     accent: '#6366f1' },
@@ -771,36 +886,71 @@ function AdminDashboard({ isSalesManager = false }) {
     <Layout>
       <Header title="Dashboard" />
 
+      <EODTodayModal
+        isOpen={eodModalOpen}
+        onClose={() => setEodModalOpen(false)}
+        submitters={eodSubmitters}
+        navigate={navigate}
+      />
+
       {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        {loading ? [...Array(4)].map((_, i) => <SkeletonCard key={i} />) : <>
-          <StatCard
-            label="Membres actifs"
-            value={stats.total}
-            color="#00bbb1"
-            icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
-          />
-          <StatCard
-            label="Naturopathes"
-            value={stats.naturopathes}
-            color="#8b5cf6"
-            icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg>}
-          />
-          <StatCard
-            label="Closers actifs"
-            value={stats.closers}
-            color="#3b82f6"
-            icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
-          />
-          <StatCard
-            label="Rapports EOD aujourd'hui"
-            value={stats.eodToday}
-            color="#10b981"
-            sub={`/ ${stats.total} attendus`}
-            icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>}
-          />
-        </>}
-      </div>
+      {isSalesManager ? (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+          {loading ? [...Array(3)].map((_, i) => <SkeletonCard key={i} />) : <>
+            <StatCard
+              label="Closers actifs"
+              value={stats.closers}
+              color="#3b82f6"
+              icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" /></svg>}
+            />
+            <StatCard
+              label="Setters actifs"
+              value={stats.setters}
+              color="#f59e0b"
+              icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>}
+            />
+            <StatCard
+              label="Rapports EOD aujourd'hui"
+              value={stats.eodToday}
+              color="#10b981"
+              sub={`cliquer pour voir`}
+              icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>}
+              onClick={() => setEodModalOpen(true)}
+            />
+          </>}
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          {loading ? [...Array(4)].map((_, i) => <SkeletonCard key={i} />) : <>
+            <StatCard
+              label="Membres actifs"
+              value={stats.total}
+              color="#00bbb1"
+              icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
+            />
+            <StatCard
+              label="Naturopathes"
+              value={stats.naturopathes}
+              color="#10b981"
+              icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" /></svg>}
+            />
+            <StatCard
+              label="Closers actifs"
+              value={stats.closers}
+              color="#3b82f6"
+              icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+            />
+            <StatCard
+              label="Rapports EOD aujourd'hui"
+              value={stats.eodToday}
+              color="#10b981"
+              sub={`/ ${stats.total} attendus — cliquez pour voir`}
+              icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>}
+              onClick={() => setEodModalOpen(true)}
+            />
+          </>}
+        </div>
+      )}
 
       {/* Clinic Revenue — admin uniquement */}
       {!isSalesManager && (
@@ -904,7 +1054,7 @@ function AdminDashboard({ isSalesManager = false }) {
             {ROLE_GROUPS.map(group => {
               const isNaturo = group.role === 'naturopathe'
               const groupMembers = filteredMembers
-                .filter(m => m.role === group.role)
+                .filter(m => m.role === group.role || (m.secondary_roles ?? []).includes(group.role))
                 .sort((a, b) => {
                   if (isNaturo) return (b.qbQuarterly ?? -1) - (a.qbQuarterly ?? -1)
                   return (b.qbMonthly ?? -1) - (a.qbMonthly ?? -1)
@@ -930,9 +1080,11 @@ function AdminDashboard({ isSalesManager = false }) {
                   {!isNaturo && <div className="mb-3" />}
                   <div className="space-y-4">
                     {groupMembers.map((m, idx) => {
-                      // NOUVEAU : Si c'est un setter, on utilise la ligne spéciale GHL
                       if (group.role === 'setter') {
                         return <SetterDashboardRow key={m.id} member={m} idx={idx} accent={group.accent} />
+                      }
+                      if (group.role === 'closer') {
+                        return <CloserDashboardRow key={m.id} member={m} idx={idx} accent={group.accent} />
                       }
 
                       // LOGIQUE EXISTANTE pour Naturopathes et Closers
@@ -1010,6 +1162,116 @@ function AdminDashboard({ isSalesManager = false }) {
   )
 }
 
+// ─── Closer: Sélecteur de période ─────────────────────────────
+function CloserPeriodSelector({ periodType, onSetPeriod, customStart, onCustomStart, customEnd, onCustomEnd }) {
+  return (
+    <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 mb-2">
+      <h2 className="text-sm font-bold text-[#6b7280] uppercase tracking-wide">Résultats</h2>
+      <div className="flex items-center gap-3 flex-wrap">
+        <button
+          onClick={() => onSetPeriod('paie')}
+          className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg border transition-all ${periodType === 'paie' ? 'bg-[#00bbb1] border-[#00bbb1] text-white shadow-sm' : 'bg-white border-[#e5e7eb] text-[#6b7280] hover:border-[#00bbb1]/40'}`}
+        >
+          Période de paie
+        </button>
+        <span className="text-xs text-[#9ca3af] font-semibold">ou période libre :</span>
+        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-colors ${periodType === 'custom' ? 'border-[#00bbb1] bg-[#00bbb1]/5' : 'border-[#e5e7eb] bg-white'}`}>
+          <input type="date" value={customStart} onChange={e => { onCustomStart(e.target.value); onSetPeriod('custom') }} className="bg-transparent text-xs font-semibold text-[#1a1a1a] focus:outline-none cursor-pointer" />
+          <span className="text-[#9ca3af] text-xs">→</span>
+          <input type="date" value={customEnd} min={customStart} onChange={e => { onCustomEnd(e.target.value); onSetPeriod('custom') }} className="bg-transparent text-xs font-semibold text-[#1a1a1a] focus:outline-none cursor-pointer" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Closer: Badge statut rendez-vous ─────────────────────────
+function ApptStatusBadge({ status }) {
+  const label = APPT_STATUS_LABELS[status] ?? status
+  const colors = APPT_STATUS_COLORS[status] ?? { bg: '#6b728018', text: '#6b7280' }
+  return (
+    <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ backgroundColor: colors.bg, color: colors.text }}>
+      {label}
+    </span>
+  )
+}
+
+// ─── Closer: Modal générique ───────────────────────────────────
+function CloserModal({ isOpen, onClose, title, children }) {
+  if (!isOpen) return null
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#e5e7eb]">
+          <h2 className="text-base font-bold text-[#1a1a1a]">{title}</h2>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 text-[#9ca3af]">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+        <div className="overflow-y-auto flex-1 px-6 py-4 space-y-3">{children}</div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Closer: Ligne rendez-vous ────────────────────────────────
+function ApptRow({ appt }) {
+  const hasMeetLink = appt.meeting_url && appt.meeting_url.startsWith('http')
+  return (
+    <div className="flex items-start justify-between gap-3 px-4 py-3 bg-[#f9fafb] rounded-xl border border-[#f0f0f0]">
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-[#1a1a1a] truncate">{appt.contact_name || '—'}</p>
+        <p className="text-xs text-[#6b7280] mt-0.5">{fmtDateTime(appt.start_time)}</p>
+        {hasMeetLink && (
+          <a href={appt.meeting_url} target="_blank" rel="noopener noreferrer" className="text-xs text-[#00bbb1] font-semibold hover:underline mt-0.5 inline-block">
+            Google Meet →
+          </a>
+        )}
+        {!hasMeetLink && appt.meeting_url && (
+          <p className="text-xs text-[#6b7280] mt-0.5">{appt.meeting_url}</p>
+        )}
+      </div>
+      <ApptStatusBadge status={appt.status} />
+    </div>
+  )
+}
+
+// ─── Closer: Ligne vente ──────────────────────────────────────
+function SaleRow({ sale }) {
+  return (
+    <div className="flex items-center justify-between gap-3 px-4 py-3 bg-[#f9fafb] rounded-xl border border-[#f0f0f0]">
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-[#1a1a1a] truncate">{sale.contactName || '—'}</p>
+        <p className="text-xs text-[#6b7280] mt-0.5">Closé le {fmtDate(sale.closeDate)}</p>
+      </div>
+      {sale.monetaryValue > 0 && (
+        <p className="text-sm font-bold text-[#10b981] flex-shrink-0">{fmtCAD(sale.monetaryValue)}</p>
+      )}
+    </div>
+  )
+}
+
+// ─── Closer: Ligne paiement QB ────────────────────────────────
+function PaymentRow({ payment }) {
+  const isNew = payment.type === 'new'
+  return (
+    <div className="flex items-start justify-between gap-3 px-4 py-3 bg-[#f9fafb] rounded-xl border border-[#f0f0f0]">
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold text-[#1a1a1a] truncate">{payment.clientName || '—'}</p>
+        <p className="text-xs text-[#6b7280] mt-0.5">{payment.productName}</p>
+        <p className="text-xs text-[#9ca3af]">{fmtDate(payment.txnDate)}</p>
+      </div>
+      <div className="text-right flex-shrink-0">
+        <p className="text-sm font-bold text-[#1a1a1a]">{fmtCAD(payment.amount)}</p>
+        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${isNew ? 'bg-[#00bbb1]/10 text-[#00bbb1]' : 'bg-[#10b981]/10 text-[#10b981]'}`}>
+          {isNew ? 'Nouvelle vente' : 'Récurrent'}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 // ─── Member Dashboard ─────────────────────────────────────────
 function MemberDashboard() {
   const { profile } = useAuth()
@@ -1019,15 +1281,33 @@ function MemberDashboard() {
   const [myKpiEntries, setMyKpiEntries] = useState([])
 
   const isSetter = profile?.role === 'setter'
+  const isCloser = profile?.role === 'closer'
   const nowMD = new Date()
   const todayStr = format(nowMD, 'yyyy-MM-dd')
-  
+
   const [qbMonth, setQbMonth] = useState(nowMD.getMonth() + 1)
   const [qbYear, setQbYear] = useState(nowMD.getFullYear())
   const isQbCurrentMonth = qbMonth === nowMD.getMonth() + 1 && qbYear === nowMD.getFullYear()
-  
+
   const { config: payConfig } = usePayPeriodConfig()
   const payPeriod = payConfig ? getCurrentPayPeriod(payConfig.reference_pay_date, payConfig.period_length_days) : null
+
+  // Closer: période
+  const [closerPeriodType, setCloserPeriodType] = useState('paie')
+  const [closerCustomStart, setCloserCustomStart] = useState(todayStr)
+  const [closerCustomEnd, setCloserCustomEnd]     = useState(todayStr)
+  const closerStartDate = closerPeriodType === 'paie' ? (payPeriod?.start || todayStr) : (closerCustomStart || todayStr)
+  const closerEndDate   = closerPeriodType === 'paie' ? (payPeriod?.end   || todayStr) : (closerCustomEnd   || todayStr)
+
+  // Closer: mois objectifs
+  const [closerObjMonth, setCloserObjMonth] = useState(nowMD.getMonth() + 1)
+  const [closerObjYear,  setCloserObjYear]  = useState(nowMD.getFullYear())
+
+  // Closer: modales
+  const [apptModalOpen,    setApptModalOpen]    = useState(false)
+  const [salesModalOpen,   setSalesModalOpen]   = useState(false)
+  const [cashModalOpen,    setCashModalOpen]    = useState(false)
+  const [apptStatusFilter, setApptStatusFilter] = useState('all')
 
   // Filtre Setter : Paie (GHL)
   const [setterPeriodType, setSetterPeriodType] = useState('paie')
@@ -1079,6 +1359,40 @@ function MemberDashboard() {
     ['setter_showup_target', 'setter_confirm_target', 'setter_rebook_target', 'setter_sales_target', 'setter_commission_target'].includes(o.type) &&
     o.period_start === setterPStart && o.period_end === setterPEnd
   )
+
+  // ── Closer KPIs ──
+  const closerName = isCloser ? (profile?.full_name ?? '') : ''
+  const ghlUserId  = isCloser ? (profile?.ghl_user_id ?? null) : null
+  const { appointments, loading: apptLoading, byStatus, hotCount } = useCloserAppointments(closerName, closerStartDate, closerEndDate, ghlUserId)
+  const { sales, loading: salesLoading } = useCloserSales(closerName, closerStartDate, closerEndDate, ghlUserId)
+  const { data: cashData, loading: cashLoading, error: cashError } = useCloserCashCollected(closerName, closerStartDate, closerEndDate)
+  const { objectives: closerObjAll } = useObjectives(isCloser ? profile?.id : null)
+  const closerObjPStart = `${closerObjYear}-${String(closerObjMonth).padStart(2, '0')}-01`
+  const closerObjPEnd   = (() => { const last = new Date(closerObjYear, closerObjMonth, 0).getDate(); return `${closerObjYear}-${String(closerObjMonth).padStart(2, '0')}-${String(last).padStart(2, '0')}` })()
+  const closerObjs = (closerObjAll ?? []).filter(o =>
+    ['closer_rdv_target', 'closer_sales_target', 'closer_close_rate_target', 'closer_cash_target', 'closer_commission_target'].includes(o.type) &&
+    o.period_start === closerObjPStart && o.period_end === closerObjPEnd
+  )
+  const closeRate    = hotCount > 0 ? Math.round((sales.length / hotCount) * 100) : null
+  const totalCash    = cashData?.total ?? 0
+  const newTotal     = cashData?.newTotal ?? 0
+  const recurTotal   = cashData?.recurringTotal ?? 0
+  const commission   = cashData?.commission ?? Math.round(totalCash * COMMISSION_RATE * 100) / 100
+  const closerPeriodLabel = closerPeriodType === 'paie' && payPeriod
+    ? `Période de paie en cours (${format(parseISO(payPeriod.start), 'd MMM', { locale: fr })} au ${format(parseISO(payPeriod.end), 'd MMM yyyy', { locale: fr })})`
+    : `Du ${format(parseISO(closerStartDate), 'd MMM', { locale: fr })} au ${format(parseISO(closerEndDate), 'd MMM yyyy', { locale: fr })}`
+  const filteredAppts = apptStatusFilter === 'all'
+    ? appointments
+    : appointments.filter(a => a.status === apptStatusFilter || (apptStatusFilter === 'showed' && a.status === 'attended'))
+  const allPayments = [...(cashData?.newSales ?? []), ...(cashData?.recurring ?? [])]
+    .sort((a, b) => new Date(b.txnDate) - new Date(a.txnDate))
+  const STATUS_TABS = [
+    { key: 'all',       label: 'Tous',      count: appointments.length },
+    { key: 'confirmed', label: 'Confirmés', count: byStatus['confirmed'] ?? 0 },
+    { key: 'showed',    label: 'Show',      count: (byStatus['showed'] ?? 0) + (byStatus['attended'] ?? 0) },
+    { key: 'noshow',    label: 'No Show',   count: byStatus['noshow'] ?? 0 },
+    { key: 'cancelled', label: 'Annulés',   count: byStatus['cancelled'] ?? 0 },
+  ]
 
   useEffect(() => {
     if (!profile?.id) return
@@ -1161,11 +1475,237 @@ function MemberDashboard() {
           <StatCard label="Complétées aujourd'hui" value={stats.completedToday} color="#10b981"
             icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
           />
-          <StatCard label="KPIs soumis ce mois" value={stats.kpiThisMonth} color="#8b5cf6"
+          <StatCard label="KPIs soumis ce mois" value={stats.kpiThisMonth} color="#6366f1"
             icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75z" /></svg>}
           />
         </>}
       </div>
+
+      {/* ── Closer : Activité ── */}
+      {isCloser && (
+        <>
+          {/* Sélecteur de période */}
+          <div className="mb-6">
+            <CloserPeriodSelector
+              periodType={closerPeriodType}
+              onSetPeriod={setCloserPeriodType}
+              customStart={closerCustomStart}
+              onCustomStart={setCloserCustomStart}
+              customEnd={closerCustomEnd}
+              onCustomEnd={setCloserCustomEnd}
+            />
+            <p className="text-xs text-[#9ca3af] font-semibold">{closerPeriodLabel}.</p>
+          </div>
+
+          {/* Rendez-vous */}
+          <div className="mb-6">
+            <h2 className="text-sm font-bold text-[#6b7280] uppercase tracking-wide mb-3">Rendez-vous</h2>
+            {apptLoading ? (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3"><SkeletonCard /><SkeletonCard /><SkeletonCard /><SkeletonCard /></div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                  <StatCard compact label="Total RDV" value={appointments.length} sub="Cliquer pour voir la liste" color="#00bbb1"
+                    icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>}
+                    onClick={() => setApptModalOpen(true)}
+                  />
+                  <StatCard compact label="Show" value={(byStatus['showed'] ?? 0) + (byStatus['attended'] ?? 0)} sub="Rendez-vous chauds" color="#10b981"
+                    icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+                  />
+                  <StatCard compact label="No Show" value={byStatus['noshow'] ?? 0} color="#f59e0b"
+                    icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+                  />
+                  <StatCard compact label="Annulés" value={byStatus['cancelled'] ?? 0} color="#ef4444"
+                    icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>}
+                  />
+                </div>
+                {appointments.length === 0 && (
+                  <p className="text-sm text-[#9ca3af] text-center py-2">
+                    Aucun rendez-vous sur cette période.{' '}
+                    <span className="text-xs">(La synchronisation GHL s'effectue toutes les 30 min.)</span>
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Ventes */}
+          <div className="mb-6">
+            <h2 className="text-sm font-bold text-[#6b7280] uppercase tracking-wide mb-3">Ventes</h2>
+            {salesLoading ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3"><SkeletonCard /><SkeletonCard /></div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <StatCard compact label="Ventes closées" value={sales.length} sub="Cliquer pour voir le détail" color="#00bbb1"
+                  icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+                  onClick={sales.length > 0 ? () => setSalesModalOpen(true) : undefined}
+                />
+                <Card className="p-5">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <p className="text-xs font-semibold text-[#6b7280] uppercase tracking-wide mb-2">Taux de close</p>
+                      <p className="text-2xl font-bold text-[#1a1a1a]">{closeRate !== null ? `${closeRate} %` : '—'}</p>
+                      <p className="text-xs text-[#6b7280] mt-1">{sales.length} vente{sales.length !== 1 ? 's' : ''} / {hotCount} show{hotCount !== 1 ? 's' : ''} chaud{hotCount !== 1 ? 's' : ''}</p>
+                    </div>
+                    <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 bg-[#6366f1]/10">
+                      <svg className="w-5 h-5 text-[#6366f1]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                      </svg>
+                    </div>
+                  </div>
+                </Card>
+              </div>
+            )}
+          </div>
+
+          {/* Commission / Cash Collected */}
+          <div className="mb-6">
+            <h2 className="text-sm font-bold text-[#6b7280] uppercase tracking-wide mb-3">Ma Commission</h2>
+            {!cashLoading && totalCash > 0 && (
+              <div className="mb-3 px-5 py-4 rounded-2xl border border-[#00bbb1]/30" style={{ background: 'linear-gradient(135deg, #00bbb110 0%, #10b98110 100%)' }}>
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div>
+                    <p className="text-xs font-bold text-[#6b7280] uppercase tracking-wide mb-1">Commission période de paie</p>
+                    <p className="text-3xl font-black text-[#00bbb1]">{fmtCAD(commission)}</p>
+                    <p className="text-xs text-[#9ca3af] mt-0.5">8,6 % × {fmtCAD(totalCash)} cash collected</p>
+                  </div>
+                  <div className="flex gap-4">
+                    <div className="text-center">
+                      <p className="text-[10px] font-bold text-[#9ca3af] uppercase">Nouvelles ventes</p>
+                      <p className="text-lg font-bold text-[#00bbb1]">{fmtCAD(newTotal)}</p>
+                    </div>
+                    <div className="w-px bg-[#e5e7eb]" />
+                    <div className="text-center">
+                      <p className="text-[10px] font-bold text-[#9ca3af] uppercase">Récurrents</p>
+                      <p className="text-lg font-bold text-[#10b981]">{fmtCAD(recurTotal)}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            {cashLoading ? (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3"><SkeletonCard /><SkeletonCard /><SkeletonCard /></div>
+            ) : cashError ? (
+              <Card className="p-5"><p className="text-sm text-[#ef4444]">Erreur QuickBooks : {cashError}</p></Card>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <StatCard compact label="Cash Collected Total" value={fmtCAD(totalCash)} sub="Cliquer pour voir le détail" color="#10b981"
+                  icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+                  onClick={allPayments.length > 0 ? () => setCashModalOpen(true) : undefined}
+                />
+                <StatCard compact label="Nouvelles ventes" value={fmtCAD(newTotal)} sub={`${(cashData?.newSales ?? []).length} reçu${(cashData?.newSales ?? []).length !== 1 ? 's' : ''}`} color="#00bbb1"
+                  icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>}
+                />
+                <StatCard compact label="Paiements récurrents" value={fmtCAD(recurTotal)} sub={`${(cashData?.recurring ?? []).length} reçu${(cashData?.recurring ?? []).length !== 1 ? 's' : ''}`} color="#6366f1"
+                  icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>}
+                />
+              </div>
+            )}
+            {!cashLoading && !cashError && totalCash === 0 && (
+              <p className="text-sm text-[#9ca3af] text-center py-2 mt-2">
+                Aucun paiement QuickBooks trouvé pour cette période.{' '}
+                {!cashData && <span className="text-xs">(QuickBooks non connecté ou aucun client à croiser.)</span>}
+              </p>
+            )}
+          </div>
+
+          {/* Objectifs du mois */}
+          <Card className="p-6 mb-6">
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-lg font-bold text-[#1a1a1a]">Mes Objectifs du mois</h2>
+              <div className="flex items-center gap-1">
+                <button onClick={() => { if (closerObjMonth === 1) { setCloserObjMonth(12); setCloserObjYear(y => y - 1) } else setCloserObjMonth(m => m - 1) }} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-[#6b7280]">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+                </button>
+                <span className="text-xs font-bold text-[#1a1a1a] min-w-[100px] text-center capitalize">
+                  {format(new Date(closerObjYear, closerObjMonth - 1, 1), 'MMM yyyy', { locale: fr })}
+                </span>
+                <button onClick={() => { if (closerObjMonth === 12) { setCloserObjMonth(1); setCloserObjYear(y => y + 1) } else setCloserObjMonth(m => m + 1) }} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-[#6b7280]">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                </button>
+              </div>
+            </div>
+            <div className="space-y-4">
+              {[
+                { type: 'closer_rdv_target',       label: 'Rendez-vous',     current: appointments.length, isCurrency: false, unit: '' },
+                { type: 'closer_sales_target',      label: 'Ventes closées',  current: sales.length,        isCurrency: false, unit: '' },
+                { type: 'closer_close_rate_target', label: 'Taux de close',   current: closeRate ?? 0,      isCurrency: false, unit: '%' },
+                { type: 'closer_cash_target',       label: 'Cash collected',  current: totalCash,           isCurrency: true,  unit: '$' },
+                { type: 'closer_commission_target', label: 'Commission',      current: commission,          isCurrency: true,  unit: '$' },
+              ].map(({ type, label, current, isCurrency, unit }) => {
+                const obj = closerObjs.find(o => o.type === type)
+                const target = obj?.target_value ?? 0
+                const pct = target > 0 ? Math.min(100, Math.round((current / target) * 100)) : 0
+                const color = pct >= 80 ? '#10b981' : pct >= 50 ? '#f59e0b' : '#ef4444'
+                const fmt = v => isCurrency ? fmtCAD(v) : unit === '%' ? `${v} %` : Number(v).toLocaleString('fr-CA')
+                return (
+                  <div key={type}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <p className="text-sm font-semibold text-[#1a1a1a]">{label}</p>
+                      <p className="text-sm font-bold text-[#1a1a1a]">
+                        {fmt(current)}
+                        {target > 0 && <span className="text-[#9ca3af] font-normal"> / {fmt(target)}</span>}
+                      </p>
+                    </div>
+                    {target > 0 ? <ProgressBar pct={pct} color={color} /> : (
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 bg-gray-100 rounded-full h-1.5" />
+                        <span className="text-xs text-[#9ca3af] w-20 text-right">Pas d'objectif</span>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          </Card>
+
+          {/* Modal : Rendez-vous */}
+          <CloserModal isOpen={apptModalOpen} onClose={() => setApptModalOpen(false)} title={`Rendez-vous — ${appointments.length}`}>
+            <div className="flex gap-1.5 flex-wrap mb-1">
+              {STATUS_TABS.map(tab => (
+                <button key={tab.key} onClick={() => setApptStatusFilter(tab.key)}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition-all ${apptStatusFilter === tab.key ? 'bg-[#00bbb1] border-[#00bbb1] text-white' : 'bg-white border-[#e5e7eb] text-[#6b7280] hover:border-[#00bbb1]/40'}`}
+                >
+                  {tab.label} {tab.count > 0 && `(${tab.count})`}
+                </button>
+              ))}
+            </div>
+            {filteredAppts.length === 0
+              ? <p className="text-sm text-[#9ca3af] text-center py-6">Aucun rendez-vous dans ce filtre.</p>
+              : filteredAppts.map(a => <ApptRow key={a.id} appt={a} />)
+            }
+          </CloserModal>
+
+          {/* Modal : Ventes */}
+          <CloserModal isOpen={salesModalOpen} onClose={() => setSalesModalOpen(false)} title={`Ventes closées — ${sales.length}`}>
+            {sales.length === 0
+              ? <p className="text-sm text-[#9ca3af] text-center py-6">Aucune vente sur cette période.</p>
+              : sales.map((s, i) => <SaleRow key={i} sale={s} />)
+            }
+          </CloserModal>
+
+          {/* Modal : Cash Collected */}
+          <CloserModal isOpen={cashModalOpen} onClose={() => setCashModalOpen(false)} title={`Cash Collected — ${fmtCAD(totalCash)}`}>
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <div className="bg-[#00bbb1]/5 rounded-xl px-3 py-2 text-center">
+                <p className="text-[10px] font-bold text-[#9ca3af] uppercase">Nouvelles ventes</p>
+                <p className="text-base font-bold text-[#00bbb1]">{fmtCAD(newTotal)}</p>
+              </div>
+              <div className="bg-[#10b981]/5 rounded-xl px-3 py-2 text-center">
+                <p className="text-[10px] font-bold text-[#9ca3af] uppercase">Récurrents</p>
+                <p className="text-base font-bold text-[#10b981]">{fmtCAD(recurTotal)}</p>
+              </div>
+            </div>
+            {allPayments.length === 0
+              ? <p className="text-sm text-[#9ca3af] text-center py-6">Aucun paiement sur cette période.</p>
+              : allPayments.map((p, i) => <PaymentRow key={i} payment={p} />)
+            }
+          </CloserModal>
+        </>
+      )}
+
+      {/* ── Setter : Rapport EOD ── */}
+      {isSetter && <SetterEODForm userId={profile?.id} />}
 
       {/* ── Setter : Ma Paie ── */}
       {isSetter && (
@@ -1240,7 +1780,7 @@ function MemberDashboard() {
                   label="Commission Rebooking"
                   value={Number(setterCommData?.commissionRebook ?? 0).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}
                   sub={`${setterCommData?.rebookingCount ?? 0} rebooking${(setterCommData?.rebookingCount ?? 0) !== 1 ? 's' : ''} × 20 $`}
-                  color="#8b5cf6"
+                  color="#6366f1"
                   icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>}
                 />
               </div>
@@ -1310,7 +1850,7 @@ function MemberDashboard() {
       )}
 
       {/* Boni trimestriel */}
-      {!isSetter && profile?.annual_bonus && (
+      {!isSetter && !isCloser && profile?.annual_bonus && (
         <div className="mb-6">
           <h2 className="text-sm font-bold text-[#6b7280] uppercase tracking-wide mb-3">Mon boni trimestriel</h2>
           <BonusTracker
@@ -1327,7 +1867,7 @@ function MemberDashboard() {
       )}
 
       {/* Objectifs trimestriels */}
-      {!isSetter && profile?.annual_bonus && (
+      {!isSetter && !isCloser && profile?.annual_bonus && (
         <div className="mb-6">
           <QuarterlyPanel
             userId={profile?.id}
@@ -1341,7 +1881,7 @@ function MemberDashboard() {
       )}
 
       {/* Mes revenus QuickBooks */}
-      {!isSetter && (memberQBRevenue || memberQBLoading) && (
+      {!isSetter && !isCloser && (memberQBRevenue || memberQBLoading) && (
         <MemberQBRevenueSection
           revenue={memberQBRevenue}
           loading={memberQBLoading}
@@ -1357,7 +1897,7 @@ function MemberDashboard() {
       )}
 
       {/* Revenu clinique mensuel */}
-      {!isSetter && (
+      {!isSetter && !isCloser && (
         <div className="mb-6">
           <h2 className="text-sm font-bold text-[#6b7280] uppercase tracking-wide mb-3">Revenu clinique</h2>
           <ClinicMonthlyCard
@@ -1371,8 +1911,8 @@ function MemberDashboard() {
         </div>
       )}
 
-      {/* Mes objectifs (non-setters) */}
-      {!isSetter && <Card className="p-6">
+      {/* Mes objectifs (non-setters, non-closers) */}
+      {!isSetter && !isCloser && <Card className="p-6">
         <h2 className="text-lg font-bold text-[#1a1a1a] mb-4">Mes objectifs du mois</h2>
         {loading ? <SkeletonTable rows={3} /> : activeObjectives.length === 0 ? (
           <p className="text-sm text-[#6b7280]">Aucun objectif actif ce mois-ci.</p>

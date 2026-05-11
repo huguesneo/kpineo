@@ -13,6 +13,10 @@ import MesEchanges from './pages/MesEchanges'
 import BoutiqueCatalogue from './pages/BoutiqueCatalogue'
 import BoutiqueEchanges from './pages/BoutiqueEchanges'
 import MonDossier from './pages/MonDossier'
+import Setter from './pages/Setter'
+import Closer from './pages/Closer'
+import EquipeVente from './pages/EquipeVente'
+import EquipeNaturo from './pages/EquipeNaturo'
 
 function LoadingScreen() {
   return (
@@ -77,6 +81,13 @@ function AppRoutes() {
       <Route path="/boutique-echanges"  element={<AdminRoute><BoutiqueEchanges /></AdminRoute>} />
 
       <Route path="/mon-dossier" element={<PrivateRoute><MonDossier /></PrivateRoute>} />
+      <Route path="/setter"     element={<PrivateRoute><Setter /></PrivateRoute>} />
+      <Route path="/closer"     element={<PrivateRoute><Closer /></PrivateRoute>} />
+
+      {/* Admin + resp_vente — équipe de vente & naturopathe */}
+      <Route path="/equipe-vente" element={<SalesManagerRoute><EquipeVente /></SalesManagerRoute>} />
+      <Route path="/naturopathe"  element={<AdminRoute><EquipeNaturo /></AdminRoute>} />
+
       <Route path="*"            element={<Navigate to="/dashboard" replace />} />
     </Routes>
   )

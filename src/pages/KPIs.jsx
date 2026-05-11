@@ -152,7 +152,7 @@ function ClinicObjectivesPanel({ isAdmin }) {
       <Card className="p-5">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-[#8b5cf6]" />
+            <div className="w-2 h-2 rounded-full bg-[#6366f1]" />
             <h3 className="font-bold text-sm text-[#1a1a1a]">Objectifs annuels</h3>
           </div>
           {isAdmin && <Button size="sm" onClick={() => setAddAnnual(true)}>+ Ajouter</Button>}

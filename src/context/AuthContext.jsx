@@ -50,8 +50,11 @@ export function AuthProvider({ children }) {
   const isRespVente    = profile?.role === 'resp_vente'
   const isAdminOrRespVente = isAdmin || isRespVente
 
+  const hasCloserRole = profile?.role === 'closer' || (profile?.secondary_roles ?? []).includes('closer')
+  const hasSetterRole = profile?.role === 'setter' || (profile?.secondary_roles ?? []).includes('setter')
+
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signIn, signOut, isAdmin, isRespVente, isAdminOrRespVente }}>
+    <AuthContext.Provider value={{ user, profile, loading, signIn, signOut, isAdmin, isRespVente, isAdminOrRespVente, hasCloserRole, hasSetterRole }}>
       {children}
     </AuthContext.Provider>
   )

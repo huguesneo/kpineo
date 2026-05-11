@@ -7,6 +7,7 @@ import KPIModal from '../components/kpis/KPIModal'
 import { SkeletonCard } from '../components/shared/Skeleton'
 import { useAuth } from '../context/AuthContext'
 import { useKPIEntries, useEODReports, KPI_TYPE_LABELS } from '../hooks/useKPIs'
+import { SetterEODHistoryItem } from '../components/eod/SetterEODForm'
 import { useCareerPlan } from '../hooks/useCareerPlan'
 import { format, parseISO } from 'date-fns'
 import { fr } from 'date-fns/locale'
@@ -23,7 +24,7 @@ const ROLE_LABELS = {
 
 // ─── EOD Item ────────────────────────────────────────────────────────────────
 
-function EODItem({ report }) {
+function GenericEODItem({ report }) {
   const [expanded, setExpanded] = useState(false)
   const dataKeys = Object.keys(report.data || {})
 
@@ -54,6 +55,11 @@ function EODItem({ report }) {
       )}
     </div>
   )
+}
+
+function EODItem({ report }) {
+  if (report.role === 'setter') return <SetterEODHistoryItem report={report} />
+  return <GenericEODItem report={report} />
 }
 
 // ─── KPIs Tab ─────────────────────────────────────────────────────────────────

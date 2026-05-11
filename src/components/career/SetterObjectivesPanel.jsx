@@ -7,7 +7,7 @@ import { fr } from 'date-fns/locale'
 const SETTER_KPIS = [
   { type: 'setter_showup_target',    label: 'Show-ups',              unit: 'Nb', isCurrency: false, color: '#00bbb1' },
   { type: 'setter_confirm_target',   label: 'Confirmations auto',    unit: 'Nb', isCurrency: false, color: '#f59e0b' },
-  { type: 'setter_rebook_target',    label: 'Rebookings',            unit: 'Nb', isCurrency: false, color: '#8b5cf6' },
+  { type: 'setter_rebook_target',    label: 'Rebookings',            unit: 'Nb', isCurrency: false, color: '#6366f1' },
   { type: 'setter_sales_target',     label: 'Ventes',                unit: 'Nb', isCurrency: false, color: '#6366f1' },
   { type: 'setter_commission_target',label: 'Commissions totales',   unit: '$',  isCurrency: true,  color: '#10b981' },
 ]

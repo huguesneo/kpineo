@@ -2,7 +2,7 @@ import { useState } from 'react'
 import Layout from '../components/layout/Layout'
 import Card from '../components/shared/Card'
 import Button from '../components/shared/Button'
-import { useGHLConnection, useGHLConfig, syncGHLContacts, syncGHLOpportunities } from '../hooks/useGHL'
+import { useGHLConnection, useGHLConfig, syncGHLContacts, syncGHLOpportunities, syncGHLAppointments } from '../hooks/useGHL'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 
@@ -38,8 +38,10 @@ export default function GHLSettings() {
   const [syncingContacts, setSyncingContacts] = useState(false)
   const [syncProgress, setSyncProgress] = useState(0)
   const [syncingOpps, setSyncingOpps] = useState(false)
+  const [syncingAppts, setSyncingAppts] = useState(false)
   const [contactsResult, setContactsResult] = useState(null)
   const [oppsResult, setOppsResult] = useState(null)
+  const [apptsResult, setApptsResult] = useState(null)
   const [manualId, setManualId] = useState('')
   const [savingManual, setSavingManual] = useState(false)
 
@@ -85,6 +87,17 @@ export default function GHLSettings() {
     setSyncingOpps(false)
     if (error) { setOppsResult({ error }); return }
     setOppsResult({ message: `${data.pipelines} pipeline(s), ${data.opportunities} opportunités synchronisées` })
+  }
+
+  async function handleSyncAppointments() {
+    const locId = activeLocationId
+    if (!locId) return
+    setSyncingAppts(true)
+    setApptsResult(null)
+    const { data, error } = await syncGHLAppointments(locId)
+    setSyncingAppts(false)
+    if (error) { setApptsResult({ error }); return }
+    setApptsResult({ message: `${data.appointments ?? 0} rendez-vous synchronisés (3 derniers mois)` })
   }
 
   return (
@@ -228,7 +241,7 @@ export default function GHLSettings() {
             )}
           </p>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {/* Contacts */}
             <div className="border border-[#e5e7eb] rounded-xl p-4">
               <div className="flex items-start gap-3 mb-3">
@@ -278,10 +291,34 @@ export default function GHLSettings() {
               </Button>
               <SyncResult result={oppsResult} />
             </div>
+
+            {/* Rendez-vous closers */}
+            <div className="border border-[#e5e7eb] rounded-xl p-4">
+              <div className="flex items-start gap-3 mb-3">
+                <div className="w-9 h-9 rounded-lg bg-orange-50 flex items-center justify-center flex-shrink-0">
+                  <svg className="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-[#1a1a1a]">Rendez-vous Closers</p>
+                  <p className="text-xs text-[#6b7280]">4 calendriers, fenêtre 3 mois</p>
+                </div>
+              </div>
+              <Button
+                className="w-full"
+                variant="secondary"
+                onClick={handleSyncAppointments}
+                loading={syncingAppts}
+              >
+                {syncingAppts ? 'Synchronisation…' : 'Synchroniser les RDV'}
+              </Button>
+              <SyncResult result={apptsResult} />
+            </div>
           </div>
 
           {/* Sync tout */}
-          {(contactsResult || oppsResult) && (
+          {(contactsResult || oppsResult || apptsResult) && (
             <p className="mt-4 text-xs text-[#9ca3af] text-center">
               Retourne sur le Dashboard pour voir les données mises à jour.
             </p>

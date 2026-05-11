@@ -79,6 +79,14 @@ export async function syncGHLOpportunities(locationId) {
   return { data, error: error?.message ?? data?.error ?? null }
 }
 
+// ─── Sync rendez-vous closers (4 calendriers, fenêtre 3 mois) ─
+export async function syncGHLAppointments(locationId) {
+  const { data, error } = await supabase.functions.invoke('gohighlevel-sync', {
+    body: { action: 'sync_appointments', locationId },
+  })
+  return { data, error: error?.message ?? data?.error ?? null }
+}
+
 // ─── Contacts depuis le cache Supabase ───────────────────────
 export function useGHLContacts() {
   const [contacts, setContacts] = useState([])
