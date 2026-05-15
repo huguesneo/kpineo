@@ -10,7 +10,7 @@ const CACHE_TTL_MS = 60 * 60 * 1000 // 1 heure
 
 const QB_FIELDS: Record<string, string> = {
   naturopathe: 'Thérapeute',
-  closer: 'Closer',
+  closer: 'closers',
   setter: 'Setter',
 }
 

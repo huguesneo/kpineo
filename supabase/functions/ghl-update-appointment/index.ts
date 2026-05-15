@@ -60,11 +60,32 @@ Deno.serve(async (req) => {
     const ghlStatus = STATUS_MAP[status]
     if (!ghlStatus) return json({ error: `Statut invalide: ${status}` }, 400)
 
-    // ── 1. Mettre à jour le statut du rendez-vous dans GHL ────────
-    const apptRes = await fetch(`${GHL_BASE}/calendars/events/${appointmentId}`, {
+    // ── 1. Récupérer calendarId + locationId depuis Supabase ─────
+    // L'API GHL exige ces champs dans le body du PUT, sinon il répond
+    // 200 mais ignore silencieusement le changement de statut.
+    const { data: apptRecord } = await supabase
+      .from('ghl_appointments')
+      .select('calendar_id, location_id, raw')
+      .eq('ghl_id', appointmentId)
+      .maybeSingle()
+
+    const locationId = apptRecord?.location_id
+      || (apptRecord?.raw as Record<string, unknown>)?.locationId as string
+      || Deno.env.get('GHL_LOCATION_ID')
+      || ''
+
+    const calendarId = apptRecord?.calendar_id
+      || (apptRecord?.raw as Record<string, unknown>)?.calendarId as string
+      || ''
+
+    const putPayload = { appointmentStatus: ghlStatus, calendarId, locationId }
+    console.log(`[GHL] Updating appointment ${appointmentId} → ${ghlStatus}`, JSON.stringify(putPayload))
+
+    // ── 2. Mettre à jour le statut via l'endpoint appointments ────
+    const apptRes = await fetch(`${GHL_BASE}/calendars/events/appointments/${appointmentId}`, {
       method: 'PUT',
       headers: ghlHeaders(apiKey),
-      body: JSON.stringify({ appointmentStatus: ghlStatus }),
+      body: JSON.stringify(putPayload),
     })
 
     if (!apptRes.ok) {
@@ -73,7 +94,8 @@ Deno.serve(async (req) => {
       return json({ error: `GHL error ${apptRes.status}: ${errText}` }, 502)
     }
 
-    console.log(`[GHL] Appointment ${appointmentId} → ${ghlStatus}`)
+    const apptResponseText = await apptRes.text()
+    console.log(`[GHL] PUT response (${apptRes.status}): ${apptResponseText.slice(0, 500)}`)
 
     // ── 2. Mettre à jour le statut dans Supabase ──────────────────
     await supabase

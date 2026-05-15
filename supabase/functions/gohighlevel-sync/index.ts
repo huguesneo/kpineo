@@ -259,6 +259,27 @@ async function syncOpportunities(
     await supabase.from('ghl_opportunities').upsert(oppRows, { onConflict: 'ghl_id' })
   }
 
+  // Purge des opportunités supprimées dans GHL
+  // On compare les IDs en mémoire pour éviter une URL trop longue
+  if (oppRows.length > 0) {
+    const { data: existingRows } = await supabase
+      .from('ghl_opportunities')
+      .select('ghl_id')
+      .eq('location_id', locationId)
+
+    if (existingRows && existingRows.length > 0) {
+      const activeSet = new Set(oppRows.map(r => r.ghl_id))
+      const toDelete = existingRows.map((r: { ghl_id: string }) => r.ghl_id).filter((id: string) => !activeSet.has(id))
+
+      if (toDelete.length > 0) {
+        for (let i = 0; i < toDelete.length; i += 100) {
+          await supabase.from('ghl_opportunities').delete().in('ghl_id', toDelete.slice(i, i + 100))
+        }
+        console.log(`[GHL] ${toDelete.length} opportunité(s) supprimée(s) (absentes de GHL)`)
+      }
+    }
+  }
+
   return { pipelines: pipelines.length, opportunities: oppRows.length }
 }
 

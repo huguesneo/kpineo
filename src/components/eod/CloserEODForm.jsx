@@ -169,6 +169,74 @@ function EODRowReadOnly({ row }) {
   )
 }
 
+// ─── Historique (lecture seule, côté admin) ───────────────────────────────────
+
+export function CloserEODHistoryItem({ report }) {
+  const [expanded, setExpanded] = useState(false)
+  const rows  = report.data?.rows  ?? []
+  const notes = report.data?.notes ?? ''
+
+  const closedCount = rows.filter(r => r.is_closed === true).length
+  const showCount   = rows.filter(r => r.status === 'show').length
+
+  return (
+    <div className="border border-[#e5e7eb] rounded-xl overflow-hidden">
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors text-left"
+      >
+        <div className="flex items-center gap-3">
+          <div>
+            <p className="text-sm font-semibold text-[#1a1a1a]">
+              {format(parseISO(report.report_date), 'EEEE d MMMM yyyy', { locale: fr })}
+            </p>
+            <p className="text-xs text-[#9ca3af] mt-0.5">
+              Soumis à {format(new Date(report.submitted_at), 'HH:mm')}
+            </p>
+          </div>
+          {rows.length > 0 && (
+            <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-[#00bbb118] text-[#00bbb1]">
+              {closedCount}/{showCount} closé{closedCount !== 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
+        <svg className={`w-4 h-4 text-[#6b7280] transition-transform ${expanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {expanded && (
+        <div className="px-4 py-3 bg-gray-50 border-t border-[#e5e7eb] space-y-3">
+          {rows.length === 0 ? (
+            <p className="text-sm text-[#9ca3af]">Aucun rendez-vous.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[680px] text-left">
+                <thead>
+                  <tr className="border-b border-[#e5e7eb]">
+                    {['Prospect', 'Statut', 'Closé', 'Feedback', 'Plan de match', "Objection"].map(h => (
+                      <th key={h} className="px-2 pb-2 text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide first:px-3">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, i) => <EODRowReadOnly key={row.ghl_appointment_id || i} row={row} />)}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {notes && (
+            <div className="px-3 py-2 rounded-lg border border-[#e5e7eb] bg-white">
+              <p className="text-[11px] font-semibold text-[#9ca3af] mb-1">Notes</p>
+              <p className="text-sm text-[#1a1a1a] whitespace-pre-wrap leading-relaxed">{notes}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Composant principal ──────────────────────────────────────────────────────
 
 export default function CloserEODForm({ userId, ghlUserId = null, closerName = null, missedYesterday = false }) {

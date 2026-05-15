@@ -23,6 +23,9 @@ function getFieldById(rawObj, fieldId) {
 }
 
 export function useSetterCommissions(memberFullName, startDate, endDate) {
+  const [refreshKey, setRefreshKey] = useState(0)
+  const refresh = () => setRefreshKey(k => k + 1)
+
   const [data, setData] = useState({
     bookedCount: 0,
     showupCount: 0,
@@ -176,7 +179,7 @@ export function useSetterCommissions(memberFullName, startDate, endDate) {
     }
 
     fetchCommissions();
-  }, [memberFullName, startDate, endDate]);
+  }, [memberFullName, startDate, endDate, refreshKey]);
 
-  return { data, loading, error };
+  return { data, loading, error, refresh };
 }

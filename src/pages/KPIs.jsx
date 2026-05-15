@@ -14,6 +14,64 @@ import { useMembers } from '../hooks/useMembers'
 import { useAuth } from '../context/AuthContext'
 import { format, parseISO } from 'date-fns'
 import { fr } from 'date-fns/locale'
+import { EOD_STATUSES, EOD_FEEDBACK_OPTIONS } from '../hooks/useCloserEOD'
+
+function CloserEODExpandedContent({ data }) {
+  const rows  = data?.rows  ?? []
+  const notes = data?.notes ?? ''
+  const statusColors = { show: { bg: '#10b98118', text: '#10b981' }, noshow: { bg: '#f59e0b18', text: '#f59e0b' }, annule: { bg: '#ef444418', text: '#ef4444' } }
+
+  if (rows.length === 0 && !notes) return <p className="text-sm text-[#6b7280]">Aucune donnée.</p>
+
+  return (
+    <div className="space-y-3">
+      {rows.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[580px] text-left">
+            <thead>
+              <tr className="border-b border-[#e5e7eb]">
+                {['Prospect', 'Statut', 'Closé', 'Feedback', 'Plan de match', 'Objection'].map(h => (
+                  <th key={h} className="px-2 pb-1.5 text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide first:px-0">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, i) => {
+                const sc = statusColors[row.status] ?? { bg: '#6b728018', text: '#6b7280' }
+                const statusLabel   = EOD_STATUSES.find(s => s.value === row.status)?.label ?? row.status
+                const feedbackLabel = EOD_FEEDBACK_OPTIONS.find(f => f.value === row.feedback)?.label ?? (row.feedback || '—')
+                const fmtTime = iso => { try { return iso ? format(new Date(iso), 'HH:mm') : '—' } catch { return '—' } }
+                return (
+                  <tr key={row.ghl_appointment_id || i} className="border-b border-[#f0f0f0]">
+                    <td className="py-2 pr-2 text-sm font-semibold text-[#1a1a1a]">
+                      {row.contact_name || '—'}
+                      <span className="block text-[11px] text-[#9ca3af] font-normal">{fmtTime(row.start_time)}</span>
+                    </td>
+                    <td className="px-2 py-2">
+                      {row.status ? <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ backgroundColor: sc.bg, color: sc.text }}>{statusLabel}</span> : <span className="text-xs text-[#d1d5db]">—</span>}
+                    </td>
+                    <td className="px-2 py-2 text-xs font-semibold" style={{ color: row.is_closed === true ? '#10b981' : row.is_closed === false ? '#ef4444' : '#d1d5db' }}>
+                      {row.is_closed === true ? 'Oui' : row.is_closed === false ? 'Non' : '—'}
+                    </td>
+                    <td className="px-2 py-2 text-xs text-[#6b7280]">{feedbackLabel}</td>
+                    <td className="px-2 py-2 text-xs text-[#1a1a1a]">{row.action_plan || '—'}</td>
+                    <td className="px-2 py-2 text-xs text-[#6b7280]">{row.is_closed === false ? (row.objection_reason || '—') : <span className="text-[#d1d5db]">N/A</span>}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {notes && (
+        <div>
+          <p className="text-[11px] font-semibold text-[#9ca3af] mb-1">Notes</p>
+          <p className="text-sm text-[#1a1a1a] whitespace-pre-wrap">{notes}</p>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function EODReportRow({ report }) {
   const [expanded, setExpanded] = useState(false)
@@ -30,7 +88,11 @@ function EODReportRow({ report }) {
       {expanded && (
         <tr className="border-b border-[#e5e7eb] bg-gray-50">
           <td colSpan={5} className="px-4 py-3">
-            {dataKeys.length === 0 ? <p className="text-sm text-[#6b7280]">Aucune donnée.</p> : (
+            {report.role === 'closer' ? (
+              <CloserEODExpandedContent data={report.data} />
+            ) : dataKeys.length === 0 ? (
+              <p className="text-sm text-[#6b7280]">Aucune donnée.</p>
+            ) : (
               <div className="flex flex-wrap gap-4">
                 {dataKeys.map(k => <div key={k} className="text-sm"><span className="text-[#6b7280] font-semibold">{k} : </span><span className="font-bold text-[#1a1a1a]">{String(report.data[k])}</span></div>)}
               </div>

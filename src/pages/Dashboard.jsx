@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import Layout from '../components/layout/Layout'
 import Header from '../components/layout/Header'
 import Card from '../components/shared/Card'
@@ -1293,7 +1293,7 @@ function MemberDashboard() {
   const payPeriod = payConfig ? getCurrentPayPeriod(payConfig.reference_pay_date, payConfig.period_length_days) : null
 
   // Closer: période
-  const [closerPeriodType, setCloserPeriodType] = useState('paie')
+  const [closerPeriodType, setCloserPeriodType] = useState('custom')
   const [closerCustomStart, setCloserCustomStart] = useState(todayStr)
   const [closerCustomEnd, setCloserCustomEnd]     = useState(todayStr)
   const closerStartDate = closerPeriodType === 'paie' ? (payPeriod?.start || todayStr) : (closerCustomStart || todayStr)
@@ -1481,8 +1481,19 @@ function MemberDashboard() {
         </>}
       </div>
 
-      {/* ── Closer : Activité ── */}
+      {/* ── Closer : lien vers Mon Espace ── */}
       {isCloser && (
+        <Link to="/closer" className="block mb-6">
+          <Card className="p-5 flex items-center justify-between hover:border-[#00bbb1]/40 hover:shadow-sm transition-all">
+            <div>
+              <p className="text-sm font-semibold text-[#1a1a1a]">Votre activité Closer</p>
+              <p className="text-xs text-[#6b7280] mt-0.5">Rendez-vous, ventes et commissions</p>
+            </div>
+            <span className="text-sm font-semibold text-[#00bbb1] whitespace-nowrap">Voir Mon Espace →</span>
+          </Card>
+        </Link>
+      )}
+      {isCloser && false && (
         <>
           {/* Sélecteur de période */}
           <div className="mb-6">
@@ -1704,11 +1715,24 @@ function MemberDashboard() {
         </>
       )}
 
-      {/* ── Setter : Rapport EOD ── */}
-      {isSetter && <SetterEODForm userId={profile?.id} />}
+      {/* ── Setter : lien vers Mon Espace ── */}
+      {isSetter && (
+        <Link to="/setter" className="block mb-6">
+          <Card className="p-5 flex items-center justify-between hover:border-[#00bbb1]/40 hover:shadow-sm transition-all">
+            <div>
+              <p className="text-sm font-semibold text-[#1a1a1a]">Votre activité Setter</p>
+              <p className="text-xs text-[#6b7280] mt-0.5">EOD, commissions et objectifs</p>
+            </div>
+            <span className="text-sm font-semibold text-[#00bbb1] whitespace-nowrap">Voir Mon Espace →</span>
+          </Card>
+        </Link>
+      )}
+
+      {/* ── Setter : Rapport EOD (désactivé — disponible dans Mon Espace) ── */}
+      {isSetter && false && <SetterEODForm userId={profile?.id} />}
 
       {/* ── Setter : Ma Paie ── */}
-      {isSetter && (
+      {isSetter && false && (
         <div className="mb-6">
           <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 mb-2">
             <h2 className="text-sm font-bold text-[#6b7280] uppercase tracking-wide">Ma Paie</h2>
@@ -1807,7 +1831,7 @@ function MemberDashboard() {
       )}
 
       {/* ── Setter : Mes Objectifs du mois ── */}
-      {isSetter && (
+      {isSetter && false && (
         <Card className="p-6 mb-6">
           <h2 className="text-lg font-bold text-[#1a1a1a] mb-4">Mes Objectifs du mois</h2>
           {setterCommLoading ? <SkeletonTable rows={3} /> : (

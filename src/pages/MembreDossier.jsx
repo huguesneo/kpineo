@@ -28,6 +28,7 @@ import { usePayPeriodConfig, getCurrentPayPeriod } from '../hooks/usePayPeriod'
 import { fr } from 'date-fns/locale'
 import { useSetterCommissions } from '../hooks/useSetterCommissions'
 import { SetterEODHistoryItem } from '../components/eod/SetterEODForm'
+import { CloserEODHistoryItem } from '../components/eod/CloserEODForm'
 import { useSetterEODForUser } from '../hooks/useSetterEOD'
 import { supabase } from '../lib/supabase'
 import {
@@ -477,6 +478,7 @@ function GenericEODItem({ report }) {
 
 function EODReportItem({ report }) {
   if (report.role === 'setter') return <SetterEODHistoryItem report={report} />
+  if (report.role === 'closer') return <CloserEODHistoryItem report={report} />
   return <GenericEODItem report={report} />
 }
 
@@ -808,13 +810,25 @@ function SetterPayOverview({ member }) {
     endDate = customEnd || today
   }
 
-  const { data, loading } = useSetterCommissions(member.full_name, startDate, endDate)
+  const { data, loading, refresh } = useSetterCommissions(member.full_name, startDate, endDate)
   const [drillDown, setDrillDown] = useState(null) // { title, opps }
 
   return (
     <div className="mb-6">
       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3 mb-2">
-        <h2 className="text-sm font-bold text-[#6b7280] uppercase tracking-wide">Ma Paie (GHL)</h2>
+        <div className="flex items-center gap-2">
+          <h2 className="text-sm font-bold text-[#6b7280] uppercase tracking-wide">Ma Paie (GHL)</h2>
+          <button
+            onClick={refresh}
+            disabled={loading}
+            className="p-1 rounded-md text-[#9ca3af] hover:text-[#00bbb1] hover:bg-[#00bbb1]/10 transition-all disabled:opacity-40"
+            title="Actualiser"
+          >
+            <svg className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </button>
+        </div>
 
         <div className="flex items-center gap-3 flex-wrap">
           <button
