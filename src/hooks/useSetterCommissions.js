@@ -40,6 +40,7 @@ export function useSetterCommissions(memberFullName, startDate, endDate) {
     totalBonus: 0,
     totalPay: 0,
     opportunities: [],
+    bookedOpps: [],
     manuelOpps: [],
     autoOpps: [],
     rebookOpps: [],
@@ -84,6 +85,7 @@ export function useSetterCommissions(memberFullName, startDate, endDate) {
         let commissionManuel = 0, commissionAuto = 0, commissionRebook = 0;
         let totalBonus = 0;
         const setterOpps = [];
+        const bookedOpps = [];
         const manuelOpps = [];
         const autoOpps = [];
         const rebookOpps = [];
@@ -104,14 +106,13 @@ export function useSetterCommissions(memberFullName, startDate, endDate) {
           const isWonStage    = stageName.includes('bonus vente');
 
           const typeDeBooking = String(getFieldById(raw, FIELD_TYPE_BOOKING) || '').toLowerCase();
-          // La prequal est un checkbox GHL — si absent des customFields, considéré non-coché
-          const prequelOui = false; // TODO: ajouter FIELD_PREQUAL quand l'ID est connu
 
           // Books : comptés à la date de création
           if (opp.created_at_ghl) {
             const createdDate = new Date(opp.created_at_ghl);
             if (createdDate >= start && createdDate <= end) {
               bookedCount++;
+              bookedOpps.push(opp);
 
               // Show-ups dans stage show-up, créés dans la période
               if (isShowupStage) {
@@ -121,11 +122,11 @@ export function useSetterCommissions(memberFullName, startDate, endDate) {
                   manuelCount++;
                   commissionManuel += FLAT_MANUEL;
                   manuelOpps.push(opp);
-                } else if (typeDeBooking === 'automatique' && prequelOui) {
+                } else if (typeDeBooking === 'automatique') {
                   autoCount++;
                   commissionAuto += FLAT_CONFIRM;
                   autoOpps.push(opp);
-                } else if (typeDeBooking === 'rebooking' && prequelOui) {
+                } else if (typeDeBooking === 'rebooking') {
                   rebookingCount++;
                   commissionRebook += FLAT_REBOOK;
                   rebookOpps.push(opp);
@@ -164,6 +165,7 @@ export function useSetterCommissions(memberFullName, startDate, endDate) {
           totalBonus,
           totalPay: totalShowups + totalBonus,
           opportunities: setterOpps,
+          bookedOpps,
           manuelOpps,
           autoOpps,
           rebookOpps,

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
@@ -22,6 +22,30 @@ function fmtTime(iso) {
 function fmtDate(iso) {
   if (!iso) return '—'
   try { return format(new Date(iso), 'd MMMM yyyy', { locale: fr }) } catch { return '—' }
+}
+
+// ─── Auto-growing textarea ────────────────────────────────────
+function AutoGrowTextarea({ value, onChange, onBlur, placeholder, className, extraStyle = {} }) {
+  const ref = useRef(null)
+
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = '0px'
+    el.style.height = el.scrollHeight + 'px'
+  }, [value])
+
+  return (
+    <textarea
+      ref={ref}
+      value={value}
+      onChange={onChange}
+      onBlur={onBlur}
+      placeholder={placeholder}
+      className={className}
+      style={{ overflow: 'hidden', resize: 'none', minHeight: '2.75rem', ...extraStyle }}
+    />
+  )
 }
 
 // ─── Form field definitions ───────────────────────────────────
@@ -145,6 +169,11 @@ export default function SaleCallScript() {
   // Status state
   const [statusSaving, setStatusSaving] = useState(false)
   const [noteSaved, setNoteSaved]       = useState(false)
+  const [autoSaved,  setAutoSaved]      = useState(false)
+
+  // Progress
+  const filledCount = QUAL_FIELDS.filter(f => qual[f.key]?.trim()).length
+  const totalCount  = QUAL_FIELDS.length
 
   // Pre-fill qual form from saved notes
   useEffect(() => {
@@ -156,6 +185,19 @@ export default function SaleCallScript() {
   const quizCompleted = isQuizCompleted(quiz)
   const contactName = appt?.contact_name || `${contact?.first_name ?? ''} ${contact?.last_name ?? ''}`.trim() || '—'
   const duration = appt?.raw?.duration ?? appt?.raw?.durationMinutes ?? 60
+
+  // Raccourci Cmd/Ctrl+S pour sauvegarder
+  useEffect(() => {
+    function onKeyDown(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+        e.preventDefault()
+        handleSaveNotes()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qual, profile, contact, appt])
 
   // ── Format note for GHL ──
   function formatNoteForGHL() {
@@ -169,6 +211,19 @@ export default function SaleCallScript() {
       }
     })
     return lines.join('\n')
+  }
+
+  // ── Auto-save on blur (silent) ──
+  async function handleAutoSave() {
+    if (!QUAL_FIELDS.some(f => qual[f.key]?.trim())) return
+    await saveNote({
+      userId:        profile?.id,
+      contactId:     contact?.ghl_id ?? appt?.contact_id,
+      contactName,
+      qualification: qual,
+    })
+    setAutoSaved(true)
+    setTimeout(() => setAutoSaved(false), 2000)
   }
 
   // ── Save notes ──
@@ -320,45 +375,80 @@ export default function SaleCallScript() {
 
         {/* ── Section 3 : Qualification ── */}
         <Section title="Qualification" icon="📋">
-          <div className="space-y-4">
-            {QUAL_FIELDS.map(f => (
-              <div key={f.key}>
-                <label className="block text-xs font-semibold text-[#6b7280] mb-1.5">
-                  {f.label}
-                  {f.optional && <span className="text-[#9ca3af] font-normal ml-1">(optionnel)</span>}
-                </label>
-                {f.type === 'textarea' ? (
-                  <textarea
-                    value={qual[f.key]}
-                    onChange={e => setQual(prev => ({ ...prev, [f.key]: e.target.value }))}
-                    rows={f.key === 'note' ? 4 : 3}
-                    className="w-full px-3 py-2.5 text-sm border border-[#e5e7eb] rounded-xl focus:outline-none focus:border-[#00bbb1] focus:ring-2 focus:ring-[#00bbb1]/10 resize-none transition-colors placeholder:text-[#d1d5db]"
-                    placeholder="Réponse..."
-                  />
-                ) : (
-                  <input
-                    type="text"
-                    value={qual[f.key]}
-                    onChange={e => setQual(prev => ({ ...prev, [f.key]: e.target.value }))}
-                    className="w-full px-3 py-2.5 text-sm border border-[#e5e7eb] rounded-xl focus:outline-none focus:border-[#00bbb1] focus:ring-2 focus:ring-[#00bbb1]/10 transition-colors placeholder:text-[#d1d5db]"
-                    placeholder="Réponse..."
-                  />
-                )}
-              </div>
-            ))}
+          {/* Barre de progression */}
+          <div className="flex items-center gap-3 mb-6 pb-5 border-b border-[#f0f0f0]">
+            <div className="flex-1 bg-gray-100 rounded-full h-2">
+              <div
+                className="h-2 rounded-full transition-all duration-500"
+                style={{
+                  width: `${totalCount > 0 ? (filledCount / totalCount) * 100 : 0}%`,
+                  background: filledCount === totalCount ? '#10b981' : '#00bbb1',
+                }}
+              />
+            </div>
+            <span className="text-xs font-bold flex-shrink-0" style={{ color: filledCount === totalCount ? '#10b981' : '#00bbb1' }}>
+              {filledCount}/{totalCount}
+            </span>
+            {autoSaved && (
+              <span className="text-[10px] font-semibold text-[#10b981] flex-shrink-0 flex items-center gap-1">
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                </svg>
+                Sauvegardé
+              </span>
+            )}
+          </div>
+
+          <div className="space-y-5">
+            {QUAL_FIELDS.map((f, i) => {
+              const isFilled = Boolean(qual[f.key]?.trim())
+              return (
+                <div key={f.key} className="group">
+                  <div className="flex items-start gap-3 mb-2">
+                    <span
+                      className="flex-shrink-0 w-5 h-5 rounded-full text-[10px] font-black flex items-center justify-center mt-0.5 transition-colors"
+                      style={{
+                        backgroundColor: isFilled ? '#00bbb1' : '#f3f4f6',
+                        color:           isFilled ? '#fff'    : '#9ca3af',
+                      }}
+                    >
+                      {isFilled ? '✓' : i + 1}
+                    </span>
+                    <label className="text-xs font-semibold text-[#4b5563] leading-relaxed">
+                      {f.label}
+                      {f.optional && <span className="text-[#9ca3af] font-normal ml-1">(optionnel)</span>}
+                    </label>
+                  </div>
+                  <div className="ml-8">
+                    <AutoGrowTextarea
+                      value={qual[f.key]}
+                      onChange={e => setQual(prev => ({ ...prev, [f.key]: e.target.value }))}
+                      onBlur={handleAutoSave}
+                      placeholder="Votre réponse…"
+                      className="w-full px-3 py-2.5 text-sm border border-[#e5e7eb] rounded-xl focus:outline-none focus:border-[#00bbb1] focus:ring-2 focus:ring-[#00bbb1]/10 transition-colors placeholder:text-[#d1d5db]"
+                      extraStyle={isFilled ? { borderColor: '#00bbb130' } : {}}
+                    />
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </Section>
 
         {/* ── Section 4 : Actions ── */}
-        <div className="rounded-2xl border border-[#e5e7eb] bg-white p-6">
-          <h3 className="text-sm font-bold text-[#1a1a1a] uppercase tracking-wide mb-4">Actions</h3>
+        <div className="rounded-2xl border border-[#e5e7eb] bg-white overflow-hidden">
 
-          {/* Save notes */}
+          {/* Bouton principal sauvegarde */}
           <button
             onClick={handleSaveNotes}
             disabled={noteSaving}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm transition-all active:scale-[0.99]"
-            style={{ background: 'linear-gradient(135deg, #00bbb1 0%, #009e94 100%)', color: 'white', opacity: noteSaving ? 0.7 : 1 }}
+            className="w-full flex items-center justify-center gap-2.5 py-4 font-bold text-sm transition-all active:scale-[0.99] disabled:opacity-70"
+            style={{
+              background: noteSaved
+                ? 'linear-gradient(135deg, #10b981 0%, #059669 100%)'
+                : 'linear-gradient(135deg, #00bbb1 0%, #009e94 100%)',
+              color: 'white',
+            }}
           >
             {noteSaving ? (
               <>
@@ -367,6 +457,13 @@ export default function SaleCallScript() {
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
                 Enregistrement…
+              </>
+            ) : noteSaved ? (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                </svg>
+                Notes enregistrées
               </>
             ) : (
               <>
@@ -378,50 +475,77 @@ export default function SaleCallScript() {
             )}
           </button>
 
-          {/* Confirmation banner */}
-          {noteSaved && (
-            <div className="mt-3 flex items-center gap-2 px-4 py-3 bg-[#10b981]/10 border border-[#10b981]/30 rounded-xl">
-              <svg className="w-4 h-4 text-[#10b981] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              <p className="text-sm font-semibold text-[#10b981]">Notes enregistrées et envoyées dans GHL ✓</p>
+          <div className="p-5 space-y-2.5">
+            {/* Statut RDV */}
+            <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide mb-3">Statut du rendez-vous</p>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                {
+                  status: 'show',
+                  label: 'Show',
+                  active: apptStatus === 'showed' || apptStatus === 'attended',
+                  activeStyle: { background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', border: 'transparent', color: 'white' },
+                  hoverClass: 'hover:border-[#10b981]/60 hover:text-[#10b981]',
+                  icon: (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                    </svg>
+                  ),
+                },
+                {
+                  status: 'noshow',
+                  label: 'No-Show',
+                  active: apptStatus === 'noshow',
+                  activeStyle: { background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', border: 'transparent', color: 'white' },
+                  hoverClass: 'hover:border-[#f59e0b]/60 hover:text-[#f59e0b]',
+                  icon: (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  ),
+                },
+                {
+                  status: 'annule',
+                  label: 'Annulé',
+                  active: apptStatus === 'cancelled',
+                  activeStyle: { background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)', border: 'transparent', color: 'white' },
+                  hoverClass: 'hover:border-[#ef4444]/60 hover:text-[#ef4444]',
+                  icon: (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                    </svg>
+                  ),
+                },
+              ].map(({ status, label, active, activeStyle, hoverClass, icon }) => (
+                <button
+                  key={status}
+                  onClick={() => handleStatus(status)}
+                  disabled={statusSaving || active}
+                  className={`flex flex-col items-center justify-center gap-1.5 py-3 rounded-xl text-xs font-bold border transition-all disabled:cursor-default ${
+                    active ? '' : `bg-white border-[#e5e7eb] text-[#6b7280] ${hoverClass}`
+                  }`}
+                  style={active ? activeStyle : {}}
+                >
+                  {statusSaving ? (
+                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                  ) : icon}
+                  {label}
+                </button>
+              ))}
             </div>
-          )}
 
-          <div className="mt-4" />
-
-          {/* Status buttons */}
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              onClick={() => handleStatus('show')}
-              disabled={statusSaving || apptStatus === 'showed' || apptStatus === 'attended'}
-              className={`py-3 rounded-xl font-bold text-sm border transition-all disabled:opacity-50 ${
-                apptStatus === 'showed' || apptStatus === 'attended'
-                  ? 'bg-[#10b981] border-[#10b981] text-white'
-                  : 'bg-white border-[#e5e7eb] text-[#6b7280] hover:border-[#10b981] hover:text-[#10b981]'
-              }`}
-            >
-              {statusSaving ? '…' : '✓ Show'}
-            </button>
-            <button
-              onClick={() => handleStatus('noshow')}
-              disabled={statusSaving || apptStatus === 'noshow'}
-              className={`py-3 rounded-xl font-bold text-sm border transition-all disabled:opacity-50 ${
-                apptStatus === 'noshow'
-                  ? 'bg-[#f59e0b] border-[#f59e0b] text-white'
-                  : 'bg-white border-[#e5e7eb] text-[#6b7280] hover:border-[#f59e0b] hover:text-[#f59e0b]'
-              }`}
-            >
-              {statusSaving ? '…' : '✗ No-Show'}
-            </button>
-          </div>
-
-          <div className="mt-3">
+            {/* Retour */}
             <button
               onClick={() => navigate('/calendrier')}
-              className="w-full py-2.5 rounded-xl text-sm font-semibold border border-[#e5e7eb] text-[#6b7280] hover:bg-gray-50 transition-colors"
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold border border-[#e5e7eb] text-[#6b7280] hover:bg-[#f9fafb] hover:border-[#d1d5db] transition-colors"
             >
-              ← Retour au calendrier
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              Retour au calendrier
             </button>
           </div>
         </div>

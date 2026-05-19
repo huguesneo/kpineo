@@ -13,6 +13,11 @@ function fmtCAD(n) {
   return Number(n ?? 0).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })
 }
 
+function fmtDate(iso) {
+  if (!iso) return '—'
+  try { return format(new Date(iso), 'd MMM yyyy', { locale: fr }) } catch { return '—' }
+}
+
 // ─── Modal ────────────────────────────────────────────────────
 
 function Modal({ isOpen, onClose, title, children }) {
@@ -153,13 +158,14 @@ function KPICard({ label, value, sub, highlight, highlightColor = '#10b981', onC
 
 // ─── Détail opportunité dans modal ────────────────────────────
 
-function OppRow({ opp, typeLabel }) {
+function OppRow({ opp, typeLabel, date }) {
   return (
-    <div className="flex items-start justify-between gap-3 px-4 py-3 bg-[#f9fafb] rounded-xl border border-[#f0f0f0]">
+    <div className="flex items-center justify-between gap-3 px-4 py-3 bg-[#f9fafb] rounded-xl border border-[#f0f0f0]">
       <div className="flex-1 min-w-0">
         <p className="text-sm font-semibold text-[#1a1a1a] truncate">{opp.contact_name || '—'}</p>
         <p className="text-xs text-[#6b7280] mt-0.5">{typeLabel}</p>
       </div>
+      {date && <p className="text-xs font-semibold text-[#9ca3af] flex-shrink-0">{date}</p>}
     </div>
   )
 }
@@ -205,7 +211,11 @@ export default function SetterDashboardView({
   }
 
   // Modales
+  const [bookedModal,  setBookedModal]  = useState(false)
   const [showupsModal, setShowupsModal] = useState(false)
+  const [manuelModal,  setManuelModal]  = useState(false)
+  const [autoModal,    setAutoModal]    = useState(false)
+  const [rebookModal,  setRebookModal]  = useState(false)
   const [ventesModal,  setVentesModal]  = useState(false)
 
   // Métriques
@@ -321,6 +331,7 @@ export default function SetterDashboardView({
               label="Total Bookés"
               value={bookedCount}
               sub="rendez-vous bookés"
+              onClick={bookedCount > 0 ? () => setBookedModal(true) : undefined}
             />
             <KPICard
               label="Show-ups"
@@ -334,16 +345,19 @@ export default function SetterDashboardView({
               sub={`commission : ${fmtCAD(commManuel)}`}
               highlight={manuelCount > 0}
               highlightColor="#00bbb1"
+              onClick={manuelCount > 0 ? () => setManuelModal(true) : undefined}
             />
             <KPICard
               label="Confirmations auto"
               value={autoCount}
               sub={`commission : ${fmtCAD(commAuto)}`}
+              onClick={autoCount > 0 ? () => setAutoModal(true) : undefined}
             />
             <KPICard
               label="Rebookings"
               value={rebookingCount}
               sub={`commission : ${fmtCAD(commRebook)}`}
+              onClick={rebookingCount > 0 ? () => setRebookModal(true) : undefined}
             />
             <KPICard
               label="Bonus ventes"
@@ -506,15 +520,24 @@ export default function SetterDashboardView({
         )}
       </div>
 
+      {/* ── Modal : Total bookés ── */}
+      <Modal isOpen={bookedModal} onClose={() => setBookedModal(false)} title={`Total bookés — ${bookedCount}`}>
+        {(commData?.bookedOpps ?? []).length === 0 ? (
+          <p className="text-sm text-[#9ca3af] text-center py-6">Aucun rendez-vous booké sur cette période.</p>
+        ) : (
+          (commData?.bookedOpps ?? []).map((opp, i) => (
+            <OppRow key={i} opp={opp} typeLabel="Rendez-vous booké" date={fmtDate(opp.created_at_ghl)} />
+          ))
+        )}
+      </Modal>
+
       {/* ── Modal : Show-ups ── */}
       <Modal isOpen={showupsModal} onClose={() => setShowupsModal(false)} title={`Show-ups — ${showupCount}`}>
         {[
           { opps: commData?.manuelOpps ?? [], typeLabel: 'Manuel · 40 $' },
           { opps: commData?.autoOpps   ?? [], typeLabel: 'Confirmation auto · 20 $' },
           { opps: commData?.rebookOpps ?? [], typeLabel: 'Rebooking · 20 $' },
-        ].flatMap(({ opps, typeLabel }) => opps.map((opp, i) => (
-          <OppRow key={`${typeLabel}-${i}`} opp={opp} typeLabel={typeLabel} />
-        ))).length === 0 ? (
+        ].every(({ opps }) => opps.length === 0) ? (
           <p className="text-sm text-[#9ca3af] text-center py-6">Aucun show-up sur cette période.</p>
         ) : (
           [
@@ -524,8 +547,43 @@ export default function SetterDashboardView({
           ].map(({ opps, typeLabel }) => opps.length > 0 && (
             <div key={typeLabel}>
               <p className="text-xs font-bold text-[#6b7280] uppercase tracking-wide mb-2">{typeLabel}</p>
-              {opps.map((opp, i) => <OppRow key={i} opp={opp} typeLabel={typeLabel} />)}
+              {opps.map((opp, i) => (
+                <OppRow key={i} opp={opp} typeLabel={typeLabel} date={fmtDate(opp.created_at_ghl)} />
+              ))}
             </div>
+          ))
+        )}
+      </Modal>
+
+      {/* ── Modal : Manuels ── */}
+      <Modal isOpen={manuelModal} onClose={() => setManuelModal(false)} title={`Manuels — ${manuelCount}`}>
+        {(commData?.manuelOpps ?? []).length === 0 ? (
+          <p className="text-sm text-[#9ca3af] text-center py-6">Aucun booking manuel sur cette période.</p>
+        ) : (
+          (commData?.manuelOpps ?? []).map((opp, i) => (
+            <OppRow key={i} opp={opp} typeLabel="Manuel · 40 $" date={fmtDate(opp.created_at_ghl)} />
+          ))
+        )}
+      </Modal>
+
+      {/* ── Modal : Confirmations auto ── */}
+      <Modal isOpen={autoModal} onClose={() => setAutoModal(false)} title={`Confirmations auto — ${autoCount}`}>
+        {(commData?.autoOpps ?? []).length === 0 ? (
+          <p className="text-sm text-[#9ca3af] text-center py-6">Aucune confirmation auto sur cette période.</p>
+        ) : (
+          (commData?.autoOpps ?? []).map((opp, i) => (
+            <OppRow key={i} opp={opp} typeLabel="Confirmation auto · 20 $" date={fmtDate(opp.created_at_ghl)} />
+          ))
+        )}
+      </Modal>
+
+      {/* ── Modal : Rebookings ── */}
+      <Modal isOpen={rebookModal} onClose={() => setRebookModal(false)} title={`Rebookings — ${rebookingCount}`}>
+        {(commData?.rebookOpps ?? []).length === 0 ? (
+          <p className="text-sm text-[#9ca3af] text-center py-6">Aucun rebooking sur cette période.</p>
+        ) : (
+          (commData?.rebookOpps ?? []).map((opp, i) => (
+            <OppRow key={i} opp={opp} typeLabel="Rebooking · 20 $" date={fmtDate(opp.created_at_ghl)} />
           ))
         )}
       </Modal>
@@ -536,7 +594,7 @@ export default function SetterDashboardView({
           <p className="text-sm text-[#9ca3af] text-center py-6">Aucune vente sur cette période.</p>
         ) : (
           (commData?.wonOpps ?? []).map((opp, i) => (
-            <OppRow key={i} opp={opp} typeLabel="Vente fermée" />
+            <OppRow key={i} opp={opp} typeLabel="Vente fermée" date={fmtDate(opp.closed_at || opp.created_at_ghl)} />
           ))
         )}
       </Modal>
