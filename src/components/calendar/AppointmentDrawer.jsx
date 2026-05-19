@@ -9,6 +9,7 @@ import {
   isQuizCompleted,
   QUIZ_FIELDS,
 } from '../../hooks/useQuizResponse'
+import { saveStatusToEOD } from '../../hooks/useCloserEOD'
 
 function fmtTime(iso) {
   if (!iso) return '—'
@@ -39,7 +40,7 @@ function toUiStatus(ghlStatus) {
   return null
 }
 
-export default function AppointmentDrawer({ appt, onClose, onStatusUpdate }) {
+export default function AppointmentDrawer({ appt, onClose, onStatusUpdate, userId = null }) {
   const navigate  = useNavigate()
   const contactId = appt?.contact_id ?? null
   const { contact, loading: contactLoading } = useGHLContactById(contactId)
@@ -64,9 +65,13 @@ export default function AppointmentDrawer({ appt, onClose, onStatusUpdate }) {
     if (statusSaving) return
     setUiStatus(status)
     setStatusSaving(true)
-    const { error } = await updateAppointmentStatus(appt.ghl_id, appt.contact_id, status)
+    const results = await Promise.allSettled([
+      updateAppointmentStatus(appt.ghl_id, appt.contact_id, status),
+      saveStatusToEOD(userId, appt, status),
+    ])
+    const ghlResult = results[0].status === 'fulfilled' ? (results[0].value ?? {}) : {}
     setStatusSaving(false)
-    if (!error) {
+    if (!ghlResult.error) {
       const ghlStatusMap = { show: 'showed', noshow: 'noshow', annule: 'cancelled' }
       onStatusUpdate?.(appt.ghl_id, ghlStatusMap[status] ?? status)
     }

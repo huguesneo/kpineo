@@ -189,8 +189,8 @@ function SortIcon({ dir }) {
 
 function ComparisonTable({ closers, startDate, endDate }) {
   const { rows, loading } = useAllCloserStats(closers, startDate, endDate)
-  const [sortKey, setSortKey] = useState('name')
-  const [sortDir, setSortDir] = useState('asc')
+  const [sortKey, setSortKey] = useState('ventesCount')
+  const [sortDir, setSortDir] = useState('desc')
 
   function handleSort(key) {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')

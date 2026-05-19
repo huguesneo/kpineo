@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { supabase } from '../../lib/supabase'
-import { EOD_STATUSES, rowFromAppointment } from '../../hooks/useCloserEOD'
+import { EOD_STATUSES, rowFromAppointment, saveStatusToEOD } from '../../hooks/useCloserEOD'
 import { useCloserAppointments } from '../../hooks/useCloserData'
 
 const POPUP_DELAY_MIN = 45  // minutes après le début du RDV
@@ -13,9 +13,9 @@ function fmtTime(iso) {
   try { return format(new Date(iso), 'HH:mm') } catch { return '—' }
 }
 
-// ─── Charger le rapport EOD d'aujourd'hui ────────────────────────────────────
-async function fetchTodayEOD(userId) {
-  if (!userId) return null
+// ─── Charger les lignes EOD d'aujourd'hui ────────────────────────────────────
+async function fetchTodayEODRows(userId) {
+  if (!userId) return []
   const today = format(new Date(), 'yyyy-MM-dd')
   const { data } = await supabase
     .from('end_of_day_reports')
@@ -24,46 +24,7 @@ async function fetchTodayEOD(userId) {
     .eq('role', 'closer')
     .eq('report_date', today)
     .maybeSingle()
-  return data?.data ?? null
-}
-
-// ─── Upsert du statut dans l'EOD ─────────────────────────────────────────────
-async function saveStatusToEOD(userId, appt, status) {
-  const today  = format(new Date(), 'yyyy-MM-dd')
-  const eodDoc = await fetchTodayEOD(userId)
-  const rows   = eodDoc?.rows ?? []
-
-  const idx = rows.findIndex(r => r.ghl_appointment_id === appt.ghl_id)
-  const newRows = idx >= 0
-    ? rows.map((r, i) => i === idx ? { ...r, status } : r)
-    : [...rows, { ...rowFromAppointment(appt), status }]
-      .sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
-
-  const payload = {
-    user_id:      userId,
-    report_date:  today,
-    role:         'closer',
-    data:         { ...(eodDoc ?? {}), rows: newRows },
-    submitted_at: new Date().toISOString(),
-  }
-
-  // Vérifier si le rapport existe déjà (upsert par user_id + report_date)
-  const { data: existing } = await supabase
-    .from('end_of_day_reports')
-    .select('id')
-    .eq('user_id', userId)
-    .eq('role', 'closer')
-    .eq('report_date', today)
-    .maybeSingle()
-
-  if (existing) {
-    await supabase
-      .from('end_of_day_reports')
-      .update({ data: payload.data, submitted_at: payload.submitted_at })
-      .eq('id', existing.id)
-  } else {
-    await supabase.from('end_of_day_reports').insert(payload)
-  }
+  return data?.data?.rows ?? []
 }
 
 // ─── Mettre à jour le statut dans GHL ────────────────────────────────────────
@@ -98,11 +59,11 @@ export default function AppointmentStatusPopup({ userId, ghlUserId, closerName }
   const [status,   setStatus]   = useState('')
   const [saving,   setSaving]   = useState(false)
 
-  // Charger les lignes EOD au montage
+  // Charger les lignes EOD au montage et à chaque tick (pour détecter les statuts mis à jour ailleurs)
   useEffect(() => {
     if (!userId) return
-    fetchTodayEOD(userId).then(doc => setEodRows(doc?.rows ?? []))
-  }, [userId])
+    fetchTodayEODRows(userId).then(rows => setEodRows(rows))
+  }, [userId, tick])
 
   // Tick toutes les 60 secondes
   useEffect(() => {
@@ -123,6 +84,9 @@ export default function AppointmentStatusPopup({ userId, ghlUserId, closerName }
       if (start > cutoff || start < maxLookback) return false
       // Déjà traité dans cette session
       if (doneIds.has(appt.ghl_id)) return false
+      // Statut déjà défini dans GHL (via le calendrier ou ailleurs)
+      if (appt.status === 'showed' || appt.status === 'attended' ||
+          appt.status === 'noshow' || appt.status === 'cancelled') return false
       // Statut déjà défini dans l'EOD en DB
       const eodRow = eodRows.find(r => r.ghl_appointment_id === appt.ghl_id)
       return !eodRow?.status

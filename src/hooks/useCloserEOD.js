@@ -5,6 +5,13 @@ import { format, subDays } from 'date-fns'
 const GHL_PIPELINE_CLOSER = 'YPTruORTl0LOSdS2vWJS'
 const GHL_FIELD_CLOSER    = 'JSltN3nE7nm4cUjuGxTs'
 
+function ghlToEodStatus(ghlStatus) {
+  if (ghlStatus === 'showed' || ghlStatus === 'attended') return 'show'
+  if (ghlStatus === 'noshow') return 'noshow'
+  if (ghlStatus === 'cancelled') return 'annule'
+  return ''
+}
+
 function getGHLField(raw, fieldId) {
   const fields = raw?.customFields ?? []
   const f = fields.find(f => f.id === fieldId || f.key === fieldId || f.fieldKey === fieldId)
@@ -39,6 +46,48 @@ export function rowFromAppointment(appt) {
     feedback:           '',     // '' | 'A+' | 'A' | 'B' | 'C' | 'D'
     action_plan:        '',
     objection_reason:   '',
+  }
+}
+
+// ─── Sauvegarder un statut dans le rapport EOD (upsert) ─────────────────────
+export async function saveStatusToEOD(userId, appt, status) {
+  if (!userId) return
+  const apptDate = appt.start_time
+    ? format(new Date(appt.start_time), 'yyyy-MM-dd')
+    : format(new Date(), 'yyyy-MM-dd')
+
+  const { data: existing } = await supabase
+    .from('end_of_day_reports')
+    .select('*')
+    .eq('user_id', userId)
+    .eq('role', 'closer')
+    .eq('report_date', apptDate)
+    .maybeSingle()
+
+  const eodDoc  = existing?.data ?? null
+  const rows    = eodDoc?.rows ?? []
+  const idx     = rows.findIndex(r => r.ghl_appointment_id === appt.ghl_id)
+  const newRows = idx >= 0
+    ? rows.map((r, i) => i === idx ? { ...r, status } : r)
+    : [...rows, { ...rowFromAppointment(appt), status }]
+        .sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
+
+  const data = { ...(eodDoc ?? {}), rows: newRows }
+  const now  = new Date().toISOString()
+
+  if (existing) {
+    await supabase
+      .from('end_of_day_reports')
+      .update({ data, submitted_at: now })
+      .eq('id', existing.id)
+  } else {
+    await supabase.from('end_of_day_reports').insert({
+      user_id:      userId,
+      report_date:  apptDate,
+      role:         'closer',
+      data,
+      submitted_at: now,
+    })
   }
 }
 
@@ -116,20 +165,47 @@ export function useCloserEOD(userId, date = null, ghlUserId = null, closerName =
       fetchAppointmentsForDate(targetDate, ghlUserId, closerName),
     ])
 
+    // Pré-remplir is_closed depuis les opportunités gagnées
+    const contactIds = appts.map(a => a.contact_id).filter(Boolean)
+    let wonContactIds = new Set()
+    if (contactIds.length > 0) {
+      const { data: wonOpps } = await supabase
+        .from('ghl_opportunities')
+        .select('contact_id')
+        .in('contact_id', contactIds)
+        .ilike('stage_name', '%agn%')
+      wonContactIds = new Set((wonOpps ?? []).map(o => o.contact_id))
+    }
+
+    function makeNewRow(appt) {
+      return {
+        ...rowFromAppointment(appt),
+        status:    ghlToEodStatus(appt.status),
+        is_closed: wonContactIds.has(appt.contact_id) ? true : null,
+      }
+    }
+
     if (existing) {
       setReport(existing)
       const data        = existing.data || {}
       const savedRows   = data.rows || []
       const knownIds    = new Set(savedRows.map(r => r.ghl_appointment_id))
-      const newRows     = appts.filter(a => !knownIds.has(a.ghl_id)).map(rowFromAppointment)
-      const merged      = [...savedRows, ...newRows].sort((a, b) =>
+      const newRows     = appts.filter(a => !knownIds.has(a.ghl_id)).map(makeNewRow)
+      // Enrichir les lignes existantes dont is_closed est encore null
+      const enrichedSaved = savedRows.map(r => {
+        if (r.is_closed !== null) return r
+        const appt = appts.find(a => a.ghl_id === r.ghl_appointment_id)
+        if (!appt) return r
+        return { ...r, is_closed: wonContactIds.has(appt.contact_id) ? true : null }
+      })
+      const merged      = [...enrichedSaved, ...newRows].sort((a, b) =>
         new Date(a.start_time) - new Date(b.start_time)
       )
       setRows(merged)
       setNotes(data.notes || '')
     } else {
       setReport(null)
-      setRows(appts.map(rowFromAppointment))
+      setRows(appts.map(makeNewRow))
       setNotes('')
     }
 

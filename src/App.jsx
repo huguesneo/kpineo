@@ -16,6 +16,7 @@ import MonDossier from './pages/MonDossier'
 import Setter from './pages/Setter'
 import Closer from './pages/Closer'
 import CloserAdmin from './pages/CloserAdmin'
+import SetterAdmin from './pages/SetterAdmin'
 import EquipeVente from './pages/EquipeVente'
 import EquipeNaturo from './pages/EquipeNaturo'
 import SaleCallScript from './pages/SaleCallScript'
@@ -91,6 +92,7 @@ function AppRoutes() {
 
       {/* Admin + resp_vente — équipe de vente & naturopathe */}
       <Route path="/closer-admin" element={<SalesManagerRoute><CloserAdmin /></SalesManagerRoute>} />
+      <Route path="/setter-admin" element={<SalesManagerRoute><SetterAdmin /></SalesManagerRoute>} />
       <Route path="/equipe-vente" element={<SalesManagerRoute><EquipeVente /></SalesManagerRoute>} />
       <Route path="/naturopathe"  element={<AdminRoute><EquipeNaturo /></AdminRoute>} />
 

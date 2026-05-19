@@ -1,4 +1,5 @@
-import { NavLink } from 'react-router-dom'
+import { useState } from 'react'
+import { NavLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { usePendingTasksCount, usePendingApprovalCount } from '../../hooks/useTasks'
 import { useTotalHoraireAlertCount } from '../../hooks/useSchedule'
@@ -7,6 +8,41 @@ import { useUnassignedSales } from '../../hooks/useCloserData'
 import { useCloserEODMissedBadge } from '../../hooks/useCloserEOD'
 
 const NEO_LOGO = 'https://assets.cdn.filesafe.space/YG2spvWJqnD75L3V95UJ/media/6941c9327109a899ec69b43c.png'
+
+function NavGroup({ icon, label, badge, children, matchPaths = [] }) {
+  const location = useLocation()
+  const isAnyChildActive = matchPaths.some(p => location.pathname === p || location.pathname.startsWith(p + '/'))
+  const [open, setOpen] = useState(isAnyChildActive)
+
+  return (
+    <div>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold transition-colors w-full text-left ${
+          isAnyChildActive
+            ? 'bg-[#00bbb1]/10 text-[#00bbb1]'
+            : 'text-[#6b7280] hover:bg-gray-100 hover:text-[#1a1a1a]'
+        }`}
+      >
+        <span className="w-5 h-5 flex-shrink-0">{icon}</span>
+        <span className="flex-1">{label}</span>
+        {badge != null && badge > 0 && (
+          <span className="bg-[#00bbb1] text-white text-xs font-semibold px-1.5 py-0.5 rounded-full min-w-[1.25rem] text-center">
+            {badge}
+          </span>
+        )}
+        <svg className={`w-4 h-4 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {open && (
+        <div className="ml-5 mt-0.5 space-y-0.5 border-l border-[#e5e7eb] pl-3">
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function NavItem({ to, icon, label, badge }) {
   return (
@@ -95,27 +131,35 @@ export default function Sidebar() {
           }
         />
         {isAdminOrRespVente && (
-          <NavItem
-            to="/closer-admin"
-            label="Dashboard Closers"
-            icon={
-              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            }
-          />
-        )}
-        {isAdminOrRespVente && (
-          <NavItem
-            to="/equipe-vente"
+          <NavGroup
             label="Équipe de vente"
             badge={equipeVenteBadge}
+            matchPaths={['/closer-admin', '/setter-admin']}
             icon={
               <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z" />
               </svg>
             }
-          />
+          >
+            <NavItem
+              to="/closer-admin"
+              label="Dashboard Closer"
+              icon={
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              }
+            />
+            <NavItem
+              to="/setter-admin"
+              label="Dashboard Setter"
+              icon={
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+                </svg>
+              }
+            />
+          </NavGroup>
         )}
         {isAdmin && (
           <NavItem

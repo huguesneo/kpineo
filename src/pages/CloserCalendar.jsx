@@ -543,6 +543,7 @@ export default function CloserCalendar() {
             appt={selectedAppt}
             onClose={() => setSelectedAppt(null)}
             onStatusUpdate={handleStatusUpdate}
+            userId={profile?.id ?? null}
           />
         )}
 

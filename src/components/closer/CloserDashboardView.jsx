@@ -7,11 +7,14 @@ import {
   useCloserAppointments,
   useCloserSales,
   useCloserCashCollected,
+  useDecisionContactIds,
   APPT_STATUS_LABELS,
   APPT_STATUS_COLORS,
   COMMISSION_RATE,
 } from '../../hooks/useCloserData'
 import { useObjectives, setObjectiveForPeriod } from '../../hooks/useObjectives'
+
+const CALENDAR_DECISION = 'BQK4NoyrVNuJA3e1VHDH'
 
 // ─── Formatters ───────────────────────────────────────────────
 
@@ -21,8 +24,9 @@ function fmtCAD(n) {
 
 function fmtDate(d) {
   if (!d) return '—'
-  const s = typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d + 'T12:00:00' : d
-  return format(new Date(s), 'd MMM yyyy', { locale: fr })
+  const date = d instanceof Date ? d : new Date(d)
+  const noon = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate(), 12, 0, 0))
+  return format(noon, 'd MMM yyyy', { locale: fr })
 }
 
 function fmtDateTime(d) {
@@ -324,13 +328,15 @@ export default function CloserDashboardView({
   }
 
   // Modales
-  const [apptModal,    setApptModal]    = useState(false)
-  const [salesModal,   setSalesModal]   = useState(false)
-  const [cashModal,    setCashModal]    = useState(false)
-  const [cashFilter,   setCashFilter]   = useState('all')
-  const [apptFilter,   setApptFilter]   = useState('all')
+  const [apptModal,       setApptModal]       = useState(false)
+  const [apptTypeFilter,  setApptTypeFilter]  = useState('all')
+  const [salesModal,      setSalesModal]      = useState(false)
+  const [salesTypeFilter, setSalesTypeFilter] = useState('all')
+  const [cashModal,       setCashModal]       = useState(false)
+  const [cashFilter,      setCashFilter]      = useState('all')
+  const [apptFilter,      setApptFilter]      = useState('all')
 
-  // Métriques calculées
+  // Métriques calculées — totaux
   const totalRDV     = appointments.length
   const shows        = hotCount
   const noShows      = byStatus['noshow'] ?? 0
@@ -339,6 +345,34 @@ export default function CloserDashboardView({
   const closeRate    = shows > 0 ? Math.round((ventesCount / shows) * 100) : null
   const showRate     = totalRDV > 0 ? Math.round((shows / totalRDV) * 100) : null
   const noShowRate   = totalRDV > 0 ? Math.round((noShows / totalRDV) * 100) : null
+
+  // Séparation par type de calendrier
+  const discoveryAppts = appointments.filter(a => a.calendar_id !== CALENDAR_DECISION)
+  const decisionAppts  = appointments.filter(a => a.calendar_id === CALENDAR_DECISION)
+
+  // Stats Consultation Découverte
+  const discTotal     = discoveryAppts.length
+  const discShows     = discoveryAppts.filter(a => a.status === 'showed' || a.status === 'attended').length
+  const discNoShows   = discoveryAppts.filter(a => a.status === 'noshow').length
+  const discCancelled = discoveryAppts.filter(a => a.status === 'cancelled').length
+  const discShowRate  = discTotal > 0 ? Math.round((discShows / discTotal) * 100) : null
+
+  // Stats Rencontre de Décision
+  const decTotal      = decisionAppts.length
+  const decShows      = decisionAppts.filter(a => a.status === 'showed' || a.status === 'attended').length
+  const decNoShows    = decisionAppts.filter(a => a.status === 'noshow').length
+  const decCancelled  = decisionAppts.filter(a => a.status === 'cancelled').length
+  const decShowRate   = decTotal > 0 ? Math.round((decShows / decTotal) * 100) : null
+
+  // Attribution des ventes : si le contact a eu une Rencontre de Décision (toute l'histoire) → décision, sinon → découverte
+  const decisionContactIds = useDecisionContactIds(closerName, ghlUserId)
+  const decisionSales  = sales.filter(s => s.contactId && decisionContactIds.has(s.contactId))
+  const discoverySales = sales.filter(s => !s.contactId || !decisionContactIds.has(s.contactId))
+  const discVentesCount = discoverySales.length
+  const decVentesCount  = decisionSales.length
+
+  const discCloseRate = discShows > 0 ? Math.round((discVentesCount / discShows) * 100) : null
+  const decCloseRate  = decShows > 0 ? Math.round((decVentesCount  / decShows)  * 100) : null
   const totalCash    = cashData?.total ?? 0
   const newTotal     = cashData?.newTotal ?? 0
   const recurTotal   = cashData?.recurringTotal ?? 0
@@ -346,8 +380,8 @@ export default function CloserDashboardView({
   const newSalesCount  = (cashData?.newSales ?? []).length
   const recurCount     = (cashData?.recurring ?? []).length
   const avgTicket      = newSalesCount > 0 ? Math.round(newTotal / newSalesCount) : null
-  const allPayments    = [...(cashData?.newSales ?? []), ...(cashData?.recurring ?? [])].sort((a, b) => new Date(b.txnDate) - new Date(a.txnDate))
-  const cashFiltered   = cashFilter === 'new' ? (cashData?.newSales ?? []) : cashFilter === 'recurring' ? (cashData?.recurring ?? []) : allPayments
+  const allPayments    = [...(cashData?.newSales ?? []), ...(cashData?.recurring ?? [])].sort((a, b) => new Date(a.txnDate) - new Date(b.txnDate))
+  const cashFiltered   = cashFilter === 'new' ? [...(cashData?.newSales ?? [])].sort((a, b) => new Date(a.txnDate) - new Date(b.txnDate)) : cashFilter === 'recurring' ? [...(cashData?.recurring ?? [])].sort((a, b) => new Date(a.txnDate) - new Date(b.txnDate)) : allPayments
 
   // Objectifs cibles
   const rdvTarget        = getObj('closer_rdv_target')?.target_value ?? 0
@@ -364,16 +398,24 @@ export default function CloserDashboardView({
   const monthlyBonus  = annualBonus ? Math.round(annualBonus / 12) : null
   const ventesMissing = salesTarget > 0 && ventesCount < salesTarget ? salesTarget - ventesCount : null
 
+  const typeFilteredAppts = apptTypeFilter === 'discovery' ? discoveryAppts
+                          : apptTypeFilter === 'decision'  ? decisionAppts
+                          : appointments
+  const typeByStatus = typeFilteredAppts.reduce((acc, a) => {
+    const s = a.status || 'new'; acc[s] = (acc[s] ?? 0) + 1; return acc
+  }, {})
+  const typeHot = (typeByStatus['showed'] ?? 0) + (typeByStatus['attended'] ?? 0)
+
   const STATUS_TABS = [
-    { key: 'all',       label: 'Tous',       count: totalRDV },
-    { key: 'confirmed', label: 'Confirmés',  count: byStatus['confirmed'] ?? 0 },
-    { key: 'showed',    label: 'Show',        count: shows },
-    { key: 'noshow',    label: 'No Show',     count: noShows },
-    { key: 'cancelled', label: 'Annulés',     count: cancelled },
+    { key: 'all',       label: 'Tous',      count: typeFilteredAppts.length },
+    { key: 'confirmed', label: 'Confirmés', count: typeByStatus['confirmed'] ?? 0 },
+    { key: 'showed',    label: 'Show',      count: typeHot },
+    { key: 'noshow',    label: 'No Show',   count: typeByStatus['noshow'] ?? 0 },
+    { key: 'cancelled', label: 'Annulés',   count: typeByStatus['cancelled'] ?? 0 },
   ]
   const filteredAppts = apptFilter === 'all'
-    ? appointments
-    : appointments.filter(a => a.status === apptFilter || (apptFilter === 'showed' && a.status === 'attended'))
+    ? typeFilteredAppts
+    : typeFilteredAppts.filter(a => a.status === apptFilter || (apptFilter === 'showed' && a.status === 'attended'))
 
   const loading = apptLoading || salesLoading || cashLoading
 
@@ -438,51 +480,134 @@ export default function CloserDashboardView({
         </div>
       )}
 
-      {/* ── 6 KPI Cards ── */}
-      <div>
-        <h2 className="text-sm font-bold text-[#6b7280] uppercase tracking-wide mb-3">KPIs Activité</h2>
+      {/* ── KPIs Activité ── */}
+      <div className="space-y-5">
+        <h2 className="text-sm font-bold text-[#6b7280] uppercase tracking-wide">KPIs Activité</h2>
+
         {apptLoading || salesLoading ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {[...Array(6)].map((_, i) => <SkeletonCard key={i} />)}
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">{[...Array(6)].map((_, i) => <SkeletonCard key={i} />)}</div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">{[...Array(6)].map((_, i) => <SkeletonCard key={i} />)}</div>
           </div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            <KPICard
-              label="Total RDV"
-              value={totalRDV}
-              sub={`bookés${rdvTarget > 0 ? ` · cible ${rdvTarget}` : ''}`}
-              onClick={() => setApptModal(true)}
-            />
-            <KPICard
-              label="Shows"
-              value={shows}
-              sub={showRate !== null ? `show rate : ${showRate}%${closeRateTarget > 0 ? ` · cible ${Math.round(closeRateTarget * 0.6)}%` : ''}` : 'aucun RDV'}
-            />
-            <KPICard
-              label="No-shows"
-              value={noShows}
-              sub={noShowRate !== null ? `${noShowRate}% des RDV` : 'aucun RDV'}
-              alert={noShowRate !== null && noShowRate > 25}
-            />
-            <KPICard
-              label="Annulés"
-              value={cancelled}
-              sub={totalRDV > 0 ? `${Math.round((cancelled / totalRDV) * 100)}% des RDV` : 'aucun RDV'}
-            />
-            <KPICard
-              label="Ventes fermées"
-              value={ventesCount}
-              sub={shows > 0 ? `sur ${shows} show${shows !== 1 ? 's' : ''}` : 'aucun show'}
-              onClick={ventesCount > 0 ? () => setSalesModal(true) : undefined}
-            />
-            <KPICard
-              label="Taux de close"
-              value={closeRate !== null ? `${closeRate}%` : '—'}
-              sub={`ventes / shows${closeRateTarget > 0 ? ` · cible ${closeRateTarget}%` : ''}`}
-              highlight={closeRateHighlight}
-              highlightColor="#10b981"
-            />
-          </div>
+          <>
+            {/* Section 1 : Consultation Découverte */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-2 h-2 rounded-full bg-[#00bbb1] flex-shrink-0" />
+                <p className="text-sm font-bold text-[#1a1a1a]">Consultation Découverte</p>
+                <span className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide">{discTotal} RDV</span>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <KPICard
+                  label="Total RDV"
+                  value={discTotal}
+                  sub="appels découverte"
+                  onClick={() => { setApptTypeFilter('discovery'); setApptFilter('all'); setApptModal(true) }}
+                />
+                <KPICard
+                  label="Shows"
+                  value={discShows}
+                  sub={discShowRate !== null ? `show rate : ${discShowRate}%` : 'aucun RDV'}
+                />
+                <KPICard
+                  label="No-shows"
+                  value={discNoShows}
+                  sub={discTotal > 0 ? `${Math.round((discNoShows / discTotal) * 100)}% des RDV` : 'aucun RDV'}
+                  alert={discTotal > 0 && Math.round((discNoShows / discTotal) * 100) > 25}
+                />
+                <KPICard
+                  label="Annulés"
+                  value={discCancelled}
+                  sub={discTotal > 0 ? `${Math.round((discCancelled / discTotal) * 100)}% des RDV` : 'aucun RDV'}
+                />
+                <KPICard
+                  label="Ventes fermées"
+                  value={discVentesCount}
+                  sub={discShows > 0 ? `sur ${discShows} show${discShows !== 1 ? 's' : ''}` : 'aucun show'}
+                  onClick={discVentesCount > 0 ? () => { setSalesTypeFilter('discovery'); setSalesModal(true) } : undefined}
+                />
+                <KPICard
+                  label="Taux de close"
+                  value={discCloseRate !== null ? `${discCloseRate}%` : '—'}
+                  sub="ventes / shows découverte"
+                  highlight={discCloseRate !== null && discCloseRate >= 50}
+                  highlightColor="#10b981"
+                />
+              </div>
+            </div>
+
+            {/* Section 2 : Rencontre de Décision */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-2 h-2 rounded-full bg-[#6366f1] flex-shrink-0" />
+                <p className="text-sm font-bold text-[#1a1a1a]">Rencontre de Décision</p>
+                <span className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide">{decTotal} RDV</span>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                <KPICard
+                  label="Total"
+                  value={decTotal}
+                  sub="rencontres décision"
+                  onClick={() => { setApptTypeFilter('decision'); setApptFilter('all'); setApptModal(true) }}
+                />
+                <KPICard
+                  label="Shows"
+                  value={decShows}
+                  sub={decShowRate !== null ? `show rate : ${decShowRate}%` : 'aucune rencontre'}
+                />
+                <KPICard
+                  label="No-shows"
+                  value={decNoShows}
+                  sub={decTotal > 0 ? `${Math.round((decNoShows / decTotal) * 100)}% des RDV` : 'aucune rencontre'}
+                  alert={decTotal > 0 && Math.round((decNoShows / decTotal) * 100) > 25}
+                />
+                <KPICard
+                  label="Annulés"
+                  value={decCancelled}
+                  sub={decTotal > 0 ? `${Math.round((decCancelled / decTotal) * 100)}% des RDV` : 'aucune rencontre'}
+                />
+                <KPICard
+                  label="Ventes fermées"
+                  value={decVentesCount}
+                  sub={decShows > 0 ? `sur ${decShows} show${decShows !== 1 ? 's' : ''}` : 'aucun show'}
+                  onClick={decVentesCount > 0 ? () => { setSalesTypeFilter('decision'); setSalesModal(true) } : undefined}
+                />
+                <KPICard
+                  label="Taux de close"
+                  value={decCloseRate !== null ? `${decCloseRate}%` : '—'}
+                  sub="ventes / shows décision"
+                  highlight={decCloseRate !== null && decCloseRate >= 50}
+                  highlightColor="#6366f1"
+                />
+              </div>
+            </div>
+
+            {/* Section 3 : KPI Total */}
+            <div>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-2 h-2 rounded-full bg-[#f59e0b] flex-shrink-0" />
+                <p className="text-sm font-bold text-[#1a1a1a]">KPI Total</p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <KPICard
+                  label="Ventes fermées"
+                  value={ventesCount}
+                  sub={`${discTotal + decTotal} RDV au total · ${shows} show${shows !== 1 ? 's' : ''}`}
+                  highlight={salesTarget > 0 && ventesCount >= salesTarget}
+                  highlightColor="#10b981"
+                  onClick={ventesCount > 0 ? () => { setSalesTypeFilter('all'); setSalesModal(true) } : undefined}
+                />
+                <KPICard
+                  label="Taux de close global"
+                  value={closeRate !== null ? `${closeRate}%` : '—'}
+                  sub={`ventes / tous les shows${closeRateTarget > 0 ? ` · cible ${closeRateTarget}%` : ''}`}
+                  highlight={closeRateHighlight}
+                  highlightColor="#f59e0b"
+                />
+              </div>
+            </div>
+          </>
         )}
       </div>
 
@@ -492,9 +617,11 @@ export default function CloserDashboardView({
           <h2 className="text-sm font-bold text-[#1a1a1a] mb-4">Funnel de conversion</h2>
           <div className="space-y-3">
             {[
-              { label: 'RDV bookés',  value: totalRDV, barPct: 100,                                     suffix: '100%',                                      color: '#00bbb1' },
-              { label: 'Shows',        value: shows,   barPct: showRate ?? 0,                           suffix: showRate !== null ? `${showRate}% show` : '—', color: '#6366f1' },
-              { label: 'Ventes',       value: ventesCount, barPct: totalRDV > 0 ? Math.round((ventesCount / totalRDV) * 100) : 0, suffix: closeRate !== null ? `${closeRate}% close` : '—', color: '#10b981' },
+              { label: 'Découverte',  value: discTotal,    barPct: 100,                                                                   suffix: `${discTotal} RDV`,                                                  color: '#00bbb1' },
+              { label: 'Shows disc.', value: discShows,    barPct: discShowRate ?? 0,                                                     suffix: discShowRate !== null ? `${discShowRate}% show` : '—',               color: '#00bbb1' },
+              { label: 'Décision',    value: decTotal,     barPct: discTotal > 0 ? Math.round((decTotal / discTotal) * 100) : 0,          suffix: discTotal > 0 ? `${Math.round((decTotal / discTotal) * 100)}%` : '—', color: '#6366f1' },
+              { label: 'Shows déc.',  value: decShows,     barPct: decShowRate ?? 0,                                                      suffix: decShowRate !== null ? `${decShowRate}% show` : '—',                 color: '#6366f1' },
+              { label: 'Ventes',      value: ventesCount,  barPct: shows > 0 ? Math.round((ventesCount / shows) * 100) : 0,              suffix: closeRate !== null ? `${closeRate}% close` : '—',                   color: '#10b981' },
             ].map(({ label, value, barPct, suffix, color }) => (
               <div key={label} className="flex items-center gap-3">
                 <p className="text-xs font-semibold text-[#6b7280] w-24 flex-shrink-0">{label}</p>
@@ -645,8 +772,34 @@ export default function CloserDashboardView({
       </div>
 
       {/* ── Modal : Rendez-vous ── */}
-      <Modal isOpen={apptModal} onClose={() => setApptModal(false)} title={`Rendez-vous — ${totalRDV}`}>
-        <div className="flex gap-1.5 flex-wrap mb-1">
+      <Modal
+        isOpen={apptModal}
+        onClose={() => { setApptModal(false); setApptTypeFilter('all') }}
+        title={
+          apptTypeFilter === 'discovery' ? `Consultation Découverte — ${discTotal}`
+          : apptTypeFilter === 'decision' ? `Rencontre de Décision — ${decTotal}`
+          : `Tous les RDV — ${totalRDV}`
+        }
+      >
+        {/* Filtre par type */}
+        <div className="flex gap-1.5 mb-3">
+          {[
+            { key: 'all',       label: 'Tous',        count: totalRDV,  color: '#6b7280' },
+            { key: 'discovery', label: 'Découverte',  count: discTotal, color: '#00bbb1' },
+            { key: 'decision',  label: 'Décision',    count: decTotal,  color: '#6366f1' },
+          ].map(t => (
+            <button
+              key={t.key}
+              onClick={() => { setApptTypeFilter(t.key); setApptFilter('all') }}
+              className={`px-2.5 py-1 text-xs font-semibold rounded-lg border transition-all ${apptTypeFilter === t.key ? 'text-white' : 'bg-white border-[#e5e7eb] text-[#6b7280]'}`}
+              style={apptTypeFilter === t.key ? { backgroundColor: t.color, borderColor: t.color } : {}}
+            >
+              {t.label} ({t.count})
+            </button>
+          ))}
+        </div>
+        {/* Filtre par statut */}
+        <div className="flex gap-1.5 flex-wrap mb-2">
           {STATUS_TABS.map(tab => (
             <button
               key={tab.key}
@@ -665,12 +818,24 @@ export default function CloserDashboardView({
       </Modal>
 
       {/* ── Modal : Ventes ── */}
-      <Modal isOpen={salesModal} onClose={() => setSalesModal(false)} title={`Ventes closées — ${ventesCount}`}>
-        {sales.length === 0 ? (
-          <p className="text-sm text-[#9ca3af] text-center py-6">Aucune vente sur cette période.</p>
-        ) : (
-          sales.map((s, i) => <SaleRow key={i} sale={s} />)
-        )}
+      <Modal
+        isOpen={salesModal}
+        onClose={() => setSalesModal(false)}
+        title={
+          salesTypeFilter === 'discovery' ? `Ventes Découverte — ${discVentesCount}`
+          : salesTypeFilter === 'decision' ? `Ventes Décision — ${decVentesCount}`
+          : `Ventes closées — ${ventesCount}`
+        }
+      >
+        {(() => {
+          const list = salesTypeFilter === 'discovery' ? discoverySales
+                     : salesTypeFilter === 'decision'  ? decisionSales
+                     : sales
+          const sorted = [...list].sort((a, b) => (a.closeDate ?? 0) - (b.closeDate ?? 0))
+          return sorted.length === 0
+            ? <p className="text-sm text-[#9ca3af] text-center py-6">Aucune vente sur cette période.</p>
+            : sorted.map((s, i) => <SaleRow key={i} sale={s} />)
+        })()}
       </Modal>
 
       {/* ── Modal : Cash Collected ── */}

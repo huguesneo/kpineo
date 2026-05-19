@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 
-export const GHL_PIPELINE_CLOSER  = 'YPTruORTl0LOSdS2vWJS'
+export const GHL_PIPELINE_CLOSER    = 'YPTruORTl0LOSdS2vWJS'
+export const GHL_CALENDAR_DECISION  = 'BQK4NoyrVNuJA3e1VHDH'
 export const GHL_STAGE_GAGNE      = '🏆 Gagné'
 export const GHL_FIELD_CLOSER     = 'JSltN3nE7nm4cUjuGxTs'
 export const GHL_FIELD_DATE_CLOSE = 'UPqvJX8MkZ4thsPX2tjV'
@@ -134,7 +135,7 @@ export function useCloserSales(closerName, startDate, endDate, ghlUserId = null)
 
     const { data: opps } = await supabase
       .from('ghl_opportunities')
-      .select('contact_name, stage_name, raw, closed_at, monetary_value')
+      .select('contact_id, contact_name, stage_name, raw, closed_at, monetary_value')
       .eq('pipeline_id', GHL_PIPELINE_CLOSER)
 
     const nl        = closerName?.trim().toLowerCase() ?? ''
@@ -165,6 +166,7 @@ export function useCloserSales(closerName, startDate, endDate, ghlUserId = null)
       const closeDateRaw = getGHLField(raw, GHL_FIELD_DATE_CLOSE)
       const closeDate = parseGHLDate(closeDateRaw) ?? (o.closed_at ? new Date(o.closed_at) : null)
       return {
+        contactId:      o.contact_id ?? null,
         contactName:    o.contact_name ?? '',
         closeDate,
         monetaryValue:  Number(o.monetary_value ?? 0),
@@ -313,4 +315,55 @@ export function useUnassignedSales(startDate, endDate) {
   useEffect(() => { load() }, [load])
 
   return { sales, loading, refetch: load }
+}
+
+// ─── useDecisionContactIds ────────────────────────────────────
+// Retourne le Set des contact_id qui ont eu une Rencontre de Décision
+// avec ce closer, SANS filtre de date (toute l'histoire).
+export function useDecisionContactIds(closerName, ghlUserId) {
+  const [ids, setIds] = useState(new Set())
+
+  const load = useCallback(async () => {
+    if (!ghlUserId && !closerName) return
+
+    if (ghlUserId) {
+      const { data } = await supabase
+        .from('ghl_appointments')
+        .select('contact_id')
+        .eq('calendar_id', GHL_CALENDAR_DECISION)
+        .eq('assigned_user_id', ghlUserId)
+      setIds(new Set((data ?? []).map(a => a.contact_id).filter(Boolean)))
+      return
+    }
+
+    // Fallback : passer par les opportunités du closer
+    const { data: opps } = await supabase
+      .from('ghl_opportunities')
+      .select('contact_id, raw')
+      .eq('pipeline_id', GHL_PIPELINE_CLOSER)
+
+    const nl        = closerName.trim().toLowerCase()
+    const firstName = nl.split(' ')[0]
+    const contactIds = (opps ?? [])
+      .filter(o => {
+        const cf = getGHLField(o.raw ?? {}, GHL_FIELD_CLOSER)?.trim().toLowerCase() ?? ''
+        return cf === nl || cf === firstName || nl.startsWith(cf) || cf.startsWith(firstName)
+      })
+      .map(o => o.contact_id)
+      .filter(Boolean)
+
+    if (contactIds.length === 0) return
+
+    const { data: appts } = await supabase
+      .from('ghl_appointments')
+      .select('contact_id')
+      .eq('calendar_id', GHL_CALENDAR_DECISION)
+      .in('contact_id', contactIds)
+
+    setIds(new Set((appts ?? []).map(a => a.contact_id).filter(Boolean)))
+  }, [closerName, ghlUserId])
+
+  useEffect(() => { load() }, [load])
+
+  return ids
 }
