@@ -15,8 +15,11 @@ import BoutiqueEchanges from './pages/BoutiqueEchanges'
 import MonDossier from './pages/MonDossier'
 import Setter from './pages/Setter'
 import Closer from './pages/Closer'
+import CloserAdmin from './pages/CloserAdmin'
 import EquipeVente from './pages/EquipeVente'
 import EquipeNaturo from './pages/EquipeNaturo'
+import SaleCallScript from './pages/SaleCallScript'
+import CloserCalendar from './pages/CloserCalendar'
 
 function LoadingScreen() {
   return (
@@ -83,8 +86,11 @@ function AppRoutes() {
       <Route path="/mon-dossier" element={<PrivateRoute><MonDossier /></PrivateRoute>} />
       <Route path="/setter"     element={<PrivateRoute><Setter /></PrivateRoute>} />
       <Route path="/closer"     element={<PrivateRoute><Closer /></PrivateRoute>} />
+      <Route path="/calendrier" element={<PrivateRoute><CloserCalendar /></PrivateRoute>} />
+      <Route path="/sale-call-script/:appointmentGhlId" element={<PrivateRoute><SaleCallScript /></PrivateRoute>} />
 
       {/* Admin + resp_vente — équipe de vente & naturopathe */}
+      <Route path="/closer-admin" element={<SalesManagerRoute><CloserAdmin /></SalesManagerRoute>} />
       <Route path="/equipe-vente" element={<SalesManagerRoute><EquipeVente /></SalesManagerRoute>} />
       <Route path="/naturopathe"  element={<AdminRoute><EquipeNaturo /></AdminRoute>} />
 

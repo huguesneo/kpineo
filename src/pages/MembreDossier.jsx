@@ -39,6 +39,7 @@ import {
   APPT_STATUS_COLORS,
   COMMISSION_RATE,
 } from '../hooks/useCloserData'
+import CloserDashboardViewComponent from '../components/closer/CloserDashboardView'
 
 const ROLE_LABELS = {
   naturopathe:    'Naturopathe',
@@ -1020,9 +1021,6 @@ function CloserPayOverview({ member }) {
   const [periodType, setPeriodType] = useState('paie')
   const [customStart, setCustomStart] = useState(today)
   const [customEnd, setCustomEnd]     = useState(today)
-  const [ghlInput, setGhlInput]       = useState(member?.ghl_user_id ?? '')
-  const [savingGhl, setSavingGhl]     = useState(false)
-  const [savedGhl, setSavedGhl]       = useState(member?.ghl_user_id ?? null)
   const [apptModalOpen,    setApptModalOpen]    = useState(false)
   const [apptStatusFilter, setApptStatusFilter] = useState('all')
   const [salesModalOpen,   setSalesModalOpen]   = useState(false)
@@ -1033,6 +1031,7 @@ function CloserPayOverview({ member }) {
   const endDate    = periodType === 'paie' ? (payPeriod?.end   || today) : (customEnd   || today)
   const closerName = member.full_name
 
+  const savedGhl = member?.ghl_user_id ?? null
   const { appointments, byStatus, hotCount, loading: apptLoading }  = useCloserAppointments(closerName, startDate, endDate, savedGhl)
   const { sales, loading: salesLoading }                             = useCloserSales(closerName, startDate, endDate, savedGhl)
   const { data: cashData, loading: cashLoading, error: cashError }   = useCloserCashCollected(closerName, startDate, endDate)
@@ -1071,14 +1070,6 @@ function CloserPayOverview({ member }) {
   const periodLabel = periodType === 'paie' && payPeriod
     ? `Période de paie en cours (${format(parseISO(payPeriod.start), 'd MMM', { locale: fr })} au ${format(parseISO(payPeriod.end), 'd MMM yyyy', { locale: fr })})`
     : `Du ${startDate} au ${endDate}`
-
-  async function saveGhlUserId() {
-    if (!ghlInput.trim()) return
-    setSavingGhl(true)
-    await supabase.from('profiles').update({ ghl_user_id: ghlInput.trim() }).eq('id', member.id)
-    setSavedGhl(ghlInput.trim())
-    setSavingGhl(false)
-  }
 
   return (
     <div className="mb-6 space-y-4">
@@ -1178,29 +1169,6 @@ function CloserPayOverview({ member }) {
           />
         </div>
       )}
-
-      {/* GHL User ID */}
-      <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 border border-[#e5e7eb] rounded-xl">
-        <span className="text-xs font-semibold text-[#6b7280] flex-shrink-0">GHL User ID :</span>
-        {savedGhl
-          ? <span className="text-xs font-mono text-[#00bbb1] flex-1">{savedGhl}</span>
-          : <span className="text-xs text-[#9ca3af] flex-1">Non configuré — les RDV ne seront pas liés correctement</span>
-        }
-        <input
-          type="text"
-          placeholder="ex: XRjHYJY0THvo0QzM4Dnt"
-          value={ghlInput}
-          onChange={e => setGhlInput(e.target.value)}
-          className="flex-1 max-w-xs px-2 py-1 text-xs border border-[#e5e7eb] rounded-lg focus:outline-none focus:border-[#00bbb1] font-mono"
-        />
-        <button
-          onClick={saveGhlUserId}
-          disabled={savingGhl || !ghlInput.trim()}
-          className="px-3 py-1 text-xs font-semibold bg-[#00bbb1] text-white rounded-lg disabled:opacity-50 hover:bg-[#009e95] transition-colors"
-        >
-          {savingGhl ? '…' : 'Enregistrer'}
-        </button>
-      </div>
 
       {/* Modal : Rendez-vous */}
       <Modal isOpen={apptModalOpen} onClose={() => setApptModalOpen(false)} title={`Rendez-vous — ${appointments.length}`} size="lg">
@@ -1457,12 +1425,128 @@ function SetterEODTab({ userId }) {
   )
 }
 
-function CloserDashboardView({ member }) {
+function CloserSettingsTab({ member, onSaved }) {
+  const [ghlInput,     setGhlInput]     = useState(member?.ghl_user_id ?? '')
+  const [fathomKey,    setFathomKey]    = useState(member?.fathom_api_key ?? '')
+  const [fathomSecret, setFathomSecret] = useState(member?.fathom_webhook_secret ?? '')
+  const [saving, setSaving] = useState(false)
+  const [saved,  setSaved]  = useState(false)
+
+  async function handleSave() {
+    setSaving(true)
+    await supabase.from('profiles').update({
+      ghl_user_id:             ghlInput.trim() || null,
+      fathom_api_key:          fathomKey.trim() || null,
+      fathom_webhook_secret:   fathomSecret.trim() || null,
+    }).eq('id', member.id)
+    setSaving(false)
+    setSaved(true)
+    onSaved?.()
+    setTimeout(() => setSaved(false), 2000)
+  }
+
   return (
-    <div className="space-y-6">
-      <CloserPayOverview member={member} />
-      <CloserObjectivesPanel userId={member.id} isAdmin={true} />
+    <div className="space-y-4">
+      {/* GHL */}
+      <Card className="p-6">
+        <h3 className="text-sm font-bold text-[#1a1a1a] mb-4">Intégration GHL</h3>
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-semibold text-[#6b7280] flex-shrink-0 w-24">GHL User ID</span>
+          <input
+            type="text"
+            placeholder="ex: XRjHYJY0THvo0QzM4Dnt"
+            value={ghlInput}
+            onChange={e => setGhlInput(e.target.value)}
+            className="flex-1 px-3 py-2 text-xs border border-[#e5e7eb] rounded-lg focus:outline-none focus:border-[#00bbb1] font-mono"
+          />
+        </div>
+        {member?.ghl_user_id
+          ? <p className="text-xs text-[#9ca3af] mt-2">Actuel : <span className="font-mono text-[#00bbb1]">{member.ghl_user_id}</span></p>
+          : <p className="text-xs text-[#ef4444] mt-2">Non configuré — les RDV ne seront pas liés correctement</p>
+        }
+      </Card>
+
+      {/* Fathom */}
+      <Card className="p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <h3 className="text-sm font-bold text-[#1a1a1a]">Intégration Fathom</h3>
+          <span className="text-[10px] font-bold text-[#6366f1] bg-[#6366f1]/10 px-2 py-0.5 rounded-full">Optionnel</span>
+        </div>
+        <div className="space-y-3">
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-semibold text-[#6b7280] flex-shrink-0 w-24">API Key</span>
+            <input
+              type="password"
+              placeholder="fathom_xxxxxxxxxxxxxxxx"
+              value={fathomKey}
+              onChange={e => setFathomKey(e.target.value)}
+              className="flex-1 px-3 py-2 text-xs border border-[#e5e7eb] rounded-lg focus:outline-none focus:border-[#00bbb1] font-mono"
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-semibold text-[#6b7280] flex-shrink-0 w-24">Webhook Secret</span>
+            <input
+              type="password"
+              placeholder="whsec_xxxxxxxxxxxxxxxx"
+              value={fathomSecret}
+              onChange={e => setFathomSecret(e.target.value)}
+              className="flex-1 px-3 py-2 text-xs border border-[#e5e7eb] rounded-lg focus:outline-none focus:border-[#00bbb1] font-mono"
+            />
+          </div>
+          {(member?.fathom_api_key || member?.fathom_webhook_secret) && (
+            <p className="text-xs text-[#10b981]">
+              ✓ Fathom configuré pour ce closer
+            </p>
+          )}
+        </div>
+      </Card>
+
+      <button
+        onClick={handleSave}
+        disabled={saving}
+        className="px-5 py-2.5 text-sm font-semibold bg-[#00bbb1] text-white rounded-xl disabled:opacity-50 hover:bg-[#009e95] transition-colors"
+      >
+        {saving ? 'Enregistrement…' : saved ? 'Enregistré ✓' : 'Enregistrer les paramètres'}
+      </button>
     </div>
+  )
+}
+
+function CloserAdminDashboard({ member }) {
+  const today = new Date()
+  const monthStart = format(startOfMonth(today), 'yyyy-MM-dd')
+  const todayStr = format(today, 'yyyy-MM-dd')
+  const { config: payConfig } = usePayPeriodConfig()
+  const payPeriod = payConfig?.reference_pay_date ? getCurrentPayPeriod(payConfig.reference_pay_date) : null
+
+  const [periodType, setPeriodType] = useState('month')
+  const [customStart, setCustomStart] = useState(monthStart)
+  const [customEnd, setCustomEnd] = useState(todayStr)
+
+  const startDate = periodType === 'paie' ? (payPeriod?.start || monthStart)
+                  : periodType === 'month' ? monthStart
+                  : (customStart || monthStart)
+  const endDate = periodType === 'paie' ? (payPeriod?.end || todayStr)
+                : periodType === 'month' ? todayStr
+                : (customEnd || todayStr)
+  const payPeriodLabel = payPeriod
+    ? `${fmtDate(payPeriod.start)} → ${fmtDate(payPeriod.end)}`
+    : ''
+
+  return (
+    <CloserDashboardViewComponent
+      closerProfile={member}
+      isAdmin={true}
+      startDate={startDate}
+      endDate={endDate}
+      periodType={periodType}
+      onSetPeriod={setPeriodType}
+      customStart={customStart}
+      onCustomStart={setCustomStart}
+      customEnd={customEnd}
+      onCustomEnd={setCustomEnd}
+      payPeriodLabel={payPeriodLabel}
+    />
   )
 }
 
@@ -1520,10 +1604,11 @@ export default function MembreDossier() {
     return null
   }
 
+  const baseTabsNoObj = baseTabs.filter(t => t !== 'Objectifs')
   const TABS = member?.role === 'setter'
     ? [...baseTabs, 'Rapports EOD']
     : member?.role === 'closer'
-    ? [...baseTabs, 'Setter']
+    ? [...baseTabsNoObj, 'Setter', ...(isAdmin ? ['Paramètres'] : [])]
     : SECONDARY_SETTER_ROLES.includes(member?.role)
     ? [...baseTabs, 'Setter']
     : baseTabs
@@ -1608,7 +1693,7 @@ export default function MembreDossier() {
           {member.role === 'setter' ? (
             <SetterPayOverview member={member} />
           ) : member.role === 'closer' ? (
-            <CloserPayOverview member={member} />
+            <CloserAdminDashboard member={member} />
           ) : (
             <MemberQBRevenue member={member} revenue={qbRevenue} loading={qbLoading} refreshing={qbRefreshing} error={qbError} refetch={qbRefetch} />
           )}
@@ -1649,11 +1734,14 @@ export default function MembreDossier() {
           {activeTabName === 'Setter' && (
             <SetterAdminTab member={member} />
           )}
+          {activeTabName === 'Paramètres' && (
+            <CloserSettingsTab member={member} onSaved={refetchMember} />
+          )}
         </>
       )}
 
       {/* Vue Dashboard Closer (rôle secondaire) */}
-      {viewMode === 'closer' && <CloserDashboardView member={member} />}
+      {viewMode === 'closer' && <CloserAdminDashboard member={member} />}
 
       {/* Vue Dashboard Setter (rôle secondaire) */}
       {viewMode === 'setter' && <SetterAdminTab member={member} />}
