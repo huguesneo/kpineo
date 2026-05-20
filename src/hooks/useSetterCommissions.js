@@ -1,32 +1,47 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
-const PIPELINE_SETTING_ID = "3C5ggTxPoWBmiFAPlCKn";
+const PIPELINE_SETTING_ID    = "3C5ggTxPoWBmiFAPlCKn";
 
-// IDs des champs custom GHL (confirmés via raw JSON)
-const FIELD_SETTER_NOM    = "II5NrZGZrIScYItkxCi8"; // setter__nom
-const FIELD_TYPE_BOOKING  = "YbAB98KAINZM7vzebAKh"; // setter__type_de_booking
-const FIELD_DATE_CLOSE    = "UPqvJX8MkZ4thsPX2tjV"; // date_de_close (timestamp Unix)
-const FIELD_BONUS_VENTE   = "ID_A_REMPLIR";          // setter__bonus_vente (à remplir)
+// IDs de champs GHL (confirmés via inspection DB)
+const FIELD_SETTER_NOM       = "II5NrZGZrIScYItkxCi8"; // setter__nom
+const FIELD_TYPE_BOOKING     = "YbAB98KAINZM7vzebAKh"; // setter__type_de_booking (Manuel/Automatique/Rebooking)
+const FIELD_DATE_CLOSE       = "UPqvJX8MkZ4thsPX2tjV"; // date_de_close (timestamp Unix ms)
+const FIELD_BONUS_VENTE      = "sMwYAtL24soFUoWyBQ0p"; // setter__bonus_vente (montant $)
+// Champ date principal : stocke date_du_dernier_appel pour les appelés,
+// et date_de_la_rencontre pour les show-ups (même champ GHL, valeur contextuelle)
+const FIELD_DATE_PRINCIPALE  = "mv0GU9HmvkCrkGVUSaqR";
 
-// Montants flat hardcodés (logique métier)
+// Montants flat
 const FLAT_MANUEL  = 40;
 const FLAT_CONFIRM = 20;
 const FLAT_REBOOK  = 20;
 
-// GHL stocke par `id`, pas par `key`
-function getFieldById(rawObj, fieldId) {
-  if (!rawObj?.customFields || fieldId === 'ID_A_REMPLIR') return null;
-  const field = rawObj.customFields.find(f => f.id === fieldId);
-  if (!field) return null;
-  return field.fieldValueNumber ?? field.fieldValueString ?? field.fieldValueDate ?? null;
+// Cherche un champ GHL par id, key ou fieldKey
+function getField(rawObj, idOrKey) {
+  if (!rawObj?.customFields || !idOrKey || idOrKey === 'ID_A_REMPLIR') return null;
+  const f = rawObj.customFields.find(
+    cf => cf.id === idOrKey || cf.key === idOrKey || cf.fieldKey === idOrKey
+  );
+  if (!f) return null;
+  return f.fieldValueNumber ?? f.fieldValueString ?? f.fieldValueDate ?? f.value ?? null;
+}
+
+// Parse une date GHL (timestamp Unix ms ou string ISO)
+function parseGHLDate(raw) {
+  if (raw == null) return null;
+  const n = Number(raw);
+  if (!isNaN(n) && n > 0) return new Date(n);
+  const d = new Date(raw);
+  return isNaN(d.getTime()) ? null : d;
 }
 
 export function useSetterCommissions(memberFullName, startDate, endDate) {
-  const [refreshKey, setRefreshKey] = useState(0)
-  const refresh = () => setRefreshKey(k => k + 1)
+  const [refreshKey, setRefreshKey] = useState(0);
+  const refresh = () => setRefreshKey(k => k + 1);
 
   const [data, setData] = useState({
+    calledCount: 0,
     bookedCount: 0,
     showupCount: 0,
     manuelCount: 0,
@@ -40,6 +55,7 @@ export function useSetterCommissions(memberFullName, startDate, endDate) {
     totalBonus: 0,
     totalPay: 0,
     opportunities: [],
+    calledOpps: [],
     bookedOpps: [],
     manuelOpps: [],
     autoOpps: [],
@@ -64,87 +80,110 @@ export function useSetterCommissions(memberFullName, startDate, endDate) {
         const start = new Date(startDate + 'T00:00:00');
         const end   = new Date(endDate   + 'T23:59:59');
 
-        const [{ data: pipelineData, error: pipeError }, { data: oppsData, error: oppsError }] = await Promise.all([
-          supabase.from('ghl_pipelines').select('stages').eq('ghl_id', PIPELINE_SETTING_ID).single(),
-          supabase.from('ghl_opportunities').select('*').eq('pipeline_id', PIPELINE_SETTING_ID),
-        ]);
-
+        // Fetch pipeline + toutes les opps en parallèle (pagination par batch de 1000)
+        const { data: pipelineData, error: pipeError } = await supabase
+          .from('ghl_pipelines').select('stages').eq('ghl_id', PIPELINE_SETTING_ID).single();
         if (pipeError) throw pipeError;
-        if (oppsError) throw oppsError;
 
-        // Map stageId → stageName depuis le pipeline
+        const BATCH = 1000;
+        let allOpps = [];
+        let offset = 0;
+        let keepGoing = true;
+        while (keepGoing) {
+          const { data: batch, error: batchErr } = await supabase
+            .from('ghl_opportunities')
+            .select('*')
+            .eq('pipeline_id', PIPELINE_SETTING_ID)
+            .range(offset, offset + BATCH - 1);
+          if (batchErr) throw batchErr;
+          allOpps = allOpps.concat(batch ?? []);
+          keepGoing = (batch?.length ?? 0) === BATCH;
+          offset += BATCH;
+        }
+        const oppsData = allOpps;
+
         const stagesMap = {};
         (pipelineData?.stages ?? []).forEach(stage => {
           if (stage.id) stagesMap[stage.id] = stage.name;
         });
 
         const nameLower = memberFullName.toLowerCase();
-        let bookedCount = 0, showupCount = 0;
+        let calledCount = 0, bookedCount = 0, showupCount = 0;
         let manuelCount = 0, autoCount = 0, rebookingCount = 0;
         let wonCount = 0;
         let commissionManuel = 0, commissionAuto = 0, commissionRebook = 0;
         let totalBonus = 0;
-        const setterOpps = [];
-        const bookedOpps = [];
-        const manuelOpps = [];
-        const autoOpps = [];
-        const rebookOpps = [];
-        const wonOpps = [];
+        const setterOpps   = [];
+        const calledOpps   = [];
+        const bookedOpps   = [];
+        const manuelOpps   = [];
+        const autoOpps     = [];
+        const rebookOpps   = [];
+        const wonOpps      = [];
 
-        oppsData.forEach(opp => {
+        (oppsData ?? []).forEach(opp => {
           const raw = opp.raw;
 
-          // Filtre par setter nom (via ID de champ)
-          const setterName = getFieldById(raw, FIELD_SETTER_NOM);
+          // Filtre par nom du setter
+          const setterName = getField(raw, FIELD_SETTER_NOM);
           if (!setterName || String(setterName).toLowerCase() !== nameLower) return;
 
           setterOpps.push(opp);
 
-          // Résolution du stage depuis le pipeline (stage_name en DB est souvent vide)
           const stageName     = (stagesMap[opp.pipeline_stage_id] || opp.stage_name || '').toLowerCase();
-          const isShowupStage = stageName.includes('show-up confirm') || stageName.includes('bonus vente');
-          const isWonStage    = stageName.includes('bonus vente');
+          const isBookedStage = stageName.includes('lead rencontre book');
+          const isShowupStage = stageName.includes('show-up confirm');
+          const isBonusVente  = stageName.includes('bonus vente');
 
-          const typeDeBooking = String(getFieldById(raw, FIELD_TYPE_BOOKING) || '').toLowerCase();
+          const typeDeBooking = String(getField(raw, FIELD_TYPE_BOOKING) || '').toLowerCase();
 
-          // Books : comptés à la date de création
-          if (opp.created_at_ghl) {
-            const createdDate = new Date(opp.created_at_ghl);
-            if (createdDate >= start && createdDate <= end) {
+          // Champ date principal (date_du_dernier_appel / date_de_la_rencontre selon le stage)
+          const dateField = parseGHLDate(getField(raw, FIELD_DATE_PRINCIPALE));
+
+          // ── Total appelés : date principale dans la période ──
+          if (dateField && dateField >= start && dateField <= end) {
+            calledCount++;
+            calledOpps.push(opp);
+          }
+
+          // ── Total bookés : stage "Lead rencontre book" OU "Show-up Confirmé"
+          //    Date = Date du dernier appel si dispo, sinon created_at_ghl ──
+          if (isBookedStage || isShowupStage) {
+            const bookedDate = dateField ?? (opp.created_at_ghl ? new Date(opp.created_at_ghl) : null);
+            if (bookedDate && bookedDate >= start && bookedDate <= end) {
               bookedCount++;
               bookedOpps.push(opp);
+            }
+          }
 
-              // Show-ups dans stage show-up, créés dans la période
-              if (isShowupStage) {
-                showupCount++;
-
-                if (typeDeBooking === 'manuel') {
-                  manuelCount++;
-                  commissionManuel += FLAT_MANUEL;
-                  manuelOpps.push(opp);
-                } else if (typeDeBooking === 'automatique') {
-                  autoCount++;
-                  commissionAuto += FLAT_CONFIRM;
-                  autoOpps.push(opp);
-                } else if (typeDeBooking === 'rebooking') {
-                  rebookingCount++;
-                  commissionRebook += FLAT_REBOOK;
-                  rebookOpps.push(opp);
-                }
+          // ── Show-ups : stage "Show-up Confirmé", par date principale (date_de_la_rencontre) ──
+          if (isShowupStage) {
+            const dateRencontre = dateField;
+            if (dateRencontre && dateRencontre >= start && dateRencontre <= end) {
+              showupCount++;
+              if (typeDeBooking === 'manuel') {
+                manuelCount++;
+                commissionManuel += FLAT_MANUEL;
+                manuelOpps.push(opp);
+              } else if (typeDeBooking === 'automatique') {
+                autoCount++;
+                commissionAuto += FLAT_CONFIRM;
+                autoOpps.push(opp);
+              } else if (typeDeBooking === 'rebooking') {
+                rebookingCount++;
+                commissionRebook += FLAT_REBOOK;
+                rebookOpps.push(opp);
               }
             }
           }
 
-          // Ventes : stage bonus vente, date de close dans la période
-          if (isWonStage) {
-            const closeDateRaw = getFieldById(raw, FIELD_DATE_CLOSE);
-            if (closeDateRaw) {
-              const closeDate = new Date(Number(closeDateRaw));
-              if (!isNaN(closeDate.getTime()) && closeDate >= start && closeDate <= end) {
-                wonCount++;
-                totalBonus += Number(getFieldById(raw, FIELD_BONUS_VENTE) || 0);
-                wonOpps.push(opp);
-              }
+          // ── Bonus vente : stage "💰 bonus vente", par date_de_close ──
+          if (isBonusVente) {
+            const closeDate = parseGHLDate(getField(raw, FIELD_DATE_CLOSE));
+            if (closeDate && closeDate >= start && closeDate <= end) {
+              wonCount++;
+              totalBonus += Number(getField(raw, FIELD_BONUS_VENTE) || 0);
+              wonOpps.push(opp);
             }
           }
         });
@@ -152,6 +191,7 @@ export function useSetterCommissions(memberFullName, startDate, endDate) {
         const totalShowups = commissionManuel + commissionAuto + commissionRebook;
 
         setData({
+          calledCount,
           bookedCount,
           showupCount,
           manuelCount,
@@ -165,6 +205,7 @@ export function useSetterCommissions(memberFullName, startDate, endDate) {
           totalBonus,
           totalPay: totalShowups + totalBonus,
           opportunities: setterOpps,
+          calledOpps,
           bookedOpps,
           manuelOpps,
           autoOpps,

@@ -156,6 +156,24 @@ function KPICard({ label, value, sub, highlight, highlightColor = '#10b981', onC
   )
 }
 
+// ─── Helpers champs GHL ───────────────────────────────────────
+
+function getRawField(rawObj, key) {
+  const f = (rawObj?.customFields ?? []).find(
+    cf => cf.id === key || cf.key === key || cf.fieldKey === key
+  )
+  if (!f) return null
+  return f.fieldValueNumber ?? f.fieldValueString ?? f.fieldValueDate ?? f.value ?? null
+}
+
+function fmtGHLDate(raw) {
+  if (raw == null) return '—'
+  const n = Number(raw)
+  const d = !isNaN(n) && n > 0 ? new Date(n) : new Date(raw)
+  if (isNaN(d.getTime())) return '—'
+  try { return format(d, 'd MMM yyyy', { locale: fr }) } catch { return '—' }
+}
+
 // ─── Détail opportunité dans modal ────────────────────────────
 
 function OppRow({ opp, typeLabel, date }) {
@@ -211,6 +229,7 @@ export default function SetterDashboardView({
   }
 
   // Modales
+  const [calledModal,  setCalledModal]  = useState(false)
   const [bookedModal,  setBookedModal]  = useState(false)
   const [showupsModal, setShowupsModal] = useState(false)
   const [manuelModal,  setManuelModal]  = useState(false)
@@ -219,7 +238,8 @@ export default function SetterDashboardView({
   const [ventesModal,  setVentesModal]  = useState(false)
 
   // Métriques
-  const bookedCount     = commData?.bookedCount       ?? 0
+  const calledCount     = commData?.calledCount        ?? 0
+  const bookedCount     = commData?.bookedCount        ?? 0
   const showupCount     = commData?.showupCount        ?? 0
   const manuelCount     = commData?.manuelCount        ?? 0
   const autoCount       = commData?.autoCount          ?? 0
@@ -328,9 +348,15 @@ export default function SetterDashboardView({
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             <KPICard
+              label="Total Appelés"
+              value={calledCount}
+              sub="gens appelés (dernier appel)"
+              onClick={calledCount > 0 ? () => setCalledModal(true) : undefined}
+            />
+            <KPICard
               label="Total Bookés"
               value={bookedCount}
-              sub="rendez-vous bookés"
+              sub="lead book ou show-up confirmé"
               onClick={bookedCount > 0 ? () => setBookedModal(true) : undefined}
             />
             <KPICard
@@ -520,6 +546,17 @@ export default function SetterDashboardView({
         )}
       </div>
 
+      {/* ── Modal : Total appelés ── */}
+      <Modal isOpen={calledModal} onClose={() => setCalledModal(false)} title={`Total appelés — ${calledCount}`}>
+        {(commData?.calledOpps ?? []).length === 0 ? (
+          <p className="text-sm text-[#9ca3af] text-center py-6">Aucun appel sur cette période.</p>
+        ) : (
+          (commData?.calledOpps ?? []).map((opp, i) => (
+            <OppRow key={i} opp={opp} typeLabel="Dernier appel" date={fmtGHLDate(getRawField(opp.raw, 'mv0GU9HmvkCrkGVUSaqR'))} />
+          ))
+        )}
+      </Modal>
+
       {/* ── Modal : Total bookés ── */}
       <Modal isOpen={bookedModal} onClose={() => setBookedModal(false)} title={`Total bookés — ${bookedCount}`}>
         {(commData?.bookedOpps ?? []).length === 0 ? (
@@ -548,7 +585,7 @@ export default function SetterDashboardView({
             <div key={typeLabel}>
               <p className="text-xs font-bold text-[#6b7280] uppercase tracking-wide mb-2">{typeLabel}</p>
               {opps.map((opp, i) => (
-                <OppRow key={i} opp={opp} typeLabel={typeLabel} date={fmtDate(opp.created_at_ghl)} />
+                <OppRow key={i} opp={opp} typeLabel={typeLabel} date={fmtGHLDate(getRawField(opp.raw, 'mv0GU9HmvkCrkGVUSaqR'))} />
               ))}
             </div>
           ))
@@ -561,7 +598,7 @@ export default function SetterDashboardView({
           <p className="text-sm text-[#9ca3af] text-center py-6">Aucun booking manuel sur cette période.</p>
         ) : (
           (commData?.manuelOpps ?? []).map((opp, i) => (
-            <OppRow key={i} opp={opp} typeLabel="Manuel · 40 $" date={fmtDate(opp.created_at_ghl)} />
+            <OppRow key={i} opp={opp} typeLabel="Manuel · 40 $" date={fmtGHLDate(getRawField(opp.raw, 'mv0GU9HmvkCrkGVUSaqR'))} />
           ))
         )}
       </Modal>
@@ -572,7 +609,7 @@ export default function SetterDashboardView({
           <p className="text-sm text-[#9ca3af] text-center py-6">Aucune confirmation auto sur cette période.</p>
         ) : (
           (commData?.autoOpps ?? []).map((opp, i) => (
-            <OppRow key={i} opp={opp} typeLabel="Confirmation auto · 20 $" date={fmtDate(opp.created_at_ghl)} />
+            <OppRow key={i} opp={opp} typeLabel="Confirmation auto · 20 $" date={fmtGHLDate(getRawField(opp.raw, 'mv0GU9HmvkCrkGVUSaqR'))} />
           ))
         )}
       </Modal>
@@ -583,7 +620,7 @@ export default function SetterDashboardView({
           <p className="text-sm text-[#9ca3af] text-center py-6">Aucun rebooking sur cette période.</p>
         ) : (
           (commData?.rebookOpps ?? []).map((opp, i) => (
-            <OppRow key={i} opp={opp} typeLabel="Rebooking · 20 $" date={fmtDate(opp.created_at_ghl)} />
+            <OppRow key={i} opp={opp} typeLabel="Rebooking · 20 $" date={fmtGHLDate(getRawField(opp.raw, 'mv0GU9HmvkCrkGVUSaqR'))} />
           ))
         )}
       </Modal>
@@ -594,7 +631,7 @@ export default function SetterDashboardView({
           <p className="text-sm text-[#9ca3af] text-center py-6">Aucune vente sur cette période.</p>
         ) : (
           (commData?.wonOpps ?? []).map((opp, i) => (
-            <OppRow key={i} opp={opp} typeLabel="Vente fermée" date={fmtDate(opp.closed_at || opp.created_at_ghl)} />
+            <OppRow key={i} opp={opp} typeLabel="Vente fermée" date={fmtGHLDate(getRawField(opp.raw, 'UPqvJX8MkZ4thsPX2tjV'))} />
           ))
         )}
       </Modal>
