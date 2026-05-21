@@ -23,11 +23,15 @@ function buildGHLNote(row, reportDate) {
   const statusLabel = EOD_STATUSES.find(s => s.value === row.status)?.label ?? '—'
   const feedbackLabel = EOD_FEEDBACK_OPTIONS.find(f => f.value === row.feedback)?.label ?? '—'
   const closedLabel = row.is_closed === true ? 'Oui ✅' : row.is_closed === false ? 'Non ❌' : '—'
+  const rdvDecLabel = row.is_closed === false
+    ? (row.rdv_decision === true ? 'Oui ✅' : row.rdv_decision === false ? 'Non ❌' : '—')
+    : null
 
   let note = `📋 EOD — ${dateLabel}\n\n`
   note += `👤 ${row.contact_name} (${fmtTime(row.start_time)})\n`
   note += `Statut : ${statusLabel}\n`
   note += `Closé : ${closedLabel}\n`
+  if (rdvDecLabel !== null) note += `RDV décision pris : ${rdvDecLabel}\n`
   if (row.feedback)      note += `Feedback : ${feedbackLabel}\n`
   if (row.action_plan)   note += `Plan de match : ${row.action_plan}\n`
   if (row.is_closed === false && row.objection_reason)
@@ -56,7 +60,7 @@ function InlineSelect({ value, onChange, options, placeholder = '—', className
 // ─── Ligne du tableau ─────────────────────────────────────────────────────────
 
 function EODRow({ row, index, onChange }) {
-  const showObjection = row.is_closed === false || row.is_closed === 'false'
+  const notClosed = row.is_closed === false || row.is_closed === 'false'
 
   return (
     <tr className="border-b border-[#f0f0f0] hover:bg-[#fafafa] transition-colors">
@@ -79,7 +83,7 @@ function EODRow({ row, index, onChange }) {
       <td className="px-2 py-2.5 min-w-[90px]">
         <InlineSelect
           value={row.is_closed === true ? 'true' : row.is_closed === false ? 'false' : ''}
-          onChange={v => onChange(index, { is_closed: v === 'true' ? true : v === 'false' ? false : null })}
+          onChange={v => onChange(index, { is_closed: v === 'true' ? true : v === 'false' ? false : null, rdv_decision: null })}
           options={[
             { value: 'true',  label: 'Oui' },
             { value: 'false', label: 'Non' },
@@ -87,7 +91,25 @@ function EODRow({ row, index, onChange }) {
         />
       </td>
 
-      {/* 4. Feedback */}
+      {/* 4. RDV Décision — seulement si non closé */}
+      <td className="px-2 py-2.5 min-w-[110px]">
+        {notClosed ? (
+          <InlineSelect
+            value={row.rdv_decision === true ? 'true' : row.rdv_decision === false ? 'false' : ''}
+            onChange={v => onChange(index, { rdv_decision: v === 'true' ? true : v === 'false' ? false : null })}
+            options={[
+              { value: 'true',  label: 'Oui' },
+              { value: 'false', label: 'Non' },
+            ]}
+          />
+        ) : (
+          <span className="text-[11px] text-[#d1d5db]">
+            {row.is_closed === true ? 'N/A' : '—'}
+          </span>
+        )}
+      </td>
+
+      {/* 5. Feedback */}
       <td className="px-2 py-2.5 min-w-[150px]">
         <InlineSelect
           value={row.feedback}
@@ -96,7 +118,7 @@ function EODRow({ row, index, onChange }) {
         />
       </td>
 
-      {/* 5. Plan de match */}
+      {/* 6. Plan de match */}
       <td className="px-2 py-2.5 min-w-[200px]">
         <input
           type="text"
@@ -107,9 +129,9 @@ function EODRow({ row, index, onChange }) {
         />
       </td>
 
-      {/* 6. Raison d'objection (uniquement si pas closé) */}
+      {/* 7. Raison d'objection (uniquement si pas closé) */}
       <td className="px-2 py-2.5 min-w-[180px]">
-        {showObjection ? (
+        {notClosed ? (
           <input
             type="text"
             value={row.objection_reason}
@@ -157,6 +179,15 @@ function EODRowReadOnly({ row }) {
         <span className={`text-xs font-semibold ${row.is_closed === true ? 'text-[#10b981]' : row.is_closed === false ? 'text-[#ef4444]' : 'text-[#d1d5db]'}`}>
           {row.is_closed === true ? 'Oui' : row.is_closed === false ? 'Non' : '—'}
         </span>
+      </td>
+      <td className="px-2 py-2.5">
+        {row.is_closed === false ? (
+          <span className={`text-xs font-semibold ${row.rdv_decision === true ? 'text-[#10b981]' : row.rdv_decision === false ? 'text-[#ef4444]' : 'text-[#d1d5db]'}`}>
+            {row.rdv_decision === true ? 'Oui' : row.rdv_decision === false ? 'Non' : '—'}
+          </span>
+        ) : (
+          <span className="text-[11px] text-[#d1d5db]">N/A</span>
+        )}
       </td>
       <td className="px-2 py-2.5 text-xs text-[#6b7280]">
         {feedbackOpt?.label ?? (row.feedback || '—')}
@@ -211,10 +242,10 @@ export function CloserEODHistoryItem({ report }) {
             <p className="text-sm text-[#9ca3af]">Aucun rendez-vous.</p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[680px] text-left">
+              <table className="w-full min-w-[760px] text-left">
                 <thead>
                   <tr className="border-b border-[#e5e7eb]">
-                    {['Prospect', 'Statut', 'Closé', 'Feedback', 'Plan de match', "Objection"].map(h => (
+                    {['Prospect', 'Statut', 'Closé', 'RDV Décision', 'Feedback', 'Plan de match', "Objection"].map(h => (
                       <th key={h} className="px-2 pb-2 text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide first:px-3">{h}</th>
                     ))}
                   </tr>
@@ -306,9 +337,24 @@ export default function CloserEODForm({ userId, ghlUserId = null, closerName = n
     const ghlResults = await Promise.allSettled(
       rowsWithStatus.map(r => updateGHL(r, targetDate))
     )
-    const failed = ghlResults.filter(r => r.status === 'rejected')
-    if (failed.length > 0) {
-      setGhlError(`${failed.length} mise(s) à jour GHL échouée(s) — les données ont quand même été sauvegardées.`)
+
+    // Déplacer vers "🤔 En décision" si : show + non closé + pas de RDV décision
+    const rowsToMove = finalRows.filter(r =>
+      r.status === 'show' && r.is_closed === false && r.rdv_decision === false && r.contact_id
+    )
+    const moveResults = await Promise.allSettled(
+      rowsToMove.map(r =>
+        supabase.functions.invoke('ghl-move-stage', {
+          body: { contactId: r.contact_id },
+        })
+      )
+    )
+
+    const failedGHL   = ghlResults.filter(r => r.status === 'rejected')
+    const failedMove  = moveResults.filter(r => r.status === 'rejected')
+    const totalFailed = failedGHL.length + failedMove.length
+    if (totalFailed > 0) {
+      setGhlError(`${totalFailed} mise(s) à jour GHL échouée(s) — les données ont quand même été sauvegardées.`)
     }
 
     setSubmitting(false)
@@ -426,13 +472,14 @@ export default function CloserEODForm({ userId, ghlUserId = null, closerName = n
         </div>
       ) : (
         <div className="overflow-x-auto -mx-5 px-5 mb-4">
-          <table className="w-full min-w-[860px] text-left">
+          <table className="w-full min-w-[980px] text-left">
             <thead>
               <tr className="border-b border-[#e5e7eb]">
                 {[
                   'Prospect',
                   'Statut',
                   'Closé',
+                  'RDV Décision',
                   'Feedback Préparation',
                   'Plan de match & suivi',
                   "Raison d'objection",

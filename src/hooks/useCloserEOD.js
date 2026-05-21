@@ -43,6 +43,7 @@ export function rowFromAppointment(appt) {
     start_time:         appt.start_time   || '',
     status:             '',     // '' | 'show' | 'noshow' | 'annule'
     is_closed:          null,   // null | true | false
+    rdv_decision:       null,   // null | true | false — affiché seulement si is_closed === false
     feedback:           '',     // '' | 'A+' | 'A' | 'B' | 'C' | 'D'
     action_plan:        '',
     objection_reason:   '',

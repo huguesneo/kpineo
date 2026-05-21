@@ -118,7 +118,10 @@ export function useCloserAppointments(closerName, startDate, endDate, ghlUserId 
     return acc
   }, {})
 
-  const hotCount = (byStatus['showed'] ?? 0) + (byStatus['attended'] ?? 0)
+  // hotCount = shows de Consultation Découverte uniquement (exclut Rencontre de Décision)
+  const cdAppointments = (appointments ?? []).filter(a => a.calendar_id !== GHL_CALENDAR_DECISION)
+  const cdShows = cdAppointments.filter(a => a.status === 'showed' || a.status === 'attended').length
+  const hotCount = cdShows
 
   return { appointments, loading, byStatus, hotCount, refetch: load }
 }
@@ -242,14 +245,17 @@ export function useCloserMonthStats(closerName, startDate, endDate) {
     if (contactIds.length > 0) {
       const { data } = await supabase
         .from('ghl_appointments')
-        .select('status')
+        .select('status, calendar_id')
         .in('contact_id', contactIds)
         .gte('start_time', startDate + 'T00:00:00')
         .lte('start_time', endDate   + 'T23:59:59')
       appts = data ?? []
     }
 
-    const hotCount = appts.filter(a => a.status === 'showed' || a.status === 'attended').length
+    // hotCount = shows de Consultation Découverte uniquement (exclut Rencontre de Décision)
+    const hotCount = appts.filter(a =>
+      (a.status === 'showed' || a.status === 'attended') && a.calendar_id !== GHL_CALENDAR_DECISION
+    ).length
 
     // Ventes (stage Gagné + date de close dans la période)
     const salesCount = myOpps.filter(o => {
