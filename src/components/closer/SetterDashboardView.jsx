@@ -208,6 +208,10 @@ export default function SetterDashboardView({
 
   // Données setter
   const { data: commData, loading: commLoading, error: commError, refresh } = useSetterCommissions(setterName, startDate, endDate)
+  const apptMap = commData?.apptMap ?? {}
+  // Retourne la date du rendez-vous calendrier de l'opportunité (clé = opp.id), fallback sur date_du_dernier_appel
+  const apptDateFor = (opp) =>
+    fmtGHLDate(apptMap[opp?.id] ?? getRawField(opp?.raw, 'mv0GU9HmvkCrkGVUSaqR'))
 
   // Objectifs du mois courant (basé sur startDate)
   const [objSaving, setObjSaving] = useState(null)
@@ -229,13 +233,15 @@ export default function SetterDashboardView({
   }
 
   // Modales
-  const [calledModal,  setCalledModal]  = useState(false)
-  const [bookedModal,  setBookedModal]  = useState(false)
-  const [showupsModal, setShowupsModal] = useState(false)
-  const [manuelModal,  setManuelModal]  = useState(false)
-  const [autoModal,    setAutoModal]    = useState(false)
-  const [rebookModal,  setRebookModal]  = useState(false)
-  const [ventesModal,  setVentesModal]  = useState(false)
+  const [calledModal,    setCalledModal]    = useState(false)
+  const [bookedModal,    setBookedModal]    = useState(false)
+  const [showupsModal,   setShowupsModal]   = useState(false)
+  const [manuelModal,    setManuelModal]    = useState(false)
+  const [autoModal,      setAutoModal]      = useState(false)
+  const [rebookModal,    setRebookModal]    = useState(false)
+  const [cancelledModal, setCancelledModal] = useState(false)
+  const [noShowModal,    setNoShowModal]    = useState(false)
+  const [ventesModal,    setVentesModal]    = useState(false)
 
   // Métriques
   const calledCount     = commData?.calledCount        ?? 0
@@ -244,6 +250,8 @@ export default function SetterDashboardView({
   const manuelCount     = commData?.manuelCount        ?? 0
   const autoCount       = commData?.autoCount          ?? 0
   const rebookingCount  = commData?.rebookingCount     ?? 0
+  const cancelledCount  = commData?.cancelledCount     ?? 0
+  const noShowCount     = commData?.noShowCount        ?? 0
   const wonCount        = commData?.wonCount           ?? 0
   const commManuel      = commData?.commissionManuel   ?? 0
   const commAuto        = commData?.commissionAuto     ?? 0
@@ -384,6 +392,22 @@ export default function SetterDashboardView({
               value={rebookingCount}
               sub={`commission : ${fmtCAD(commRebook)}`}
               onClick={rebookingCount > 0 ? () => setRebookModal(true) : undefined}
+            />
+            <KPICard
+              label="Rencontres annulées"
+              value={cancelledCount}
+              sub="🔴 rencontre annulé"
+              highlight={cancelledCount > 0}
+              highlightColor="#f59e0b"
+              onClick={cancelledCount > 0 ? () => setCancelledModal(true) : undefined}
+            />
+            <KPICard
+              label="No-shows"
+              value={noShowCount}
+              sub="👻 no show"
+              highlight={noShowCount > 0}
+              highlightColor="#6366f1"
+              onClick={noShowCount > 0 ? () => setNoShowModal(true) : undefined}
             />
             <KPICard
               label="Bonus ventes"
@@ -552,7 +576,7 @@ export default function SetterDashboardView({
           <p className="text-sm text-[#9ca3af] text-center py-6">Aucun appel sur cette période.</p>
         ) : (
           (commData?.calledOpps ?? []).map((opp, i) => (
-            <OppRow key={i} opp={opp} typeLabel="Dernier appel" date={fmtGHLDate(getRawField(opp.raw, 'mv0GU9HmvkCrkGVUSaqR'))} />
+            <OppRow key={i} opp={opp} typeLabel="Rendez-vous" date={apptDateFor(opp)} />
           ))
         )}
       </Modal>
@@ -563,7 +587,7 @@ export default function SetterDashboardView({
           <p className="text-sm text-[#9ca3af] text-center py-6">Aucun rendez-vous booké sur cette période.</p>
         ) : (
           (commData?.bookedOpps ?? []).map((opp, i) => (
-            <OppRow key={i} opp={opp} typeLabel="Rendez-vous booké" date={fmtDate(opp.created_at_ghl)} />
+            <OppRow key={i} opp={opp} typeLabel="Rendez-vous booké" date={apptDateFor(opp)} />
           ))
         )}
       </Modal>
@@ -585,7 +609,7 @@ export default function SetterDashboardView({
             <div key={typeLabel}>
               <p className="text-xs font-bold text-[#6b7280] uppercase tracking-wide mb-2">{typeLabel}</p>
               {opps.map((opp, i) => (
-                <OppRow key={i} opp={opp} typeLabel={typeLabel} date={fmtGHLDate(getRawField(opp.raw, 'mv0GU9HmvkCrkGVUSaqR'))} />
+                <OppRow key={i} opp={opp} typeLabel={typeLabel} date={apptDateFor(opp)} />
               ))}
             </div>
           ))
@@ -598,7 +622,7 @@ export default function SetterDashboardView({
           <p className="text-sm text-[#9ca3af] text-center py-6">Aucun booking manuel sur cette période.</p>
         ) : (
           (commData?.manuelOpps ?? []).map((opp, i) => (
-            <OppRow key={i} opp={opp} typeLabel="Manuel · 40 $" date={fmtGHLDate(getRawField(opp.raw, 'mv0GU9HmvkCrkGVUSaqR'))} />
+            <OppRow key={i} opp={opp} typeLabel="Manuel · 40 $" date={apptDateFor(opp)} />
           ))
         )}
       </Modal>
@@ -609,7 +633,7 @@ export default function SetterDashboardView({
           <p className="text-sm text-[#9ca3af] text-center py-6">Aucune confirmation auto sur cette période.</p>
         ) : (
           (commData?.autoOpps ?? []).map((opp, i) => (
-            <OppRow key={i} opp={opp} typeLabel="Confirmation auto · 20 $" date={fmtGHLDate(getRawField(opp.raw, 'mv0GU9HmvkCrkGVUSaqR'))} />
+            <OppRow key={i} opp={opp} typeLabel="Confirmation auto · 20 $" date={apptDateFor(opp)} />
           ))
         )}
       </Modal>
@@ -620,7 +644,29 @@ export default function SetterDashboardView({
           <p className="text-sm text-[#9ca3af] text-center py-6">Aucun rebooking sur cette période.</p>
         ) : (
           (commData?.rebookOpps ?? []).map((opp, i) => (
-            <OppRow key={i} opp={opp} typeLabel="Rebooking · 20 $" date={fmtGHLDate(getRawField(opp.raw, 'mv0GU9HmvkCrkGVUSaqR'))} />
+            <OppRow key={i} opp={opp} typeLabel="Rebooking · 20 $" date={apptDateFor(opp)} />
+          ))
+        )}
+      </Modal>
+
+      {/* ── Modal : Rencontres annulées ── */}
+      <Modal isOpen={cancelledModal} onClose={() => setCancelledModal(false)} title={`Rencontres annulées — ${cancelledCount}`}>
+        {(commData?.cancelledOpps ?? []).length === 0 ? (
+          <p className="text-sm text-[#9ca3af] text-center py-6">Aucune rencontre annulée sur cette période.</p>
+        ) : (
+          (commData?.cancelledOpps ?? []).map((opp, i) => (
+            <OppRow key={i} opp={opp} typeLabel={`🔴 Annulé · ${getRawField(opp.raw, 'YbAB98KAINZM7vzebAKh') ?? '—'}`} date={apptDateFor(opp)} />
+          ))
+        )}
+      </Modal>
+
+      {/* ── Modal : No-shows ── */}
+      <Modal isOpen={noShowModal} onClose={() => setNoShowModal(false)} title={`No-shows — ${noShowCount}`}>
+        {(commData?.noShowOpps ?? []).length === 0 ? (
+          <p className="text-sm text-[#9ca3af] text-center py-6">Aucun no-show sur cette période.</p>
+        ) : (
+          (commData?.noShowOpps ?? []).map((opp, i) => (
+            <OppRow key={i} opp={opp} typeLabel={`👻 No-show · ${getRawField(opp.raw, 'YbAB98KAINZM7vzebAKh') ?? '—'}`} date={apptDateFor(opp)} />
           ))
         )}
       </Modal>
