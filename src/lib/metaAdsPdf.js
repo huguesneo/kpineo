@@ -123,6 +123,56 @@ export function generateMetaAdsReport({ periodStart, periodEnd, level, revModel,
     },
   })
 
+  // ── Section 2 : Volume vs Qualité (funnel de conversion) ──
+  const qRows = rows.filter(r => r.reservations > 0 || r.leads > 0).sort((a, b) => (b.reservations ?? 0) - (a.reservations ?? 0))
+  if (qRows.length > 0) {
+    const pct = (v) => (v > 0 ? `${fmt(v, 0)}%` : '—')
+    const qBody = qRows.map(r => [
+      r.name,
+      fmt(r.leads),
+      fmt(r.reservations),
+      r.leads > 0 ? pct(r.bookRate) : '—',
+      fmt(r.attended),
+      r.reservations > 0 ? pct(r.showRate) : '—',
+      fmt(r.clients),
+      r.attended > 0 ? pct(r.closeRate) : '—',
+    ])
+    const tBook = totals.leads > 0 ? (totals.reservations / totals.leads) * 100 : 0
+    const tShow = totals.reservations > 0 ? (totals.attended / totals.reservations) * 100 : 0
+    const tClose = totals.attended > 0 ? (totals.clients / totals.attended) * 100 : 0
+    const qFoot = [['MOYENNE', fmt(totals.leads), fmt(totals.reservations), pct(tBook), fmt(totals.attended), pct(tShow), fmt(totals.clients), pct(tClose)]]
+
+    let qy = (doc.lastAutoTable?.finalY ?? y) + 28
+    const pageH = doc.internal.pageSize.getHeight()
+    if (qy > pageH - 120) { doc.addPage(); qy = 50 }
+    doc.setTextColor(...DARK); doc.setFont('helvetica', 'bold'); doc.setFontSize(11)
+    doc.text('Volume vs Qualité — funnel de conversion', M, qy)
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...GREY)
+    doc.text('Taux résa = résa / leads · Show-rate = RDV tenus / résa · Close-rate = clients / RDV tenus', M, qy + 13)
+
+    autoTable(doc, {
+      startY: qy + 22,
+      head: [[level === 'campaign' ? 'Campagne' : 'Ad', 'Leads', 'Résa', 'Taux résa', 'RDV tenus', 'Show-rate', 'Clients', 'Close-rate']],
+      body: qBody,
+      foot: qFoot,
+      margin: { left: M, right: M },
+      styles: { font: 'helvetica', fontSize: 8, cellPadding: 4, overflow: 'ellipsize' },
+      headStyles: { fillColor: DARK, textColor: 255, fontStyle: 'bold', fontSize: 7.5 },
+      footStyles: { fillColor: [249, 250, 251], textColor: DARK, fontStyle: 'bold' },
+      columnStyles: {
+        0: { cellWidth: 'auto' },
+        1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' },
+        5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' },
+      },
+      alternateRowStyles: { fillColor: [250, 250, 252] },
+      didDrawPage: () => {
+        const page = doc.internal.getCurrentPageInfo().pageNumber
+        doc.setFontSize(8); doc.setTextColor(...GREY); doc.setFont('helvetica', 'normal')
+        doc.text(`NEO Performance — Rapport Meta Ads · page ${page}`, M, doc.internal.pageSize.getHeight() - 16)
+      },
+    })
+  }
+
   const fileName = `Rapport_Meta_${level}_${periodStart}_${periodEnd}.pdf`
   doc.save(fileName)
 }

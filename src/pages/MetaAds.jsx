@@ -30,6 +30,13 @@ function roasColor(roas) {
   return '#ef4444'
 }
 
+// Couleur pour un taux % selon des seuils bon/moyen
+function rateColor(pct, good, ok) {
+  if (pct >= good) return '#10b981'
+  if (pct >= ok) return '#f59e0b'
+  return '#ef4444'
+}
+
 // Petite carte KPI (style dashboard de l'app)
 function KpiCard({ label, value, sub, color = '#00bbb1', onClick }) {
   const inner = (
@@ -64,6 +71,7 @@ export default function MetaAds() {
   const [simOpen, setSimOpen] = useState(false)
   const [simSpend, setSimSpend] = useState({})               // meta_id → budget simulé
   const [simBeta, setSimBeta] = useState(0.8)                // élasticité de scaling (rendements décroissants)
+  const [qualitySort, setQualitySort] = useState('reservations')
 
   // Période
   const [dateStart, setDateStart] = useState(daysAgoStr(29))
@@ -154,6 +162,9 @@ export default function MetaAds() {
       cpr: reservations > 0 ? spend / reservations : 0,
       cpa: attended > 0 ? spend / attended : 0,
       cac: clients > 0 ? spend / clients : 0,
+      showRate: reservations > 0 ? (attended / reservations) * 100 : 0,   // % de réservations présentées
+      closeRate: attended > 0 ? (clients / attended) * 100 : 0,            // % de RDV tenus convertis
+      bookRate: leads > 0 ? (reservations / leads) * 100 : 0,              // % de leads qui réservent
       ltvPerClient: clients > 0 ? revenue / clients : 0,
       ltvCacRatio: spend > 0 ? revenue / spend : 0, // = (rev/clients)/(spend/clients)
       roas: spend > 0 ? revenue / spend : 0,
@@ -696,6 +707,73 @@ export default function MetaAds() {
           {attribution ? ` · ${attribution.contactsMatched} contacts cohorte` : ''}
         </p>
       </Card>
+
+      {/* ── Volume vs Qualité (funnel de conversion par ad) ── */}
+      {!loadingAtt && filteredRows.some(r => r.reservations > 0) && (
+        <Card className="overflow-hidden mt-6">
+          <div className="px-5 py-3.5 border-b border-[#e5e7eb] flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <h2 className="text-sm font-bold text-[#1a1a1a]">Volume vs Qualité — funnel de conversion</h2>
+              <p className="text-xs text-[#6b7280] mt-0.5">Quel {level === 'campaign' ? 'campagne' : 'ad'} amène du volume cheap vs des leads qui se présentent et ferment</p>
+            </div>
+            <select value={qualitySort} onChange={e => setQualitySort(e.target.value)}
+              className="text-xs border border-[#e5e7eb] rounded-lg px-2 py-1.5 text-[#6b7280] focus:outline-none">
+              <option value="reservations">Trier : Réservations</option>
+              <option value="leads">Trier : Leads</option>
+              <option value="bookRate">Trier : Taux résa</option>
+              <option value="attended">Trier : RDV tenus</option>
+              <option value="showRate">Trier : Show-rate</option>
+              <option value="clients">Trier : Clients</option>
+              <option value="closeRate">Trier : Close-rate</option>
+            </select>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[#f3f4f6] bg-[#f9fafb] text-[#6b7280]">
+                  <th className="text-left px-5 py-2.5 text-xs font-bold uppercase tracking-wide">{level === 'campaign' ? 'Campagne' : 'Ad'}</th>
+                  <th className="text-right px-3 py-2.5 text-xs font-bold uppercase tracking-wide">Leads</th>
+                  <th className="text-right px-3 py-2.5 text-xs font-bold uppercase tracking-wide">Résa</th>
+                  <th className="text-right px-3 py-2.5 text-xs font-bold uppercase tracking-wide">Taux résa</th>
+                  <th className="text-right px-3 py-2.5 text-xs font-bold uppercase tracking-wide">RDV tenus</th>
+                  <th className="text-right px-3 py-2.5 text-xs font-bold uppercase tracking-wide">Show-rate</th>
+                  <th className="text-right px-3 py-2.5 text-xs font-bold uppercase tracking-wide">Clients</th>
+                  <th className="text-right px-5 py-2.5 text-xs font-bold uppercase tracking-wide">Close-rate</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#f3f4f6]">
+                {[...filteredRows].filter(r => r.reservations > 0 || r.leads > 0).sort((a, b) => Number(b[qualitySort] ?? 0) - Number(a[qualitySort] ?? 0)).map(r => (
+                  <tr key={r.meta_id} className="hover:bg-[#f9fafb] transition-colors">
+                    <td className="px-5 py-3 font-semibold text-[#1a1a1a] max-w-[220px] truncate">{r.name}</td>
+                    <td className="px-3 py-3 text-right text-[#6b7280]">{fmt(r.leads)}</td>
+                    <td className="px-3 py-3 text-right text-[#6b7280]">{fmt(r.reservations)}</td>
+                    <td className="px-3 py-3 text-right font-semibold" style={{ color: rateColor(r.bookRate, 25, 12) }}>{r.leads > 0 ? `${fmt(r.bookRate, 0)}%` : '—'}</td>
+                    <td className="px-3 py-3 text-right text-[#6b7280]">{fmt(r.attended)}</td>
+                    <td className="px-3 py-3 text-right font-semibold" style={{ color: rateColor(r.showRate, 70, 50) }}>{r.reservations > 0 ? `${fmt(r.showRate, 0)}%` : '—'}</td>
+                    <td className="px-3 py-3 text-right text-[#6b7280]">{fmt(r.clients)}</td>
+                    <td className="px-5 py-3 text-right font-bold" style={{ color: rateColor(r.closeRate, 30, 15) }}>{r.attended > 0 ? `${fmt(r.closeRate, 0)}%` : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-[#e5e7eb] bg-[#f9fafb] font-black text-[#1a1a1a]">
+                  <td className="px-5 py-3">Total / moyenne</td>
+                  <td className="px-3 py-3 text-right">{fmt(totals.leads)}</td>
+                  <td className="px-3 py-3 text-right">{fmt(totals.reservations)}</td>
+                  <td className="px-3 py-3 text-right">{totals.leads > 0 ? `${fmt(totals.reservations / totals.leads * 100, 0)}%` : '—'}</td>
+                  <td className="px-3 py-3 text-right">{fmt(totals.attended)}</td>
+                  <td className="px-3 py-3 text-right">{totals.reservations > 0 ? `${fmt(totals.attended / totals.reservations * 100, 0)}%` : '—'}</td>
+                  <td className="px-3 py-3 text-right">{fmt(totals.clients)}</td>
+                  <td className="px-5 py-3 text-right">{totals.attended > 0 ? `${fmt(totals.clients / totals.attended * 100, 0)}%` : '—'}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <p className="px-5 py-2.5 text-xs text-[#9ca3af] border-t border-[#f3f4f6]">
+            <b>Taux résa</b> = réservations ÷ leads · <b>Show-rate</b> = RDV tenus ÷ réservations (se présentent-ils ?) · <b>Close-rate</b> = clients ÷ RDV tenus (capacité à fermer). 🟢 bon · 🟠 moyen · 🔴 faible.
+          </p>
+        </Card>
+      )}
 
       {/* ── Modale détail ── */}
       {detailModal && (
