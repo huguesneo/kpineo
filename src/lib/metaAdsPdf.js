@@ -88,6 +88,7 @@ export function generateMetaAdsReport({ periodStart, periodEnd, level, revModel,
     r.name,
     cad(r.spend),
     fmt(r.leads),
+    r.cpl > 0 ? cad(r.cpl) : '—',
     fmt(r.reservations),
     fmt(r.attended),
     fmt(r.clients),
@@ -96,13 +97,13 @@ export function generateMetaAdsReport({ periodStart, periodEnd, level, revModel,
   ])
   // total row
   const foot = [[
-    'TOTAL', cad(totals.spend), fmt(totals.leads), fmt(totals.reservations),
-    fmt(totals.attended), fmt(totals.clients), cad(totals.revenue), roasStr(totals.roas),
+    'TOTAL', cad(totals.spend), fmt(totals.leads), totals.cpl > 0 ? cad(totals.cpl) : '—',
+    fmt(totals.reservations), fmt(totals.attended), fmt(totals.clients), cad(totals.revenue), roasStr(totals.roas),
   ]]
 
   autoTable(doc, {
     startY: y,
-    head: [[level === 'campaign' ? 'Campagne' : 'Ad', 'Dépenses', 'Leads', 'Résa', 'RDV tenus', 'Clients', 'Revenu', 'ROAS']],
+    head: [[level === 'campaign' ? 'Campagne' : 'Ad', 'Dépenses', 'Leads', 'CPL', 'Résa', 'RDV tenus', 'Clients', 'Revenu', 'ROAS']],
     body,
     foot,
     margin: { left: M, right: M },
@@ -111,8 +112,8 @@ export function generateMetaAdsReport({ periodStart, periodEnd, level, revModel,
     footStyles: { fillColor: [249, 250, 251], textColor: DARK, fontStyle: 'bold' },
     columnStyles: {
       0: { cellWidth: 'auto' },
-      1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' },
-      4: { halign: 'right' }, 5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' },
+      1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' },
+      5: { halign: 'right' }, 6: { halign: 'right' }, 7: { halign: 'right' }, 8: { halign: 'right' },
     },
     alternateRowStyles: { fillColor: [250, 250, 252] },
     didDrawPage: () => {

@@ -509,6 +509,7 @@ export default function MetaAds() {
                   <th className="text-left px-5 py-2.5 text-xs font-bold uppercase tracking-wide">{level === 'campaign' ? 'Campagne' : 'Ad'}</th>
                   <th className="text-right px-3 py-2.5 text-xs font-bold uppercase tracking-wide">Dépenses</th>
                   <th className="text-right px-3 py-2.5 text-xs font-bold uppercase tracking-wide">Leads</th>
+                  <th className="text-right px-3 py-2.5 text-xs font-bold uppercase tracking-wide">CPL</th>
                   <th className="text-right px-3 py-2.5 text-xs font-bold uppercase tracking-wide">Résa</th>
                   <th className="text-right px-3 py-2.5 text-xs font-bold uppercase tracking-wide">CPR</th>
                   <th className="text-right px-3 py-2.5 text-xs font-bold uppercase tracking-wide">Clients</th>
@@ -543,6 +544,7 @@ export default function MetaAds() {
                           className="font-semibold text-[#00bbb1] hover:underline">{fmt(r.leads)}</button>
                       ) : <span className="text-[#9ca3af]">0</span>}
                     </td>
+                    <td className="px-3 py-3 text-right text-[#6b7280]">{r.cpl > 0 ? fmtCAD(r.cpl) : '—'}</td>
                     <td className="px-3 py-3 text-right">
                       {r.reservations > 0 ? (
                         <button onClick={() => setDetailModal({ title: r.name, mode: 'reservations', list: r.leadList.filter(l => l.reservation).sort((a, b) => String(b.reservationDate || '').localeCompare(String(a.reservationDate || ''))) })}
@@ -570,6 +572,7 @@ export default function MetaAds() {
                   <td className="px-5 py-3">Total</td>
                   <td className="px-3 py-3 text-right">{fmtCAD(totals.spend)}</td>
                   <td className="px-3 py-3 text-right">{fmt(totals.leads)}</td>
+                  <td className="px-3 py-3 text-right text-[#6b7280]">{totals.cpl > 0 ? fmtCAD(totals.cpl) : '—'}</td>
                   <td className="px-3 py-3 text-right">{fmt(totals.reservations)}</td>
                   <td className="px-3 py-3 text-right text-[#6b7280]">{totals.cpr > 0 ? fmtCAD(totals.cpr) : '—'}</td>
                   <td className="px-3 py-3 text-right">{fmt(totals.clients)}</td>
