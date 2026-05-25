@@ -58,9 +58,12 @@ export default function MetaAds() {
   const { insights, loading: loadingInsights, fetchByDate } = useMetaInsightsByDate()
 
   const [statusFilter, setStatusFilter] = useState('ACTIVE') // ACTIVE | PAUSED | ALL
-  const [level, setLevel] = useState('campaign')             // campaign | ad
+  const [level, setLevel] = useState('ad')                   // campaign | ad
   const [sortBy, setSortBy] = useState('revenue')
   const [revModel, setRevModel] = useState('ltv')            // ltv | period
+  const [simOpen, setSimOpen] = useState(false)
+  const [simSpend, setSimSpend] = useState({})               // meta_id → budget simulé
+  const [simBeta, setSimBeta] = useState(0.8)                // élasticité de scaling (rendements décroissants)
 
   // Période
   const [dateStart, setDateStart] = useState(daysAgoStr(29))
@@ -239,6 +242,100 @@ export default function MetaAds() {
     })
   }
 
+  // ── Simulateur : rows au niveau ad (économie unitaire historique) ──
+  const adAttById = useMemo(() => {
+    const m = new Map()
+    for (const r of (attribution?.ads ?? [])) m.set(r.meta_id, r)
+    return m
+  }, [attribution])
+
+  const simBaseRows = useMemo(() => {
+    return adEngagement
+      .map(e => {
+        const att = adAttById.get(e.meta_id)
+        const spend = att?.spend ?? e.spend ?? 0
+        return { meta_id: e.meta_id, name: e.name, status: e.status, spend, ...modelVals(att, spend) }
+      })
+      .filter(r => statusFilter === 'ALL' ? true : r.status === statusFilter)
+      .filter(r => r.spend > 0)
+      .sort((a, b) => b.spend - a.spend)
+  }, [adEngagement, adAttById, statusFilter, revModel]) // eslint-disable-line
+
+  function openSimulator() {
+    const init = {}
+    for (const r of simBaseRows) init[r.meta_id] = Math.round(r.spend)
+    setSimSpend(init)
+    setSimOpen(true)
+  }
+
+  // Projection d'un ad : rendements décroissants (loi de puissance ^β autour du point actuel)
+  function project(r, newSpend) {
+    if (r.spend <= 0) return { spend: newSpend, leads: 0, reservations: 0, attended: 0, clients: 0, revenue: 0 }
+    const factor = Math.pow(Math.max(newSpend, 0) / r.spend, simBeta)
+    return {
+      spend: newSpend,
+      leads: r.leads * factor,
+      reservations: r.reservations * factor,
+      attended: r.attended * factor,
+      clients: r.clients * factor,
+      revenue: r.revenue * factor,
+    }
+  }
+
+  // Optimiseur : allocation optimale sous rendements décroissants (∝ budget × ROAS^(1/(1-β))),
+  // déficitaires (ROAS < 1) coupés, chaque ad plafonné à 3× son budget actuel. Réallocation des surplus.
+  function optimizeBudget() {
+    const total = simBaseRows.reduce((s, r) => s + r.spend, 0)
+    const exp = simBeta < 1 ? 1 / (1 - simBeta) : 5
+    const candidates = simBaseRows.filter(r => r.roas >= 1 && r.spend > 0)
+    if (candidates.length === 0) { setSimSpend(Object.fromEntries(simBaseRows.map(r => [r.meta_id, 0]))) ; return }
+
+    const next = {}
+    for (const r of simBaseRows) if (r.roas < 1) next[r.meta_id] = 0  // couper les perdants
+
+    let pool = candidates.map(r => ({ r, weight: r.spend * Math.pow(r.roas, exp), cap: Math.max(r.spend * 3, 100), alloc: 0 }))
+    let budget = total
+    // Passes successives : alloue au prorata du poids, plafonne, redistribue le reste
+    for (let pass = 0; pass < 6 && budget > 1; pass++) {
+      const active = pool.filter(p => p.alloc < p.cap)
+      const wSum = active.reduce((s, p) => s + p.weight, 0)
+      if (wSum <= 0) break
+      let distributed = 0
+      for (const p of active) {
+        const want = budget * (p.weight / wSum)
+        const give = Math.min(want, p.cap - p.alloc)
+        p.alloc += give
+        distributed += give
+      }
+      budget -= distributed
+      if (distributed < 1) break
+    }
+    for (const p of pool) next[p.r.meta_id] = Math.round(p.alloc)
+    setSimSpend(next)
+  }
+
+  function resetSimulator() {
+    const init = {}
+    for (const r of simBaseRows) init[r.meta_id] = Math.round(r.spend)
+    setSimSpend(init)
+  }
+
+  // Totaux simulés vs actuels
+  const simTotals = useMemo(() => {
+    const cur = { spend: 0, leads: 0, reservations: 0, attended: 0, clients: 0, revenue: 0 }
+    const proj = { spend: 0, leads: 0, reservations: 0, attended: 0, clients: 0, revenue: 0 }
+    for (const r of simBaseRows) {
+      cur.spend += r.spend; cur.leads += r.leads; cur.reservations += r.reservations; cur.attended += r.attended; cur.clients += r.clients; cur.revenue += r.revenue
+      const p = project(r, Number(simSpend[r.meta_id] ?? r.spend))
+      proj.spend += p.spend; proj.leads += p.leads; proj.reservations += p.reservations; proj.attended += p.attended; proj.clients += p.clients; proj.revenue += p.revenue
+    }
+    cur.roas = cur.spend > 0 ? cur.revenue / cur.spend : 0
+    proj.roas = proj.spend > 0 ? proj.revenue / proj.spend : 0
+    cur.profit = cur.revenue - cur.spend
+    proj.profit = proj.revenue - proj.spend
+    return { cur, proj }
+  }, [simBaseRows, simSpend, simBeta])
+
   const dataLoading = loadingCamps || loadingAds || loadingInsights
   const activeCampaigns = (campaigns ?? []).filter(c => c.status === 'ACTIVE').length
 
@@ -278,6 +375,16 @@ export default function MetaAds() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={openSimulator}
+            disabled={loadingAtt || simBaseRows.length === 0}
+            className="flex items-center gap-2 px-4 py-2 bg-[#00bbb1] text-white text-sm font-bold rounded-xl hover:bg-[#009e94] disabled:opacity-50 transition-colors"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            Simulateur
+          </button>
           <button
             onClick={handleExport}
             disabled={loadingAtt || filteredRows.length === 0}
@@ -631,6 +738,121 @@ export default function MetaAds() {
             </div>
             <div className="px-5 py-3 border-t border-[#e5e7eb] text-xs text-[#9ca3af]">
               {detailModal.list.length} contact{detailModal.list.length > 1 ? 's' : ''}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Simulateur de budget ── */}
+      {simOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setSimOpen(false)}>
+          <div className="bg-[#f5f5f7] rounded-2xl shadow-xl max-w-5xl w-full max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="px-6 py-4 bg-white rounded-t-2xl border-b border-[#e5e7eb] flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <h3 className="text-lg font-black text-[#1a1a1a]">Simulateur de budget</h3>
+                <p className="text-xs text-[#6b7280] mt-0.5">Modifie les budgets pour projeter les résultats · basé sur {periodLabel}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex flex-col items-start mr-1">
+                  <span className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wide mb-0.5">Hypothèse de scaling</span>
+                  <div className="flex gap-1 bg-[#f3f4f6] rounded-lg p-0.5">
+                    {[['Conservateur', 0.65], ['Réaliste', 0.8], ['Optimiste', 0.9]].map(([lbl, b]) => (
+                      <button key={lbl} onClick={() => setSimBeta(b)}
+                        className={`px-2 py-1 rounded-md text-[11px] font-bold transition-colors ${simBeta === b ? 'bg-white text-[#1a1a1a] shadow-sm' : 'text-[#6b7280]'}`}>
+                        {lbl}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <button onClick={optimizeBudget} className="flex items-center gap-2 px-4 py-2 bg-[#00bbb1] text-white text-sm font-bold rounded-xl hover:bg-[#009e94] transition-colors">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+                  Optimiser (auto)
+                </button>
+                <button onClick={resetSimulator} className="px-3 py-2 text-sm font-semibold text-[#6b7280] hover:text-[#1a1a1a]">Réinitialiser</button>
+                <button onClick={() => setSimOpen(false)} className="text-[#6b7280] hover:text-[#1a1a1a]">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+            </div>
+
+            {/* Résumé actuel vs projeté */}
+            <div className="px-6 py-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+              {[
+                ['Dépenses', fmtCAD(simTotals.cur.spend), fmtCAD(simTotals.proj.spend)],
+                ['Clients', fmt(simTotals.cur.clients, 0), fmt(simTotals.proj.clients, 0)],
+                ['Revenu', fmtCAD(simTotals.cur.revenue), fmtCAD(simTotals.proj.revenue)],
+                ['ROAS', simTotals.cur.roas > 0 ? `${fmt(simTotals.cur.roas, 2)}x` : '—', simTotals.proj.roas > 0 ? `${fmt(simTotals.proj.roas, 2)}x` : '—'],
+              ].map(([label, cur, proj]) => (
+                <Card key={label} className="p-4">
+                  <p className="text-xs font-bold text-[#6b7280] uppercase tracking-wide mb-2">{label}</p>
+                  <div className="flex items-end justify-between gap-2">
+                    <div><p className="text-[10px] text-[#9ca3af]">Actuel</p><p className="text-sm font-semibold text-[#6b7280]">{cur}</p></div>
+                    <svg className="w-4 h-4 text-[#d1d5db] mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
+                    <div className="text-right"><p className="text-[10px] text-[#00bbb1]">Projeté</p><p className="text-lg font-black text-[#1a1a1a]">{proj}</p></div>
+                  </div>
+                </Card>
+              ))}
+            </div>
+
+            {/* Tableau éditable */}
+            <div className="px-6 pb-2 overflow-y-auto flex-1">
+              <div className="bg-white rounded-xl border border-[#e5e7eb] overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-[#f3f4f6] bg-[#f9fafb] text-[#6b7280]">
+                      <th className="text-left px-4 py-2.5 text-xs font-bold uppercase tracking-wide">Ad</th>
+                      <th className="text-right px-3 py-2.5 text-xs font-bold uppercase tracking-wide">ROAS hist.</th>
+                      <th className="text-right px-3 py-2.5 text-xs font-bold uppercase tracking-wide">Budget actuel</th>
+                      <th className="text-center px-3 py-2.5 text-xs font-bold uppercase tracking-wide">Nouveau budget</th>
+                      <th className="text-right px-3 py-2.5 text-xs font-bold uppercase tracking-wide">Leads proj.</th>
+                      <th className="text-right px-3 py-2.5 text-xs font-bold uppercase tracking-wide">Résa proj.</th>
+                      <th className="text-right px-3 py-2.5 text-xs font-bold uppercase tracking-wide">RDV tenus proj.</th>
+                      <th className="text-right px-3 py-2.5 text-xs font-bold uppercase tracking-wide">Clients proj.</th>
+                      <th className="text-right px-4 py-2.5 text-xs font-bold uppercase tracking-wide">Revenu proj.</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#f3f4f6]">
+                    {simBaseRows.map(r => {
+                      const newSpend = Number(simSpend[r.meta_id] ?? r.spend)
+                      const p = project(r, newSpend)
+                      const delta = newSpend - r.spend
+                      return (
+                        <tr key={r.meta_id} className="hover:bg-[#f9fafb]">
+                          <td className="px-4 py-2.5 font-semibold text-[#1a1a1a] max-w-[200px] truncate">{r.name}</td>
+                          <td className="px-3 py-2.5 text-right font-bold" style={{ color: roasColor(r.roas) }}>{r.roas > 0 ? `${fmt(r.roas, 2)}x` : '—'}</td>
+                          <td className="px-3 py-2.5 text-right text-[#6b7280]">{fmtCAD(r.spend)}</td>
+                          <td className="px-3 py-2.5">
+                            <div className="flex items-center justify-center gap-1">
+                              <span className="text-[#9ca3af]">$</span>
+                              <input
+                                type="number" min="0" step="50"
+                                value={Math.round(newSpend)}
+                                onChange={e => setSimSpend(s => ({ ...s, [r.meta_id]: Number(e.target.value) }))}
+                                className="w-24 text-right border border-[#e5e7eb] rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-[#00bbb1]/30"
+                              />
+                              {delta !== 0 && (
+                                <span className={`text-xs font-semibold ${delta > 0 ? 'text-[#10b981]' : 'text-red-500'}`}>
+                                  {delta > 0 ? '+' : ''}{Math.round(delta / r.spend * 100)}%
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2.5 text-right text-[#6b7280]">{fmt(p.leads, 0)}</td>
+                          <td className="px-3 py-2.5 text-right text-[#6b7280]">{fmt(p.reservations, 0)}</td>
+                          <td className="px-3 py-2.5 text-right text-[#6b7280]">{fmt(p.attended, 0)}</td>
+                          <td className="px-3 py-2.5 text-right text-[#6b7280]">{fmt(p.clients, 1)}</td>
+                          <td className="px-4 py-2.5 text-right font-semibold text-[#10b981]">{fmtCAD(p.revenue)}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="px-6 py-3 text-xs text-[#9ca3af]">
+              📈 Modèle à <b>rendements décroissants</b> (β = {simBeta}) : doubler un budget donne ×{fmt(Math.pow(2, simBeta), 2)} les résultats, pas ×2. Le ROAS baisse quand tu scales, monte quand tu coupes — comme en réalité. L'optimiseur alloue vers les meilleurs ROAS (plafond 3×) et coupe les ads à ROAS &lt; 1.
             </div>
           </div>
         </div>

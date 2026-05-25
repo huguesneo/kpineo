@@ -201,7 +201,10 @@ Deno.serve(async (req) => {
           const name  = normName(String((r.CustomerRef as Record<string, unknown>)?.name ?? ''))
           const email = String((r.BillEmail as Record<string, unknown>)?.Address ?? '').toLowerCase().trim()
           if (!name && !email) continue
-          const t: Txn = { id: `${type}_${r.Id}`, email, name, amt: sign * Number(r.TotalAmt ?? 0), inPeriod: inPeriod(String(r.TxnDate ?? '')) }
+          // Montant AVANT taxes = total − taxes
+          const tax = Number((r.TxnTaxDetail as Record<string, unknown>)?.TotalTax ?? 0)
+          const preTax = Number(r.TotalAmt ?? 0) - tax
+          const t: Txn = { id: `${type}_${r.Id}`, email, name, amt: sign * preTax, inPeriod: inPeriod(String(r.TxnDate ?? '')) }
           txns.push(t)
           if (email) { if (!byEmail.has(email)) byEmail.set(email, []); byEmail.get(email)!.push(t) }
           if (name)  { if (!byName.has(name))  byName.set(name, []);  byName.get(name)!.push(t) }
