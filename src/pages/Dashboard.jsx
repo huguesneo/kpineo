@@ -114,6 +114,11 @@ function ClinicAnnualCard({ objectives, revenue = 0, monthlyRevenue = 0, annualD
   const completedMonths = monthsElapsed - 1
   const avgMonthly = completedMonths > 0 ? (ytd - currentMonthRev) / completedMonths : null
 
+  // Compare completed months only: actual vs expected at end of last full month
+  const ytdCompleted = ytd - currentMonthRev
+  const expectedYTD = Math.round((completedMonths / 12) * activeObj.target_value)
+  const annualPaceGap = completedMonths > 0 ? ytdCompleted - expectedYTD : null
+
   const barColor = pct >= 80 ? '#10b981' : pct >= 50 ? '#f59e0b' : '#00bbb1'
 
   return (
@@ -141,12 +146,23 @@ function ClinicAnnualCard({ objectives, revenue = 0, monthlyRevenue = 0, annualD
         </div>
       </div>
 
-      <div className="w-full bg-gray-100 rounded-full h-3 mb-4">
+      <div className="w-full bg-gray-100 rounded-full h-3 mb-3">
         <div
           className="h-3 rounded-full transition-all duration-700"
           style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${barColor}aa, ${barColor})` }}
         />
       </div>
+
+      {annualPaceGap !== null && (
+        <div className={`flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold mb-4 ${annualPaceGap >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
+          <span className={annualPaceGap >= 0 ? 'text-emerald-700' : 'text-red-600'}>
+            {annualPaceGap >= 0 ? '✓ En ligne avec l\'objectif' : '↓ En retard sur l\'objectif'}
+          </span>
+          <span className={annualPaceGap >= 0 ? 'text-emerald-600' : 'text-red-500'}>
+            {annualPaceGap >= 0 ? '+' : ''}{fmtCAD(annualPaceGap)} après {completedMonths} mois
+          </span>
+        </div>
+      )}
 
       <div className="flex items-center justify-between pt-2 border-t border-[#f5f5f7]">
         <div className="text-center">
@@ -262,6 +278,9 @@ function ClinicMonthlyCard({ objectives, revenue = null, prevRevenue = null, ann
   const dayOfMonth = new Date().getDate()
   const daysLeft = daysInMonth - dayOfMonth
 
+  const expectedToday = Math.round((dayOfMonth / daysInMonth) * effectiveTarget)
+  const monthlyPaceGap = total - expectedToday
+
   const vsLastMonth = prevRevenue != null && prevRevenue > 0
     ? Math.round(((total - prevRevenue) / prevRevenue) * 100)
     : null
@@ -285,12 +304,22 @@ function ClinicMonthlyCard({ objectives, revenue = null, prevRevenue = null, ann
         </span>
         <span className="ml-auto text-2xl font-bold" style={{ color: barColor }}>{pct}%</span>
       </div>
-      <div className="w-full bg-gray-100 rounded-full h-2.5 mb-3">
+      <div className="w-full bg-gray-100 rounded-full h-2.5 mb-2">
         <div
           className="h-2.5 rounded-full transition-all duration-700"
           style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${barColor}aa, ${barColor})` }}
         />
       </div>
+
+      <div className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-semibold mb-2 ${monthlyPaceGap >= 0 ? 'bg-emerald-50' : 'bg-red-50'}`}>
+        <span className={monthlyPaceGap >= 0 ? 'text-emerald-700' : 'text-red-600'}>
+          {monthlyPaceGap >= 0 ? '✓ En ligne' : '↓ En retard'}
+        </span>
+        <span className={monthlyPaceGap >= 0 ? 'text-emerald-600' : 'text-red-500'}>
+          {monthlyPaceGap >= 0 ? '+' : ''}{fmtCAD(monthlyPaceGap)} vs aujourd'hui
+        </span>
+      </div>
+
       <div className="flex items-center justify-between">
         {activeObj ? (
           <p className="text-xs text-[#6b7280]">
