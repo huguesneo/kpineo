@@ -318,7 +318,7 @@ export default function Taches() {
   const isAdmin = profile?.role === 'admin'
   const isRespVente = profile?.role === 'resp_vente'
   const isAdminOrRespVente = isAdmin || isRespVente
-  const isCloserMember = hasCloserRole && !isAdminOrRespVente
+  const isCloserMember = hasCloserRole && !isAdmin
 
   const eodMissed = useCloserEODMissedBadge(
     isCloserMember ? profile?.id : null,
@@ -452,6 +452,26 @@ export default function Taches() {
             currentUserId={currentUserId}
             onUpdate={refetch}
           />
+
+          {/* Section EOD pour resp_vente qui fait aussi du close */}
+          {isCloserMember && (
+            <div>
+              <p className="text-xs font-bold text-[#6b7280] uppercase tracking-wider px-1 mb-2 flex items-center gap-2">
+                Rapport End of Day
+                {eodMissed > 0 && (
+                  <span className="bg-amber-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    Hier manquant
+                  </span>
+                )}
+              </p>
+              <CloserEODForm
+                userId={profile?.id}
+                ghlUserId={profile?.ghl_user_id ?? null}
+                closerName={profile?.full_name ?? null}
+                missedYesterday={eodMissed > 0}
+              />
+            </div>
+          )}
         </div>
       ) : (
         /* ── Member view ── */
