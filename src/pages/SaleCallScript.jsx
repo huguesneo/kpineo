@@ -61,6 +61,74 @@ const QUAL_FIELDS = [
   { key: 'note',         label: 'Note supplémentaire',                               type: 'textarea', optional: true },
 ]
 
+// ─── Evaluation booking modal ─────────────────────────────────
+const EVAL_TABS = [
+  { key: 'clinique',  label: 'Évaluation en clinique', src: 'https://api.leadconnectorhq.com/widget/booking/nF4GjzBPg0JJu7aSdi4d' },
+  { key: 'ligne',     label: 'Évaluation en ligne',     src: 'https://api.leadconnectorhq.com/widget/booking/EN1rRFnOcotGonaMAV3N' },
+  { key: 'ouverture', label: 'Ouverture de dossier',    src: 'https://api.leadconnectorhq.com/widget/booking/7BpembfPxvDHewFh51EN' },
+]
+
+function EvalBookingModal({ onClose }) {
+  const [tab, setTab] = useState('clinique')
+  const current = EVAL_TABS.find(t => t.key === tab)
+  return (
+    <>
+      {/* Overlay */}
+      <div className="fixed inset-0 z-50 bg-black/40" onClick={onClose} />
+
+      {/* Popup centré, adaptatif à l'écran */}
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-6 pointer-events-none">
+        <div
+          className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col pointer-events-auto overflow-hidden"
+          style={{ height: '88vh' }}
+        >
+          {/* Header compact : titre + onglets + fermer sur une ligne */}
+          <div className="flex items-center gap-3 px-5 border-b border-[#e5e7eb] flex-shrink-0" style={{ minHeight: 52 }}>
+            <span className="text-sm font-bold text-[#1a1a1a] flex-shrink-0 whitespace-nowrap">
+              Prendre rencontre d'évaluation
+            </span>
+            <div className="flex flex-1 overflow-x-auto">
+              {EVAL_TABS.map(t => (
+                <button
+                  key={t.key}
+                  onClick={() => setTab(t.key)}
+                  className={`px-4 py-3 text-sm font-semibold border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
+                    tab === t.key
+                      ? 'border-[#00bbb1] text-[#00bbb1]'
+                      : 'border-transparent text-[#6b7280] hover:text-[#1a1a1a]'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={onClose}
+              className="flex-shrink-0 p-1.5 rounded-lg hover:bg-gray-100 text-[#9ca3af] transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          {/* iframe remplit tout l'espace restant */}
+          <div className="flex-1 relative">
+            {current && (
+              <iframe
+                key={tab}
+                src={current.src}
+                title={current.label}
+                style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 'none' }}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
 // ─── Status badge ─────────────────────────────────────────────
 function ApptStatusBadge({ status }) {
   const map = {
@@ -170,6 +238,7 @@ export default function SaleCallScript() {
   const [statusSaving, setStatusSaving] = useState(false)
   const [noteSaved, setNoteSaved]       = useState(false)
   const [autoSaved,  setAutoSaved]      = useState(false)
+  const [evalOpen,   setEvalOpen]       = useState(false)
 
   // Progress
   const filledCount = QUAL_FIELDS.filter(f => qual[f.key]?.trim()).length
@@ -476,6 +545,17 @@ export default function SaleCallScript() {
           </button>
 
           <div className="p-5 space-y-2.5">
+            {/* Préparer évaluation */}
+            <button
+              onClick={() => setEvalOpen(true)}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold border-2 border-[#00bbb1] text-[#00bbb1] hover:bg-[#00bbb1]/5 transition-all active:scale-[0.99]"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              Prendre rencontre d'évaluation
+            </button>
+
             {/* Statut RDV */}
             <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide mb-3">Statut du rendez-vous</p>
             <div className="grid grid-cols-3 gap-2">
@@ -553,6 +633,8 @@ export default function SaleCallScript() {
         {/* Bottom spacer for mobile */}
         <div className="h-8" />
       </div>
+
+      {evalOpen && <EvalBookingModal onClose={() => setEvalOpen(false)} />}
     </Layout>
   )
 }

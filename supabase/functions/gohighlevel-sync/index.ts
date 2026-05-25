@@ -27,12 +27,15 @@ async function fetchAndUpsertContacts(
 ): Promise<{ synced: number; nextCursor: string | null }> {
   let synced = 0
   let nextCursor: string | null = null
-  let cursor: string | undefined = startAfterCursor
+  // cursor peut contenir "startAfter|startAfterId" (nouveau) ou juste startAfter (legacy)
+  let cursorTs: string | undefined = startAfterCursor?.split('|')[0]
+  let cursorId: string | undefined = startAfterCursor?.split('|')[1]
   const BATCH_SIZE = 500
 
   while (synced < maxContacts) {
     const params = new URLSearchParams({ locationId, limit: '100' })
-    if (cursor) params.set('startAfter', cursor)
+    if (cursorTs) params.set('startAfter', cursorTs)
+    if (cursorId) params.set('startAfterId', cursorId)
     if (sinceDate) params.set('startDate', sinceDate)
 
     const res = await fetch(`${GHL_BASE}/contacts/?${params}`, { headers: ghlHeaders(apiKey) })
@@ -43,19 +46,27 @@ async function fetchAndUpsertContacts(
     const data = await res.json() as Record<string, unknown>
     const contacts = (data?.contacts ?? []) as Record<string, unknown>[]
 
-    const rows = contacts.map(c => ({
-      ghl_id:         String(c.id ?? ''),
-      location_id:    locationId,
-      first_name:     String(c.firstName ?? ''),
-      last_name:      String(c.lastName ?? ''),
-      email:          String(c.email ?? ''),
-      phone:          String(c.phone ?? ''),
-      tags:           (c.tags ?? []) as string[],
-      source:         String(c.source ?? ''),
-      created_at_ghl: c.dateAdded ? new Date(c.dateAdded as string).toISOString() : null,
-      raw:            c,
-      synced_at:      new Date().toISOString(),
-    }))
+    const rows = contacts.map(c => {
+      // Attribution first-touch (le clic d'ad Meta qui a amené le lead)
+      const attributions = (c.attributions ?? []) as Record<string, unknown>[]
+      const firstTouch = attributions.find(a => a.isFirst) ?? attributions[0] ?? {}
+      return {
+        ghl_id:         String(c.id ?? ''),
+        location_id:    locationId,
+        first_name:     String(c.firstName ?? ''),
+        last_name:      String(c.lastName ?? ''),
+        email:          String(c.email ?? ''),
+        phone:          String(c.phone ?? ''),
+        tags:           (c.tags ?? []) as string[],
+        source:         String(c.source ?? ''),
+        utm_campaign:   String(firstTouch.utmCampaign ?? ''),
+        utm_content:    String(firstTouch.utmContent ?? ''),
+        utm_source:     String(firstTouch.utmSource ?? ''),
+        created_at_ghl: c.dateAdded ? new Date(c.dateAdded as string).toISOString() : null,
+        raw:            c,
+        synced_at:      new Date().toISOString(),
+      }
+    })
 
     for (let i = 0; i < rows.length; i += BATCH_SIZE) {
       await supabase.from('ghl_contacts').upsert(rows.slice(i, i + BATCH_SIZE), { onConflict: 'ghl_id' })
@@ -65,13 +76,17 @@ async function fetchAndUpsertContacts(
     const meta = data?.meta as Record<string, unknown>
     if (contacts.length < 100 || !meta?.nextPageUrl) break
 
-    const next = String(meta?.nextPageUrl ?? '')
-    const m = next.match(/startAfter=([^&]+)/)
-    if (!m) break
-    cursor = m[1]
+    // GHL expose startAfter (timestamp) ET startAfterId directement dans meta
+    const nextTs = meta?.startAfter != null ? String(meta.startAfter) : undefined
+    const nextId = meta?.startAfterId != null ? String(meta.startAfterId) : undefined
+    if (!nextTs || !nextId) break
+    // Sécurité anti-boucle : si le curseur n'avance pas, on arrête
+    if (nextTs === cursorTs && nextId === cursorId) break
+    cursorTs = nextTs
+    cursorId = nextId
 
     if (synced >= maxContacts) {
-      nextCursor = cursor
+      nextCursor = `${cursorTs}|${cursorId}`
       break
     }
   }

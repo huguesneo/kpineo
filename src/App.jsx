@@ -21,6 +21,8 @@ import EquipeVente from './pages/EquipeVente'
 import EquipeNaturo from './pages/EquipeNaturo'
 import SaleCallScript from './pages/SaleCallScript'
 import CloserCalendar from './pages/CloserCalendar'
+import CentreVente from './pages/CentreVente'
+import MetaAds from './pages/MetaAds'
 
 function LoadingScreen() {
   return (
@@ -89,6 +91,8 @@ function AppRoutes() {
       <Route path="/closer"     element={<PrivateRoute><Closer /></PrivateRoute>} />
       <Route path="/calendrier" element={<PrivateRoute><CloserCalendar /></PrivateRoute>} />
       <Route path="/sale-call-script/:appointmentGhlId" element={<PrivateRoute><SaleCallScript /></PrivateRoute>} />
+      <Route path="/centre-vente" element={<PrivateRoute><CentreVente /></PrivateRoute>} />
+      <Route path="/meta-ads"    element={<SalesManagerRoute><MetaAds /></SalesManagerRoute>} />
 
       {/* Admin + resp_vente — équipe de vente & naturopathe */}
       <Route path="/closer-admin" element={<SalesManagerRoute><CloserAdmin /></SalesManagerRoute>} />
