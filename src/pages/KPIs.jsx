@@ -8,7 +8,7 @@ import KPIModal from '../components/kpis/KPIModal'
 import Modal from '../components/shared/Modal'
 import Input from '../components/shared/Input'
 import { SkeletonTable } from '../components/shared/Skeleton'
-import { useKPIEntries, useClinicKPIEntries, useEODReports, getPeriodDates, KPI_TYPE_LABELS } from '../hooks/useKPIs'
+import { useKPIEntries, useClinicKPIEntries, useEODReports, getPeriodDates, KPI_TYPE_LABELS, deleteKPIEntry, parseKPIValue } from '../hooks/useKPIs'
 import { useClinicObjectives, createObjective, deleteObjective, CLINIC_OBJECTIVE_TYPES } from '../hooks/useObjectives'
 import { useMembers } from '../hooks/useMembers'
 import { useAuth } from '../context/AuthContext'
@@ -236,6 +236,72 @@ function ClinicObjectivesPanel({ isAdmin }) {
   )
 }
 
+function KPIEntriesTable({ entries, isAdmin, onDeleted }) {
+  const [confirmId, setConfirmId] = useState(null)
+  const [deletingId, setDeletingId] = useState(null)
+
+  async function handleDelete(id) {
+    setDeletingId(id)
+    await deleteKPIEntry(id)
+    setDeletingId(null)
+    setConfirmId(null)
+    onDeleted?.()
+  }
+
+  return (
+    <table className="w-full">
+      <thead>
+        <tr className="border-b border-[#e5e7eb]">
+          <th className="text-left py-2 px-2 text-xs font-semibold text-[#6b7280] uppercase">Membre</th>
+          <th className="text-left py-2 px-2 text-xs font-semibold text-[#6b7280] uppercase">Date</th>
+          <th className="text-left py-2 px-2 text-xs font-semibold text-[#6b7280] uppercase">Type</th>
+          <th className="text-right py-2 px-2 text-xs font-semibold text-[#6b7280] uppercase">Valeur</th>
+          {isAdmin && <th className="w-8" />}
+        </tr>
+      </thead>
+      <tbody>
+        {entries.map(e => (
+          <tr key={e.id} className="border-b border-[#f5f5f7] hover:bg-gray-50">
+            <td className="py-2.5 px-2 text-sm font-semibold text-[#1a1a1a]">{e.profiles?.full_name || '—'}</td>
+            <td className="py-2.5 px-2 text-sm text-[#6b7280]">{format(parseISO(e.entry_date), 'd MMM yyyy', { locale: fr })}</td>
+            <td className="py-2.5 px-2 text-sm text-[#6b7280]">{KPI_TYPE_LABELS[e.kpi_type] || e.kpi_type}</td>
+            <td className="py-2.5 px-2 text-right font-bold text-[#1a1a1a]">
+              {parseKPIValue(e).displayValue}
+            </td>
+            {isAdmin && (
+              <td className="py-2.5 px-2 text-right">
+                {confirmId === e.id ? (
+                  <div className="flex items-center justify-end gap-1">
+                    <button
+                      onClick={() => handleDelete(e.id)}
+                      disabled={deletingId === e.id}
+                      className="text-xs text-red-500 font-semibold hover:text-red-700 disabled:opacity-50"
+                    >
+                      {deletingId === e.id ? '…' : 'Oui'}
+                    </button>
+                    <span className="text-[#d1d5db]">/</span>
+                    <button onClick={() => setConfirmId(null)} className="text-xs text-[#6b7280] hover:text-[#1a1a1a]">Non</button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setConfirmId(e.id)}
+                    className="p-1 text-gray-300 hover:text-red-500 transition-colors"
+                    title="Supprimer cette entrée"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                )}
+              </td>
+            )}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
 export default function KPIs() {
   const { profile } = useAuth()
   const isAdmin = profile?.role === 'admin'
@@ -311,26 +377,7 @@ export default function KPIs() {
             {kpiLoading ? <SkeletonTable rows={5} /> : entries.length === 0 ? (
               <p className="text-sm text-[#6b7280]">Aucune entrée pour cette période.</p>
             ) : (
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-[#e5e7eb]">
-                    <th className="text-left py-2 px-2 text-xs font-semibold text-[#6b7280] uppercase">Membre</th>
-                    <th className="text-left py-2 px-2 text-xs font-semibold text-[#6b7280] uppercase">Date</th>
-                    <th className="text-left py-2 px-2 text-xs font-semibold text-[#6b7280] uppercase">Type</th>
-                    <th className="text-right py-2 px-2 text-xs font-semibold text-[#6b7280] uppercase">Valeur</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {entries.map(e => (
-                    <tr key={e.id} className="border-b border-[#f5f5f7] hover:bg-gray-50">
-                      <td className="py-2.5 px-2 text-sm font-semibold text-[#1a1a1a]">{e.profiles?.full_name || '—'}</td>
-                      <td className="py-2.5 px-2 text-sm text-[#6b7280]">{format(parseISO(e.entry_date), 'd MMM yyyy', { locale: fr })}</td>
-                      <td className="py-2.5 px-2 text-sm text-[#6b7280]">{KPI_TYPE_LABELS[e.kpi_type] || e.kpi_type}</td>
-                      <td className="py-2.5 px-2 text-right font-bold text-[#1a1a1a]">{Number(e.value).toLocaleString('fr-CA')}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <KPIEntriesTable entries={entries} isAdmin={isAdmin} onDeleted={refetchEntries} />
             )}
           </Card>
 

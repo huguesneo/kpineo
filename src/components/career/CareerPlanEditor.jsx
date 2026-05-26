@@ -186,7 +186,7 @@ export default function CareerPlanEditor({ userId, baseSalary, annualBonus, onBa
                       <span className="text-xs font-semibold text-[#00bbb1] bg-[#00bbb1]/10 px-2 py-0.5 rounded-full">Année en cours</span>
                     )}
                   </div>
-                  {plan.notes && <p className="text-xs text-[#6b7280] mt-0.5">{plan.notes}</p>}
+                  {plan.notes && <p className="text-xs text-[#6b7280] mt-0.5 whitespace-pre-wrap">{plan.notes}</p>}
                 </div>
                 <div className="flex items-center gap-3">
                   <p className="font-bold text-[#1a1a1a]">

@@ -9,6 +9,7 @@ import Modal from '../components/shared/Modal'
 import Input from '../components/shared/Input'
 import TaskSection from '../components/tasks/TaskSection'
 import KPIModal from '../components/kpis/KPIModal'
+import EditKPIModal from '../components/kpis/EditKPIModal'
 import CareerPlanEditor from '../components/career/CareerPlanEditor'
 import BonusTracker from '../components/career/BonusTracker'
 import QuarterlyPanel from '../components/career/QuarterlyPanel'
@@ -19,7 +20,7 @@ import MonthNavigator from '../components/shared/MonthNavigator'
 import { useMember } from '../hooks/useMembers'
 import { useObjectives, createObjective, deleteObjective, OBJECTIVE_TYPES_BY_ROLE, OBJECTIVE_TYPE_LABELS } from '../hooks/useObjectives'
 import { useTasks } from '../hooks/useTasks'
-import { useKPIEntries, useEODReports, KPI_TYPE_LABELS } from '../hooks/useKPIs'
+import { useKPIEntries, useEODReports, KPI_TYPE_LABELS, deleteKPIEntry, parseKPIValue } from '../hooks/useKPIs'
 import { useQuarterlyBonus } from '../hooks/useCareerPlan'
 import { useQBMemberRevenue, useQBMemberRevenueForMonth } from '../hooks/useQuickBooks'
 import { useUserPoints, usePointsTransactions, usePointsHistory } from '../hooks/usePoints'
@@ -486,6 +487,9 @@ function EODReportItem({ report }) {
 function KPIsTab({ userId, userRole }) {
   const [period, setPeriod] = useState('mois')
   const [kpiModalOpen, setKpiModalOpen] = useState(false)
+  const [editEntry, setEditEntry] = useState(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null)
+  const [deletingId, setDeletingId] = useState(null)
   const { entries, loading: kpiLoading, refetch: refetchKPIs } = useKPIEntries({ userId })
   const { reports, loading: eodLoading } = useEODReports({ userId })
 
@@ -494,6 +498,14 @@ function KPIsTab({ userId, userRole }) {
     { value: 'mois', label: 'Mois' },
     { value: 'trimestre', label: 'Trimestre' },
   ]
+
+  async function handleDelete(id) {
+    setDeletingId(id)
+    await deleteKPIEntry(id)
+    setDeletingId(null)
+    setConfirmDeleteId(null)
+    refetchKPIs()
+  }
 
   return (
     <div className="space-y-6">
@@ -523,20 +535,63 @@ function KPIsTab({ userId, userRole }) {
           userRole={userRole}
           onCreated={refetchKPIs}
         />
+        <EditKPIModal
+          isOpen={!!editEntry}
+          onClose={() => setEditEntry(null)}
+          entry={editEntry}
+          onUpdated={refetchKPIs}
+        />
         {kpiLoading ? <SkeletonCard /> : entries.length === 0 ? (
           <Card className="p-5"><p className="text-sm text-[#6b7280]">Aucune entrée KPI.</p></Card>
         ) : (
           <div className="space-y-2">
-            {entries.map(entry => (
-              <div key={entry.id} className="flex items-center justify-between px-4 py-3 bg-white rounded-lg border border-[#e5e7eb]">
-                <div>
-                  <p className="text-sm font-semibold text-[#1a1a1a]">{KPI_TYPE_LABELS[entry.kpi_type] || entry.kpi_type}</p>
-                  <p className="text-xs text-[#6b7280]">{format(parseISO(entry.entry_date), 'd MMM yyyy', { locale: fr })}</p>
-                  {entry.notes && <p className="text-xs text-[#6b7280] mt-0.5">{entry.notes}</p>}
+            {entries.map(entry => {
+              const { displayValue, notes } = parseKPIValue(entry)
+              return (
+                <div key={entry.id} className="flex items-start justify-between gap-3 px-4 py-3 bg-white rounded-lg border border-[#e5e7eb]">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-[#1a1a1a]">{KPI_TYPE_LABELS[entry.kpi_type] || entry.kpi_type}</p>
+                    <p className="text-xs text-[#6b7280]">{format(parseISO(entry.entry_date), 'd MMM yyyy', { locale: fr })}</p>
+                    {notes && <p className="text-xs text-[#6b7280] mt-0.5">{notes}</p>}
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <p className="text-lg font-bold text-[#1a1a1a]">{displayValue}</p>
+                    <button
+                      onClick={() => setEditEntry(entry)}
+                      className="p-1 text-gray-300 hover:text-[#00bbb1] transition-colors"
+                      title="Modifier"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
+                    {confirmDeleteId === entry.id ? (
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleDelete(entry.id)}
+                          disabled={deletingId === entry.id}
+                          className="text-xs text-red-500 font-semibold hover:text-red-700 disabled:opacity-50"
+                        >
+                          {deletingId === entry.id ? '…' : 'Oui'}
+                        </button>
+                        <span className="text-[#d1d5db]">/</span>
+                        <button onClick={() => setConfirmDeleteId(null)} className="text-xs text-[#6b7280]">Non</button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteId(entry.id)}
+                        className="p-1 text-gray-300 hover:text-red-500 transition-colors"
+                        title="Supprimer"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <p className="text-lg font-bold text-[#1a1a1a]">{entry.value.toLocaleString('fr-CA')}</p>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

@@ -1304,6 +1304,7 @@ function PaymentRow({ payment }) {
 // ─── Member Dashboard ─────────────────────────────────────────
 function MemberDashboard() {
   const { profile } = useAuth()
+  const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState({ pendingTasks: 0, completedToday: 0, kpiThisMonth: 0 })
   const [myObjectives, setMyObjectives] = useState([])
@@ -1499,12 +1500,15 @@ function MemberDashboard() {
       <div className="grid grid-cols-3 gap-4 mb-6">
         {loading ? [...Array(3)].map((_, i) => <SkeletonCard key={i} />) : <>
           <StatCard label="Tâches en attente" value={stats.pendingTasks} color="#00bbb1"
+            onClick={() => navigate('/taches')}
             icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>}
           />
           <StatCard label="Complétées aujourd'hui" value={stats.completedToday} color="#10b981"
+            onClick={() => navigate('/taches')}
             icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
           />
           <StatCard label="KPIs soumis ce mois" value={stats.kpiThisMonth} color="#6366f1"
+            onClick={() => navigate('/kpis')}
             icon={<svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75z" /></svg>}
           />
         </>}

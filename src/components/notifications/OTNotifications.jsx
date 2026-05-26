@@ -146,6 +146,7 @@ export default function OTNotifications() {
   const [approvedRecs, setApprovedRecs]       = useState([])
   const [reviewedChanges, setReviewedChanges] = useState([])
   const [reviewedAdjs, setReviewedAdjs]       = useState([])
+  const [questionedAdjs, setQuestionedAdjs]   = useState([])
 
   // ── Boutique states ──
   const [redemptionToasts, setRedemptionToasts]   = useState([])   // admin: new pending
@@ -358,8 +359,16 @@ export default function OTNotifications() {
         }
       )
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'schedule_adjustments' },
-        (payload) => {
-          if (payload.new.status !== 'pending') setPendingAdjs(prev => prev.filter(r => r.id !== payload.new.id))
+        async (payload) => {
+          if (payload.new.status === 'pending') {
+            // Member replied to a question — re-add to pending list with enriched name
+            const { data: prof } = await supabase.from('profiles').select('full_name').eq('id', payload.new.user_id).single()
+            const enriched = { ...payload.new, profiles: { full_name: prof?.full_name ?? 'Membre' } }
+            setPendingAdjs(prev => [enriched, ...prev.filter(r => r.id !== enriched.id)])
+            if (payload.old?.status === 'questioned') playDing()
+          } else {
+            setPendingAdjs(prev => prev.filter(r => r.id !== payload.new.id))
+          }
         }
       )
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'schedule_adjustments' },
@@ -371,26 +380,33 @@ export default function OTNotifications() {
   }, [isAdmin])
 
   // ─────────────────────────────────────────────────────────────
-  // Membre : ajustements reviewés non vus
+  // Membre : ajustements reviewés + questionnés (un seul canal)
   // ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (isAdmin || !profile?.id) return
 
-    function getSeenAdjIds() {
-      return new Set(JSON.parse(localStorage.getItem('adj_seen') ?? '[]'))
-    }
+    function getSeenAdjIds()      { return new Set(JSON.parse(localStorage.getItem('adj_seen') ?? '[]')) }
+    function getSeenQuestionIds() { return new Set(JSON.parse(localStorage.getItem('adj_questioned_seen') ?? '[]')) }
 
     async function load() {
       const { data } = await supabase
         .from('schedule_adjustments').select('*')
         .eq('user_id', profile.id)
-        .in('status', ['approved', 'rejected'])
-        .order('reviewed_at', { ascending: false })
-        .limit(10)
-      const seen = getSeenAdjIds()
-      const unseen = (data ?? []).filter(a => !seen.has(a.id))
-      setReviewedAdjs(unseen)
-      if (unseen.length > 0 && !dingFired.current) { dingFired.current = true; playDing() }
+        .in('status', ['approved', 'rejected', 'questioned'])
+        .order('created_at', { ascending: false })
+        .limit(20)
+
+      const seenAdj      = getSeenAdjIds()
+      const seenQuestion = getSeenQuestionIds()
+      const reviewed   = (data ?? []).filter(a => (a.status === 'approved' || a.status === 'rejected') && !seenAdj.has(a.id))
+      const questioned = (data ?? []).filter(a => a.status === 'questioned' && !seenQuestion.has(a.id))
+
+      setReviewedAdjs(reviewed)
+      setQuestionedAdjs(questioned)
+
+      if ((reviewed.length > 0 || questioned.length > 0) && !dingFired.current) {
+        dingFired.current = true; playDing()
+      }
     }
     load()
 
@@ -403,7 +419,15 @@ export default function OTNotifications() {
         if (status === 'approved' || status === 'rejected') {
           const seen = getSeenAdjIds()
           if (!seen.has(payload.new.id)) {
-            setReviewedAdjs(prev => [payload.new, ...prev]); playDing()
+            setReviewedAdjs(prev => [payload.new, ...prev.filter(a => a.id !== payload.new.id)])
+            playDing()
+          }
+          setQuestionedAdjs(prev => prev.filter(a => a.id !== payload.new.id))
+        } else if (status === 'questioned') {
+          const seen = getSeenQuestionIds()
+          if (!seen.has(payload.new.id)) {
+            setQuestionedAdjs(prev => [payload.new, ...prev.filter(a => a.id !== payload.new.id)])
+            playDing()
           }
         }
       })
@@ -503,6 +527,11 @@ export default function OTNotifications() {
     localStorage.setItem('adj_seen', JSON.stringify([...seen, id]))
     setReviewedAdjs(prev => prev.filter(a => a.id !== id))
   }
+  function memberAdjQuestionDismiss(id) {
+    const seen = JSON.parse(localStorage.getItem('adj_questioned_seen') ?? '[]')
+    localStorage.setItem('adj_questioned_seen', JSON.stringify([...seen, id]))
+    setQuestionedAdjs(prev => prev.filter(a => a.id !== id))
+  }
 
   // ── Toasts à afficher ──
   const visibleOt      = (isAdmin && onDashboard) ? pendingRecs.filter(r => !otDismissed.has(r.id)) : []
@@ -511,8 +540,9 @@ export default function OTNotifications() {
   const visibleRedeems = isAdmin ? redemptionToasts.filter(r => !redeemDismissed.has(r.id)).slice(0, 2) : []
   const memberOtToasts       = !isAdmin ? approvedRecs.slice(0, 2) : []
   const memberChangeToasts   = !isAdmin ? reviewedChanges.slice(0, 2) : []
-  const memberAdjToasts      = !isAdmin ? reviewedAdjs.slice(0, 2) : []
-  const memberRedeemVisible  = !isAdmin ? memberRedeemToasts.slice(0, 2) : []
+  const memberAdjToasts          = !isAdmin ? reviewedAdjs.slice(0, 2) : []
+  const memberAdjQuestionToasts  = !isAdmin ? questionedAdjs.slice(0, 2) : []
+  const memberRedeemVisible      = !isAdmin ? memberRedeemToasts.slice(0, 2) : []
 
   // Combine admin toasts (max 4 total)
   const allAdminToasts = [
@@ -522,7 +552,7 @@ export default function OTNotifications() {
     ...visibleRedeems.map(r => ({ ...r, _kind: 'redeem' })),
   ].slice(0, 4)
 
-  const hasAny = allAdminToasts.length || memberOtToasts.length || memberChangeToasts.length || memberAdjToasts.length || memberRedeemVisible.length
+  const hasAny = allAdminToasts.length || memberOtToasts.length || memberChangeToasts.length || memberAdjToasts.length || memberAdjQuestionToasts.length || memberRedeemVisible.length
   if (!hasAny) return null
 
   return (
@@ -716,6 +746,32 @@ export default function OTNotifications() {
           </div>
         )
       })}
+
+      {/* Membre : question admin sur ajustement journalier */}
+      {memberAdjQuestionToasts.map((a, i) => (
+        <div key={`madj-q-${a.id}`} className="pointer-events-auto">
+          <Toast
+            delay={i * 300}
+            icon={
+              <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-xl">
+                💬
+              </div>
+            }
+            title="Question sur ton ajustement"
+            subtitle={
+              <>
+                <span className="capitalize">{fmtDayDate(a.date)}</span>
+                {a.admin_question && (
+                  <><br /><em>« {a.admin_question} »</em></>
+                )}
+              </>
+            }
+            actionLabel="Répondre"
+            onAction={() => { memberAdjQuestionDismiss(a.id); navigate('/horaires') }}
+            onDismiss={() => memberAdjQuestionDismiss(a.id)}
+          />
+        </div>
+      ))}
 
       {/* Membre : changements reviewés */}
       {memberChangeToasts.map((c, i) => {

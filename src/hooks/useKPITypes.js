@@ -31,8 +31,8 @@ export async function createKPIType({ label, role_scope }) {
   const value = label
     .toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/\s+/g, '_')
-    .replace(/[^a-z0-9_]/g, '')
+    .replace(/[^a-z0-9 ]/g, '')
+    .trim()
 
   const { data, error } = await supabase
     .from('kpi_types')

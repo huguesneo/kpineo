@@ -8,7 +8,7 @@ import {
   requestChange, cancelChangeRequest, approveChange, rejectChange,
 } from '../../hooks/useSchedule'
 import { usePayPeriodConfig, getCurrentPayPeriod } from '../../hooks/usePayPeriod'
-import { useScheduleAdjustments, createAdjustment, approveAdjustment, rejectAdjustment, deleteAdjustment } from '../../hooks/useScheduleAdjustments'
+import { useScheduleAdjustments, createAdjustment, approveAdjustment, rejectAdjustment, deleteAdjustment, questionAdjustment, replyToQuestion } from '../../hooks/useScheduleAdjustments'
 import { useUpcomingHolidays } from '../../hooks/useHolidays'
 import { usePunchEntries, upsertPunchEntry, deletePunchEntry } from '../../hooks/usePunchEntries'
 import { format, parseISO, eachDayOfInterval } from 'date-fns'
@@ -97,13 +97,15 @@ function calcPayPeriodHoursWithAdjustments(schedules, adjustments, periodStart, 
 }
 
 // ─── Adjustment form ───────────────────────────────────────────
-function AdjustmentForm({ schedules, bankBalance, existingForDate, onSave, onCancel, saving }) {
+function AdjustmentForm({ schedules, bankBalance, existingForDate, onSave, onCancel, saving, isAdmin = false }) {
   const today = new Date().toISOString().split('T')[0]
   const [date, setDate] = useState(today)
   const [adjHoursStr, setAdjHoursStr] = useState('')
   const [useBank, setUseBank] = useState(false)
   const [bankApplyStr, setBankApplyStr] = useState('')
   const [notes, setNotes] = useState('')
+  const [startTime, setStartTime] = useState('')
+  const [endTime, setEndTime] = useState('')
 
   const normalHours = getScheduledHoursForDate(schedules, date)
   const adjH = adjHoursStr !== '' ? Number(adjHoursStr) : null
@@ -126,7 +128,8 @@ function AdjustmentForm({ schedules, bankBalance, existingForDate, onSave, onCan
 
   function handleSubmit() {
     if (adjH === null || delta === 0 || wouldExceedBank || normalHours === 0 || blockedByExisting) return
-    onSave({ date, adjusted_hours: adjH, normal_hours: normalHours, bank_hours_applied: bankApply, notes: notes || null })
+    if (!isAdmin && (!startTime || !endTime)) return
+    onSave({ date, adjusted_hours: adjH, normal_hours: normalHours, bank_hours_applied: bankApply, notes: notes || null, start_time: startTime || null, end_time: endTime || null })
   }
 
   return (
@@ -196,6 +199,21 @@ function AdjustmentForm({ schedules, bankBalance, existingForDate, onSave, onCan
         </div>
       )}
 
+      {!isAdmin && (
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-semibold text-[#6b7280] mb-1 block">Heure d'arrivée *</label>
+            <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00bbb1]" />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-[#6b7280] mb-1 block">Heure de départ *</label>
+            <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00bbb1]" />
+          </div>
+        </div>
+      )}
+
       <div>
         <label className="text-xs font-semibold text-[#6b7280] mb-1 block">Note (optionnel)</label>
         <input type="text" value={notes} onChange={e => setNotes(e.target.value)}
@@ -206,9 +224,9 @@ function AdjustmentForm({ schedules, bankBalance, existingForDate, onSave, onCan
       <div className="flex justify-end gap-2">
         <Button size="sm" variant="secondary" onClick={onCancel}>Annuler</Button>
         <Button size="sm" loading={saving}
-          disabled={adjH === null || delta === 0 || wouldExceedBank || normalHours === 0 || blockedByExisting}
+          disabled={adjH === null || delta === 0 || wouldExceedBank || normalHours === 0 || blockedByExisting || (!isAdmin && (!startTime || !endTime))}
           onClick={handleSubmit}>
-          Envoyer pour approbation
+          {isAdmin ? 'Enregistrer' : 'Envoyer pour approbation'}
         </Button>
       </div>
     </div>
@@ -491,6 +509,12 @@ export default function ScheduleManager({ userId, isAdmin, weeklyTarget = 40, pu
   const [approvingAdj, setApprovingAdj] = useState(null)
   const [rejectingAdj, setRejectingAdj] = useState(null)
   const [confirmDelAdj, setConfirmDelAdj] = useState(null)
+  const [questioningAdj, setQuestioningAdj] = useState(null)
+  const [questionText, setQuestionText] = useState('')
+  const [questionSaving, setQuestionSaving] = useState(false)
+  const [replyingAdj, setReplyingAdj] = useState(null)
+  const [replyText, setReplyText] = useState('')
+  const [replySaving, setReplySaving] = useState(false)
 
   // Punch state
   const [showPunchForm, setShowPunchForm] = useState(false)
@@ -619,6 +643,31 @@ export default function ScheduleManager({ userId, isAdmin, weeklyTarget = 40, pu
   async function handleDeleteAdj(id) {
     await deleteAdjustment(id)
     setConfirmDelAdj(null)
+    refetchAdj()
+  }
+
+  async function handleQuestionAdj(id) {
+    if (!questionText.trim()) return
+    setQuestionSaving(true)
+    const { error } = await questionAdjustment(id, userId, questionText.trim())
+    setQuestionSaving(false)
+    if (error) {
+      console.error('[questionAdj] error:', error)
+      alert(`Erreur: ${error.message}`)
+      return
+    }
+    setQuestioningAdj(null)
+    setQuestionText('')
+    refetchAdj()
+  }
+
+  async function handleReplyAdj(id) {
+    if (!replyText.trim()) return
+    setReplySaving(true)
+    await replyToQuestion(id, replyText.trim())
+    setReplySaving(false)
+    setReplyingAdj(null)
+    setReplyText('')
     refetchAdj()
   }
 
@@ -1258,12 +1307,36 @@ export default function ScheduleManager({ userId, isAdmin, weeklyTarget = 40, pu
             <h3 className="font-bold text-sm text-[#1a1a1a]">Ajustements journaliers</h3>
             <p className="text-xs text-[#6b7280]">Finir tôt ou faire des heures en banque (max 2h)</p>
           </div>
-          {!isAdmin && (
-            <Button size="sm" variant="secondary" onClick={() => setShowAdjForm(v => !v)}>
-              {showAdjForm ? 'Annuler' : '+ Ajuster'}
-            </Button>
-          )}
+          <Button size="sm" variant="secondary" onClick={() => setShowAdjForm(v => !v)}>
+            {showAdjForm ? 'Annuler' : isAdmin ? '+ Ajouter' : '+ Ajuster'}
+          </Button>
         </div>
+
+        {showAdjForm && (
+          <div className="mb-4">
+            <AdjustmentForm
+              schedules={schedules}
+              bankBalance={bankBalance}
+              existingForDate={existingAdjForDate}
+              saving={adjSaving}
+              isAdmin={isAdmin}
+              onSave={async form => {
+                setAdjSaving(true)
+                const existing = existingAdjForDate(form.date)
+                if (existing && existing.status === 'rejected') await deleteAdjustment(existing.id)
+                await createAdjustment({
+                  ...form,
+                  user_id: userId,
+                  ...(isAdmin ? { status: 'approved', reviewed_by: userId, reviewed_at: new Date().toISOString() } : {}),
+                })
+                await refetchAdj()
+                setAdjSaving(false)
+                setShowAdjForm(false)
+              }}
+              onCancel={() => setShowAdjForm(false)}
+            />
+          </div>
+        )}
 
         {adjustments.length === 0 ? (
           <p className="text-sm text-[#6b7280] py-2">Aucun ajustement enregistré.</p>
@@ -1272,61 +1345,151 @@ export default function ScheduleManager({ userId, isAdmin, weeklyTarget = 40, pu
             {adjustments.slice(0, 15).map(a => {
               const delta = Number(a.adjusted_hours) - Number(a.normal_hours)
               const isExtra = delta > 0
-              const statusColor = a.status === 'approved' ? 'text-emerald-600 bg-emerald-50'
-                : a.status === 'rejected' ? 'text-red-500 bg-red-50'
+              const statusColor = a.status === 'approved'   ? 'text-emerald-600 bg-emerald-50'
+                : a.status === 'rejected'   ? 'text-red-500 bg-red-50'
+                : a.status === 'questioned' ? 'text-indigo-600 bg-indigo-50'
                 : 'text-amber-700 bg-amber-50'
-              const statusLabel = a.status === 'approved' ? 'Approuvé'
-                : a.status === 'rejected' ? 'Refusé'
+              const statusLabel = a.status === 'approved'   ? 'Approuvé'
+                : a.status === 'rejected'   ? 'Refusé'
+                : a.status === 'questioned' ? 'Question'
                 : 'En attente'
 
+              const isQuestioning = questioningAdj === a.id
+              const isReplying    = replyingAdj === a.id
+
               return (
-                <div key={a.id} className="flex items-center justify-between px-3 py-2.5 rounded-xl border border-[#f3f4f6] bg-gray-50 text-xs gap-2">
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-[#1a1a1a] capitalize">
-                      {fmtDayDate(a.date)}
-                    </p>
-                    <p className="text-[#9ca3af] mt-0.5">
-                      {fmtH(a.normal_hours)} prévu → {fmtH(a.adjusted_hours)} travaillé
-                      {Number(a.bank_hours_applied) > 0 && ` · ${fmtH(a.bank_hours_applied)} banque appliquée`}
-                      {a.notes && ` · ${a.notes}`}
-                    </p>
+                <div key={a.id} className="rounded-xl border border-[#f3f4f6] bg-gray-50 text-xs overflow-hidden">
+                  {/* Ligne principale */}
+                  <div className="flex items-center justify-between px-3 py-2.5 gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-[#1a1a1a] capitalize">{fmtDayDate(a.date)}</p>
+                      <p className="text-[#9ca3af] mt-0.5">
+                        {fmtH(a.normal_hours)} prévu → {fmtH(a.adjusted_hours)} travaillé
+                        {Number(a.bank_hours_applied) > 0 && ` · ${fmtH(a.bank_hours_applied)} banque appliquée`}
+                        {a.start_time && a.end_time && ` · ${a.start_time} → ${a.end_time}`}
+                        {a.notes && ` · ${a.notes}`}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className={`text-xs font-bold ${isExtra ? 'text-emerald-600' : 'text-amber-600'}`}>
+                        {delta > 0 ? '+' : ''}{fmtH(delta)}
+                      </span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${statusColor}`}>
+                        {statusLabel}
+                      </span>
+
+                      {/* Admin : approuver / questions / refuser */}
+                      {isAdmin && a.status === 'pending' && !isQuestioning && (
+                        <div className="flex gap-1">
+                          <button onClick={() => handleApproveAdj(a.id)} disabled={approvingAdj === a.id}
+                            className="text-[10px] font-bold text-white bg-[#00bbb1] hover:bg-[#009e95] px-2 py-0.5 rounded-full disabled:opacity-50 transition-colors">
+                            {approvingAdj === a.id ? '...' : 'Approuver'}
+                          </button>
+                          <button onClick={() => { setQuestioningAdj(a.id); setQuestionText('') }}
+                            className="text-[10px] font-bold text-white bg-indigo-500 hover:bg-indigo-600 px-2 py-0.5 rounded-full transition-colors">
+                            Questions
+                          </button>
+                          <button onClick={() => handleRejectAdj(a.id)} disabled={rejectingAdj === a.id}
+                            className="text-[10px] font-bold text-white bg-red-400 hover:bg-red-500 px-2 py-0.5 rounded-full disabled:opacity-50 transition-colors">
+                            {rejectingAdj === a.id ? '...' : 'Refuser'}
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Admin : réponse du membre reçue */}
+                      {isAdmin && a.status === 'pending' && a.member_reply && !isQuestioning && (
+                        <span className="text-[10px] text-indigo-500 font-semibold">↩ Réponse reçue</span>
+                      )}
+
+                      {/* Membre : supprimer pending/rejected */}
+                      {!isAdmin && (a.status === 'pending' || a.status === 'rejected') && (
+                        confirmDelAdj === a.id ? (
+                          <DeleteConfirm id={a.id} confirmId={confirmDelAdj}
+                            onConfirm={handleDeleteAdj}
+                            onCancel={() => setConfirmDelAdj(null)} />
+                        ) : (
+                          <button onClick={() => setConfirmDelAdj(a.id)}
+                            className="text-[#9ca3af] hover:text-red-500 transition-colors">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        )
+                      )}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className={`text-xs font-bold ${isExtra ? 'text-emerald-600' : 'text-amber-600'}`}>
-                      {delta > 0 ? '+' : ''}{fmtH(delta)}
-                    </span>
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${statusColor}`}>
-                      {statusLabel}
-                    </span>
-                    {/* Admin: approve/reject pending */}
-                    {isAdmin && a.status === 'pending' && (
-                      <div className="flex gap-1">
-                        <button onClick={() => handleApproveAdj(a.id)} disabled={approvingAdj === a.id}
-                          className="text-[10px] font-bold text-white bg-[#00bbb1] hover:bg-[#009e95] px-2 py-0.5 rounded-full disabled:opacity-50 transition-colors">
-                          {approvingAdj === a.id ? '...' : 'Approuver'}
+
+                  {/* Admin : saisir une question */}
+                  {isAdmin && isQuestioning && (
+                    <div className="px-3 pb-3 pt-1 border-t border-[#e5e7eb] bg-indigo-50">
+                      <p className="text-[10px] font-bold text-indigo-600 mb-1.5">Écrire une question au membre :</p>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={questionText}
+                          onChange={e => setQuestionText(e.target.value)}
+                          placeholder="Ex: Pourquoi ce départ anticipé ?"
+                          className="flex-1 px-2.5 py-1.5 text-xs border border-indigo-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
+                          onKeyDown={e => e.key === 'Enter' && handleQuestionAdj(a.id)}
+                          autoFocus
+                        />
+                        <button onClick={() => handleQuestionAdj(a.id)}
+                          disabled={questionSaving || !questionText.trim()}
+                          className="text-[10px] font-bold text-white bg-indigo-500 hover:bg-indigo-600 px-3 py-1.5 rounded-lg disabled:opacity-50 transition-colors">
+                          {questionSaving ? '...' : 'Envoyer'}
                         </button>
-                        <button onClick={() => handleRejectAdj(a.id)} disabled={rejectingAdj === a.id}
-                          className="text-[10px] font-bold text-white bg-red-400 hover:bg-red-500 px-2 py-0.5 rounded-full disabled:opacity-50 transition-colors">
-                          {rejectingAdj === a.id ? '...' : 'Refuser'}
+                        <button onClick={() => setQuestioningAdj(null)}
+                          className="text-[10px] text-[#9ca3af] hover:text-[#6b7280] px-2">
+                          Annuler
                         </button>
                       </div>
-                    )}
-                    {/* Member: delete pending/rejected */}
-                    {!isAdmin && (a.status === 'pending' || a.status === 'rejected') && (
-                      confirmDelAdj === a.id ? (
-                        <DeleteConfirm id={a.id} confirmId={confirmDelAdj}
-                          onConfirm={handleDeleteAdj}
-                          onCancel={() => setConfirmDelAdj(null)} />
+                    </div>
+                  )}
+
+                  {/* Admin : voir la réponse du membre */}
+                  {isAdmin && a.member_reply && (
+                    <div className="px-3 pb-2.5 pt-2 border-t border-[#e5e7eb] space-y-1">
+                      {a.admin_question && (
+                        <p className="text-[10px] text-indigo-600 font-semibold">Q : {a.admin_question}</p>
+                      )}
+                      <p className="text-[10px] text-emerald-700 font-semibold">R : {a.member_reply}</p>
+                    </div>
+                  )}
+
+                  {/* Membre : voir la question et répondre */}
+                  {!isAdmin && a.status === 'questioned' && a.admin_question && (
+                    <div className="px-3 pb-3 pt-2 border-t border-indigo-100 bg-indigo-50">
+                      <p className="text-[10px] font-bold text-indigo-700 mb-1">Question de l'admin :</p>
+                      <p className="text-xs text-indigo-800 mb-2 italic">« {a.admin_question} »</p>
+                      {a.member_reply ? (
+                        <p className="text-[10px] text-emerald-700 font-semibold">Votre réponse : {a.member_reply}</p>
+                      ) : isReplying ? (
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={replyText}
+                            onChange={e => setReplyText(e.target.value)}
+                            placeholder="Votre réponse..."
+                            className="flex-1 px-2.5 py-1.5 text-xs border border-indigo-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-400 bg-white"
+                            onKeyDown={e => e.key === 'Enter' && handleReplyAdj(a.id)}
+                            autoFocus
+                          />
+                          <button onClick={() => handleReplyAdj(a.id)}
+                            disabled={replySaving || !replyText.trim()}
+                            className="text-[10px] font-bold text-white bg-indigo-500 hover:bg-indigo-600 px-3 py-1.5 rounded-lg disabled:opacity-50 transition-colors">
+                            {replySaving ? '...' : 'Répondre'}
+                          </button>
+                          <button onClick={() => setReplyingAdj(null)}
+                            className="text-[10px] text-[#9ca3af] px-2">Annuler</button>
+                        </div>
                       ) : (
-                        <button onClick={() => setConfirmDelAdj(a.id)}
-                          className="text-[#9ca3af] hover:text-red-500 transition-colors">
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                          </svg>
+                        <button onClick={() => { setReplyingAdj(a.id); setReplyText('') }}
+                          className="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 underline">
+                          Répondre →
                         </button>
-                      )
-                    )}
-                  </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             })}

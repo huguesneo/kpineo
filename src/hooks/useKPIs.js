@@ -112,6 +112,27 @@ export const KPI_TYPE_LABELS = {
   clinic_revenue: 'Revenu clinique ($)',
 }
 
+export async function deleteKPIEntry(id) {
+  const { error } = await supabase.from('kpi_entries').delete().eq('id', id)
+  return { error }
+}
+
+export async function updateKPIEntry(id, fields) {
+  const { error } = await supabase.from('kpi_entries').update(fields).eq('id', id)
+  return { error }
+}
+
+export function parseKPIValue(entry) {
+  if (entry.value === 0 && entry.notes) {
+    try {
+      const parsed = JSON.parse(entry.notes)
+      if (parsed && parsed.tv) return { displayValue: parsed.tv, notes: parsed.n || null }
+    } catch {}
+    return { displayValue: entry.notes, notes: null }
+  }
+  return { displayValue: Number(entry.value).toLocaleString('fr-CA'), notes: entry.notes || null }
+}
+
 export const CLINIC_KPI_TYPES = [
   { value: 'clinic_revenue', label: 'Revenu clinique ($)' },
 ]

@@ -3,7 +3,7 @@ import Modal from '../shared/Modal'
 import Button from '../shared/Button'
 import Input from '../shared/Input'
 import { supabase } from '../../lib/supabase'
-import { useKPITypes, getTypesForRole } from '../../hooks/useKPITypes'
+import { useKPITypes, getTypesForRole, createKPIType } from '../../hooks/useKPITypes'
 import { useMembers } from '../../hooks/useMembers'
 import { format } from 'date-fns'
 
@@ -16,7 +16,7 @@ export default function KPIModal({
   allowClinic = false,
   allowMemberSelect = false,
 }) {
-  const { types: allTypes, loading: typesLoading } = useKPITypes()
+  const { types: allTypes, loading: typesLoading, refetch: refetchTypes } = useKPITypes()
   const { members } = useMembers()
 
   const [scope, setScope] = useState('individual')
@@ -30,6 +30,11 @@ export default function KPIModal({
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [showAddType, setShowAddType] = useState(false)
+  const [newTypeLabel, setNewTypeLabel] = useState('')
+  const [newTypeScope, setNewTypeScope] = useState('')
+  const [addTypeLoading, setAddTypeLoading] = useState(false)
+  const [addTypeError, setAddTypeError] = useState('')
 
   const isClinic = scope === 'clinic'
 
@@ -65,6 +70,25 @@ export default function KPIModal({
     setForm(f => ({ ...f, [e.target.name]: e.target.value }))
   }
 
+  async function handleAddType(e) {
+    e.preventDefault()
+    if (!newTypeLabel.trim()) { setAddTypeError('Le nom est obligatoire.'); return }
+    const roleScope = newTypeScope || (isClinic ? 'clinic' : selectedRole || 'all')
+    setAddTypeLoading(true)
+    setAddTypeError('')
+    const { data, error: err } = await createKPIType({ label: newTypeLabel.trim(), role_scope: roleScope })
+    setAddTypeLoading(false)
+    if (err) {
+      setAddTypeError(err.message.includes('unique') ? 'Ce type existe déjà.' : err.message)
+      return
+    }
+    await refetchTypes()
+    setForm(f => ({ ...f, kpi_type: data.value }))
+    setNewTypeLabel('')
+    setNewTypeScope('')
+    setShowAddType(false)
+  }
+
   async function handleSubmit(e) {
     e.preventDefault()
     if (!isClinic && !selectedUserId) { setError('Veuillez sélectionner un membre.'); return }
@@ -75,11 +99,15 @@ export default function KPIModal({
     setLoading(true)
     setError('')
 
+    const parsedValue = parseFloat(form.value)
+    const isText = isNaN(parsedValue)
     const entry = {
       kpi_type: form.kpi_type,
-      value: Number(form.value),
+      value: isText ? 0 : parsedValue,
+      notes: isText
+        ? JSON.stringify({ tv: form.value.trim(), ...(form.notes.trim() ? { n: form.notes.trim() } : {}) })
+        : (form.notes.trim() || null),
       entry_date: form.entry_date,
-      notes: form.notes.trim() || null,
       scope,
     }
     if (!isClinic) entry.user_id = selectedUserId
@@ -139,15 +167,57 @@ export default function KPIModal({
 
         {/* Type de KPI */}
         <div className="flex flex-col gap-1">
-          <label className="text-sm font-semibold text-[#1a1a1a]">Type de KPI *</label>
-          {typesLoading ? (
+          <div className="flex items-center justify-between">
+            <label className="text-sm font-semibold text-[#1a1a1a]">Type de KPI *</label>
+            <button
+              type="button"
+              onClick={() => { setShowAddType(v => !v); setAddTypeError('') }}
+              className="text-xs text-[#00bbb1] font-semibold hover:underline"
+            >
+              {showAddType ? 'Annuler' : '+ Nouveau type'}
+            </button>
+          </div>
+
+          {showAddType ? (
+            <div className="p-3 bg-[#00bbb1]/5 border border-[#00bbb1]/20 rounded-lg space-y-2">
+              <input
+                type="text"
+                placeholder="Nom du type (ex: Nouveaux clients)"
+                value={newTypeLabel}
+                onChange={e => setNewTypeLabel(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#00bbb1]"
+              />
+              <select
+                value={newTypeScope}
+                onChange={e => setNewTypeScope(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#00bbb1]"
+              >
+                <option value="">S'applique à — {isClinic ? 'Clinique' : selectedRole || 'Tous les rôles'} (auto)</option>
+                <option value="all">Tous les rôles</option>
+                <option value="naturopathe">Naturopathe</option>
+                <option value="closer">Closer</option>
+                <option value="setter">Setter</option>
+                <option value="service_client">Service clients</option>
+                <option value="clinic">Clinique</option>
+              </select>
+              {addTypeError && <p className="text-xs text-red-500">{addTypeError}</p>}
+              <button
+                type="button"
+                onClick={handleAddType}
+                disabled={addTypeLoading || !newTypeLabel.trim()}
+                className="w-full py-2 rounded-lg bg-[#00bbb1] text-white text-sm font-semibold disabled:opacity-50 hover:bg-[#00a89f] transition-colors"
+              >
+                {addTypeLoading ? 'Création…' : 'Créer ce type'}
+              </button>
+            </div>
+          ) : typesLoading ? (
             <div className="h-10 bg-gray-100 rounded-lg animate-pulse" />
           ) : availableTypes.length === 0 ? (
             <div className="px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
               <p className="text-sm text-amber-700">
                 {!isClinic && !selectedRole
                   ? 'Sélectionnez un membre pour voir les types disponibles.'
-                  : 'Aucun type disponible pour ce rôle. Ajoutez-en dans Paramètres.'}
+                  : 'Aucun type disponible. Créez-en un avec "+ Nouveau type".'}
               </p>
             </div>
           ) : (
@@ -164,7 +234,7 @@ export default function KPIModal({
           )}
         </div>
 
-        <Input label="Valeur *" name="value" type="number" min="0" step="any" value={form.value} onChange={handleChange} placeholder="Ex: 3500" />
+        <Input label="Valeur *" name="value" type="text" value={form.value} onChange={handleChange} placeholder="Ex: 3500 ou Objectif atteint" />
         <Input label="Date *" name="entry_date" type="date" value={form.entry_date} onChange={handleChange} />
 
         <div className="flex flex-col gap-1">

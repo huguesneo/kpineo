@@ -45,3 +45,15 @@ export async function rejectAdjustment(id, adminUserId, reason = null) {
 export async function deleteAdjustment(id) {
   return supabase.from('schedule_adjustments').delete().eq('id', id)
 }
+
+export async function questionAdjustment(id, adminUserId, question) {
+  return supabase.from('schedule_adjustments')
+    .update({ status: 'questioned', admin_question: question, reviewed_by: adminUserId, reviewed_at: new Date().toISOString() })
+    .eq('id', id)
+}
+
+export async function replyToQuestion(id, reply) {
+  return supabase.from('schedule_adjustments')
+    .update({ member_reply: reply, reply_at: new Date().toISOString(), status: 'pending' })
+    .eq('id', id)
+}
