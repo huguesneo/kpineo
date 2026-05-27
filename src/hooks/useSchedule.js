@@ -166,7 +166,9 @@ export function useTotalHoraireAlertCount() {
         .from('pending_changes').select('id', { count: 'exact', head: true }).eq('status', 'pending')
       const { count: pendingAdjCount } = await supabase
         .from('schedule_adjustments').select('id', { count: 'exact', head: true }).eq('status', 'pending')
-      const pendingOT = (otRes.count || 0) + (pendingChangesCount || 0) + (pendingAdjCount || 0)
+      const { count: pendingOverridesCount } = await supabase
+        .from('schedule_overrides').select('id', { count: 'exact', head: true }).eq('status', 'pending')
+      const pendingOT = (otRes.count || 0) + (pendingChangesCount || 0) + (pendingAdjCount || 0) + (pendingOverridesCount || 0)
 
       const sickUsed = {}, vacUsed = {}
       for (const a of (absRes.data ?? [])) {
@@ -204,12 +206,13 @@ export function useScheduleAlerts(memberIds, year) {
     if (!memberIds || memberIds.length === 0) { setLoading(false); return }
     async function load() {
       setLoading(true)
-      const [otRes, absRes, allowRes, pcRes, adjRes] = await Promise.all([
+      const [otRes, absRes, allowRes, pcRes, adjRes, ovRes] = await Promise.all([
         supabase.from('overtime_records').select('user_id, extra_hours').eq('is_approved', false).in('user_id', memberIds),
         supabase.from('absences').select('user_id, type, hours').gte('start_date', `${year}-01-01`).lte('start_date', `${year}-12-31`).in('user_id', memberIds),
         supabase.from('absence_allowances').select('user_id, sick_hours, vacation_hours').eq('year', year).in('user_id', memberIds),
         supabase.from('pending_changes').select('user_id').eq('status', 'pending').in('user_id', memberIds),
         supabase.from('schedule_adjustments').select('user_id').eq('status', 'pending').in('user_id', memberIds),
+        supabase.from('schedule_overrides').select('user_id').eq('status', 'pending').in('user_id', memberIds),
       ])
       const pendingOT = {}
       for (const r of (otRes.data ?? [])) {
@@ -218,6 +221,10 @@ export function useScheduleAlerts(memberIds, year) {
       const pendingAdj = {}
       for (const r of (adjRes.data ?? [])) {
         pendingAdj[r.user_id] = (pendingAdj[r.user_id] ?? 0) + 1
+      }
+      const pendingOverrides = {}
+      for (const r of (ovRes.data ?? [])) {
+        pendingOverrides[r.user_id] = (pendingOverrides[r.user_id] ?? 0) + 1
       }
       const sickUsed = {}, vacUsed = {}
       for (const a of (absRes.data ?? [])) {
@@ -242,6 +249,7 @@ export function useScheduleAlerts(memberIds, year) {
           hasExcess: sickExcess > 0 || vacExcess > 0,
           pendingChanges: pendingChanges[uid] ?? 0,
           pendingAdj: pendingAdj[uid] ?? 0,
+          pendingOverrides: pendingOverrides[uid] ?? 0,
         }
       }
       setAlerts(result)

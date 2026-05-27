@@ -9,6 +9,8 @@ import {
 } from '../../hooks/useSchedule'
 import { usePayPeriodConfig, getCurrentPayPeriod } from '../../hooks/usePayPeriod'
 import { useScheduleAdjustments, createAdjustment, approveAdjustment, rejectAdjustment, deleteAdjustment, questionAdjustment, replyToQuestion } from '../../hooks/useScheduleAdjustments'
+import { useScheduleOverrides, approveScheduleOverride, rejectScheduleOverride, deleteScheduleOverride } from '../../hooks/useScheduleOverrides'
+import ScheduleOverrideModal from './ScheduleOverrideModal'
 import { useUpcomingHolidays } from '../../hooks/useHolidays'
 import { usePunchEntries, upsertPunchEntry, deletePunchEntry } from '../../hooks/usePunchEntries'
 import { format, parseISO, eachDayOfInterval } from 'date-fns'
@@ -71,8 +73,21 @@ function getScheduledHoursForDate(schedules, dateStr) {
   } catch { return 0 }
 }
 
-function calcPayPeriodHoursWithAdjustments(schedules, adjustments, periodStart, periodEnd) {
+function calcPayPeriodHoursWithAdjustments(schedules, adjustments, overrides, periodStart, periodEnd) {
   if (!periodStart || !periodEnd) return 0
+
+  // Build override day map from approved overrides (most recent override wins for a date)
+  const overrideDayMap = new Map()
+  const sortedOverrides = [...(overrides ?? [])].sort((a, b) => a.created_at < b.created_at ? -1 : 1)
+  for (const ov of sortedOverrides) {
+    if (ov.status !== 'approved') continue
+    for (const day of (ov.days ?? [])) {
+      if (day.date >= periodStart && day.date <= periodEnd) {
+        overrideDayMap.set(day.date, Number(day.hours))
+      }
+    }
+  }
+
   const approvedAdj = new Map(
     (adjustments ?? [])
       .filter(a => a.status === 'approved' && a.date >= periodStart && a.date <= periodEnd)
@@ -82,14 +97,15 @@ function calcPayPeriodHoursWithAdjustments(schedules, adjustments, periodStart, 
     return eachDayOfInterval({ start: parseISO(periodStart), end: parseISO(periodEnd) })
       .reduce((total, d) => {
         const ds = d.toISOString().split('T')[0]
+        // Priority: daily adjustment > approved override > regular schedule
         const adj = approvedAdj.get(ds)
         if (adj) {
           const delta = Number(adj.adjusted_hours) - Number(adj.normal_hours)
-          // Extra hours go to bank and don't inflate pay period; early finish + bank compensation
           return total + (delta >= 0
             ? Number(adj.normal_hours)
             : Number(adj.adjusted_hours) + Number(adj.bank_hours_applied ?? 0))
         }
+        if (overrideDayMap.has(ds)) return total + overrideDayMap.get(ds)
         const s = getActiveSchedule(schedules, ds)
         return total + (s ? Number(s[JS_DAY_TO_KEY[d.getDay()]] ?? 0) : 0)
       }, 0)
@@ -460,10 +476,11 @@ export default function ScheduleManager({ userId, isAdmin, weeklyTarget = 40, pu
   const { changes: pendingChanges, refetch: refetchPending }          = usePendingChanges(userId)
   const { config: payConfig }                                         = usePayPeriodConfig()
   const { adjustments, refetch: refetchAdj }                          = useScheduleAdjustments(userId)
+  const { overrides, refetch: refetchOverrides }                       = useScheduleOverrides(userId)
   const { entries: punchEntries, loading: punchLoading, refetch: refetchPunch } = usePunchEntries(punchMode ? userId : null, year)
 
   const payPeriod = payConfig ? getCurrentPayPeriod(payConfig.reference_pay_date, payConfig.period_length_days) : null
-  const payPeriodHours = payPeriod ? calcPayPeriodHoursWithAdjustments(schedules, adjustments, payPeriod.start, payPeriod.end) : 0
+  const payPeriodHours = payPeriod ? calcPayPeriodHoursWithAdjustments(schedules, adjustments, overrides, payPeriod.start, payPeriod.end) : 0
   const PAY_TARGET = weeklyTarget * (payConfig?.period_length_days ?? 14) / 7
 
   const punchPeriodHours = punchMode && payPeriod
@@ -515,6 +532,12 @@ export default function ScheduleManager({ userId, isAdmin, weeklyTarget = 40, pu
   const [replyingAdj, setReplyingAdj] = useState(null)
   const [replyText, setReplyText] = useState('')
   const [replySaving, setReplySaving] = useState(false)
+
+  // Override state
+  const [showOverrideModal, setShowOverrideModal] = useState(false)
+  const [approvingOv, setApprovingOv] = useState(null)
+  const [rejectingOv, setRejectingOv] = useState(null)
+  const [confirmDelOv, setConfirmDelOv] = useState(null)
 
   // Punch state
   const [showPunchForm, setShowPunchForm] = useState(false)
@@ -669,6 +692,28 @@ export default function ScheduleManager({ userId, isAdmin, weeklyTarget = 40, pu
     setReplyingAdj(null)
     setReplyText('')
     refetchAdj()
+  }
+
+  // ── Override handlers ──
+
+  async function handleApproveOverride(id) {
+    setApprovingOv(id)
+    await approveScheduleOverride(id, userId)
+    await refetchOverrides()
+    setApprovingOv(null)
+  }
+
+  async function handleRejectOverride(id) {
+    setRejectingOv(id)
+    await rejectScheduleOverride(id, userId)
+    await refetchOverrides()
+    setRejectingOv(null)
+  }
+
+  async function handleDeleteOverride(id) {
+    await deleteScheduleOverride(id)
+    setConfirmDelOv(null)
+    refetchOverrides()
   }
 
   // ── Punch handlers ──
@@ -1007,9 +1052,14 @@ export default function ScheduleManager({ userId, isAdmin, weeklyTarget = 40, pu
           </div>
           {isAdmin
             ? <Button size="sm" onClick={() => { setAddingSched(true); setEditingSchedId(null) }}>+ Ajouter</Button>
-            : <Button size="sm" onClick={() => { setShowAdjForm(v => !v) }}>
-                {showAdjForm ? 'Annuler' : 'Ajuster une journée'}
-              </Button>
+            : <div className="flex gap-2">
+                <Button size="sm" variant="secondary" onClick={() => setShowOverrideModal(true)}>
+                  Ajuster horaire
+                </Button>
+                <Button size="sm" onClick={() => setShowAdjForm(v => !v)}>
+                  {showAdjForm ? 'Annuler' : 'Ajuster une journée'}
+                </Button>
+              </div>
           }
         </div>
 
@@ -1496,6 +1546,128 @@ export default function ScheduleManager({ userId, isAdmin, weeklyTarget = 40, pu
           </div>
         )}
       </Card>
+
+      {/* ── Horaires ajustés (hors punch) ── */}
+      {!punchMode && (
+        <Card className="p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="font-bold text-sm text-[#1a1a1a]">Horaires ajustés</h3>
+              <p className="text-xs text-[#6b7280]">Ajustements sur une plage de dates — envoyés pour approbation</p>
+            </div>
+          </div>
+
+          {overrides.length === 0 ? (
+            <p className="text-sm text-[#6b7280] py-2">Aucune demande d'ajustement d'horaire.</p>
+          ) : (
+            <div className="space-y-3">
+              {overrides.map(ov => {
+                const todayStr = new Date().toISOString().split('T')[0]
+                const isActive = ov.status === 'approved' && ov.start_date <= todayStr && ov.end_date >= todayStr
+                const isPast   = ov.status === 'approved' && ov.end_date < todayStr
+                const statusColor = ov.status === 'approved' ? 'text-emerald-600 bg-emerald-50'
+                  : ov.status === 'rejected' ? 'text-red-500 bg-red-50'
+                  : 'text-amber-700 bg-amber-50'
+                const statusLabel = ov.status === 'approved' ? 'Approuvé'
+                  : ov.status === 'rejected' ? 'Refusé'
+                  : 'En attente'
+
+                return (
+                  <div key={ov.id} className={`rounded-xl border overflow-hidden ${
+                    isActive ? 'border-[#00bbb1]/30' : 'border-[#f3f4f6]'
+                  }`}>
+                    {/* Header row */}
+                    <div className={`flex items-center justify-between px-3 py-2.5 gap-2 ${
+                      isActive ? 'bg-[#00bbb1]/5' : 'bg-gray-50'
+                    }`}>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {isActive && <span className="text-[10px] font-bold text-[#00bbb1] bg-[#00bbb1]/10 px-2 py-0.5 rounded-full">Actif</span>}
+                          {isPast   && <span className="text-[10px] font-bold text-[#9ca3af] bg-gray-100 px-2 py-0.5 rounded-full">Expiré</span>}
+                          <p className="text-xs font-semibold text-[#1a1a1a]">
+                            {fmtDate(ov.start_date)} → {fmtDate(ov.end_date)}
+                          </p>
+                        </div>
+                        {ov.notes && <p className="text-[11px] text-[#9ca3af] mt-0.5">{ov.notes}</p>}
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${statusColor}`}>
+                          {statusLabel}
+                        </span>
+
+                        {/* Admin : approuver / refuser les demandes en attente */}
+                        {isAdmin && ov.status === 'pending' && (
+                          <div className="flex gap-1">
+                            <button onClick={() => handleApproveOverride(ov.id)} disabled={approvingOv === ov.id}
+                              className="text-[10px] font-bold text-white bg-[#00bbb1] hover:bg-[#009e95] px-2 py-0.5 rounded-full disabled:opacity-50 transition-colors">
+                              {approvingOv === ov.id ? '...' : 'Approuver'}
+                            </button>
+                            <button onClick={() => handleRejectOverride(ov.id)} disabled={rejectingOv === ov.id}
+                              className="text-[10px] font-bold text-white bg-red-400 hover:bg-red-500 px-2 py-0.5 rounded-full disabled:opacity-50 transition-colors">
+                              {rejectingOv === ov.id ? '...' : 'Refuser'}
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Supprimer (membre: pending/rejected · admin: tous) */}
+                        {(isAdmin ? true : ov.status !== 'approved') && (
+                          confirmDelOv === ov.id ? (
+                            <div className="flex items-center gap-1">
+                              <button onClick={() => handleDeleteOverride(ov.id)}
+                                className="text-xs font-bold text-red-500 px-2 py-0.5 bg-red-50 rounded-lg">Oui</button>
+                              <button onClick={() => setConfirmDelOv(null)}
+                                className="text-xs text-[#6b7280] px-2 py-0.5 bg-gray-100 rounded-lg">Non</button>
+                            </div>
+                          ) : (
+                            <button onClick={() => setConfirmDelOv(ov.id)}
+                              className="text-[#9ca3af] hover:text-red-500 transition-colors">
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          )
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Détail des journées */}
+                    {ov.days?.length > 0 && (
+                      <div className="px-3 py-2 border-t border-[#f3f4f6] space-y-1">
+                        {ov.days.map(day => (
+                          <div key={day.date} className="flex items-center justify-between text-xs">
+                            <span className="text-[#6b7280] capitalize">{fmtDayDate(day.date)}</span>
+                            <span className="font-semibold text-[#1a1a1a]">
+                              {day.start_time} → {day.end_time}
+                              <span className="text-[#9ca3af] font-normal ml-1">· {fmtH(day.hours)}</span>
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Raison de refus */}
+                    {ov.status === 'rejected' && ov.rejection_reason && (
+                      <div className="px-3 py-2 border-t border-red-100 bg-red-50/50">
+                        <p className="text-xs text-red-600">Raison : {ov.rejection_reason}</p>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* Override modal */}
+      {showOverrideModal && (
+        <ScheduleOverrideModal
+          schedules={schedules}
+          userId={userId}
+          onClose={() => setShowOverrideModal(false)}
+          onSaved={() => { setShowOverrideModal(false); refetchOverrides() }}
+        />
+      )}
     </div>
   )
 }

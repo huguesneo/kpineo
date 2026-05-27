@@ -179,14 +179,14 @@ function AdminHoraires() {
 
   const sortedMembers = useMemo(() => [...filteredMembers].sort((a, b) => {
     const aA = alerts[a.id], bA = alerts[b.id]
-    const aP = (aA?.pendingChanges ?? 0) + (aA?.pendingOT ?? 0) + (aA?.pendingAdj ?? 0)
-    const bP = (bA?.pendingChanges ?? 0) + (bA?.pendingOT ?? 0) + (bA?.pendingAdj ?? 0)
+    const aP = (aA?.pendingChanges ?? 0) + (aA?.pendingOT ?? 0) + (aA?.pendingAdj ?? 0) + (aA?.pendingOverrides ?? 0)
+    const bP = (bA?.pendingChanges ?? 0) + (bA?.pendingOT ?? 0) + (bA?.pendingAdj ?? 0) + (bA?.pendingOverrides ?? 0)
     if (bP !== aP) return bP - aP
     return (a.full_name ?? '').localeCompare(b.full_name ?? '')
   }), [filteredMembers, alerts])
 
   const totalPending = useMemo(() =>
-    Object.values(alerts).reduce((s, a) => s + (a.pendingChanges ?? 0) + (a.pendingOT ?? 0) + (a.pendingAdj ?? 0), 0),
+    Object.values(alerts).reduce((s, a) => s + (a.pendingChanges ?? 0) + (a.pendingOT ?? 0) + (a.pendingAdj ?? 0) + (a.pendingOverrides ?? 0), 0),
     [alerts]
   )
 
@@ -379,7 +379,7 @@ function AdminHoraires() {
             <div className="divide-y divide-[#f9fafb]">
               {sortedMembers.map(m => {
                 const alert = alerts[m.id]
-                const pendingCount = (alert?.pendingChanges ?? 0) + (alert?.pendingOT ?? 0) + (alert?.pendingAdj ?? 0)
+                const pendingCount = (alert?.pendingChanges ?? 0) + (alert?.pendingOT ?? 0) + (alert?.pendingAdj ?? 0) + (alert?.pendingOverrides ?? 0)
                 const isSelected = selectedId === m.id
                 const wt = Number(m.weekly_target_hours ?? 40)
 
@@ -504,7 +504,8 @@ function AdminHoraires() {
                   const alert = alerts[selectedMember.id]
                   const items = []
                   if ((alert?.pendingChanges ?? 0) > 0) items.push(`${alert.pendingChanges} demande${alert.pendingChanges > 1 ? 's' : ''} de modification`)
-                  if ((alert?.pendingAdj ?? 0) > 0) items.push(`${alert.pendingAdj} ajustement${alert.pendingAdj > 1 ? 's' : ''} en attente`)
+                  if ((alert?.pendingAdj ?? 0) > 0) items.push(`${alert.pendingAdj} ajustement${alert.pendingAdj > 1 ? 's' : ''} journalier${alert.pendingAdj > 1 ? 's' : ''} en attente`)
+                  if ((alert?.pendingOverrides ?? 0) > 0) items.push(`${alert.pendingOverrides} ajustement${alert.pendingOverrides > 1 ? 's' : ''} d'horaire en attente`)
                   if ((alert?.pendingOT ?? 0) > 0) items.push(`${alert.pendingOT} heure${alert.pendingOT > 1 ? 's' : ''} supp. à approuver`)
                   if (alert?.hasExcess) items.push('dépassement d\'absences')
                   if (items.length === 0) return null
