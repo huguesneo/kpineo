@@ -14,6 +14,7 @@ export function useCareerPlan(userId) {
       .select('*')
       .eq('user_id', userId)
       .order('year')
+      .order('effective_date', { ascending: true, nullsFirst: true })
     setPlans(data || [])
     setLoading(false)
   }, [userId])
@@ -23,10 +24,19 @@ export function useCareerPlan(userId) {
   return { plans, loading, refetch: fetch }
 }
 
-export async function upsertCareerPlan({ user_id, year, planned_salary, notes }) {
-  const { error } = await supabase
-    .from('career_plans')
-    .upsert({ user_id, year, planned_salary, notes }, { onConflict: 'user_id,year' })
+export async function upsertCareerPlan({ id, user_id, year, planned_salary, notes, effective_date }) {
+  const payload = {
+    user_id,
+    year,
+    planned_salary,
+    notes: notes || null,
+    effective_date: effective_date || null,
+  }
+  if (id) {
+    const { error } = await supabase.from('career_plans').update(payload).eq('id', id)
+    return { error }
+  }
+  const { error } = await supabase.from('career_plans').insert(payload)
   return { error }
 }
 

@@ -17,7 +17,7 @@ export default function CareerPlanEditor({ userId, baseSalary, annualBonus, onBa
   const [bonusLoading, setBonusLoading] = useState(false)
 
   const [addOpen, setAddOpen] = useState(false)
-  const [form, setForm] = useState({ year: new Date().getFullYear() + 1, planned_salary: '', notes: '' })
+  const [form, setForm] = useState({ id: null, year: new Date().getFullYear() + 1, planned_salary: '', notes: '', effective_date: '' })
   const [formLoading, setFormLoading] = useState(false)
   const [formError, setFormError] = useState('')
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
@@ -40,22 +40,37 @@ export default function CareerPlanEditor({ userId, baseSalary, annualBonus, onBa
     onAnnualBonusUpdated?.(Number(bonusValue))
   }
 
+  const emptyForm = { id: null, year: new Date().getFullYear() + 1, planned_salary: '', notes: '', effective_date: '' }
+
   async function handleAddPlan(e) {
     e.preventDefault()
     if (!form.planned_salary) { setFormError('Le salaire est obligatoire.'); return }
     setFormLoading(true)
     setFormError('')
     const { error } = await upsertCareerPlan({
+      id: form.id || undefined,
       user_id: userId,
       year: Number(form.year),
       planned_salary: Number(form.planned_salary),
       notes: form.notes.trim() || null,
+      effective_date: form.effective_date || null,
     })
     setFormLoading(false)
     if (error) { setFormError(error.message); return }
-    setForm({ year: new Date().getFullYear() + 1, planned_salary: '', notes: '' })
+    setForm(emptyForm)
     refetch()
     setAddOpen(false)
+  }
+
+  function openEdit(plan) {
+    setForm({
+      id: plan.id,
+      year: plan.year,
+      planned_salary: plan.planned_salary,
+      notes: plan.notes || '',
+      effective_date: plan.effective_date || '',
+    })
+    setAddOpen(true)
   }
 
   async function handleDelete(id) {
@@ -159,7 +174,7 @@ export default function CareerPlanEditor({ userId, baseSalary, annualBonus, onBa
             <h3 className="font-bold text-sm text-[#1a1a1a]">Plan de carrière</h3>
             <p className="text-xs text-[#6b7280]">Salaire prévu par année</p>
           </div>
-          <Button size="sm" onClick={() => setAddOpen(true)}>+ Ajouter une année</Button>
+          <Button size="sm" onClick={() => { setForm(emptyForm); setFormError(''); setAddOpen(true) }}>+ Ajouter une entrée</Button>
         </div>
 
         {loading ? (
@@ -191,6 +206,11 @@ export default function CareerPlanEditor({ userId, baseSalary, annualBonus, onBa
                       <span className="text-xs font-semibold text-[#6b7280] bg-gray-100 px-2 py-0.5 rounded-full">Historique</span>
                     )}
                   </div>
+                  {plan.effective_date && (
+                    <p className="text-xs text-[#6b7280] mt-0.5">
+                      En vigueur le {new Date(plan.effective_date + 'T00:00:00').toLocaleDateString('fr-CA', { day: 'numeric', month: 'long', year: 'numeric' })}
+                    </p>
+                  )}
                   {plan.notes && <p className="text-xs text-[#6b7280] mt-0.5 whitespace-pre-wrap">{plan.notes}</p>}
                 </div>
                 <div className="flex items-center gap-3">
@@ -204,14 +224,24 @@ export default function CareerPlanEditor({ userId, baseSalary, annualBonus, onBa
                       <Button size="sm" variant="secondary" onClick={() => setConfirmDeleteId(null)}>Non</Button>
                     </div>
                   ) : (
-                    <button
-                      onClick={() => setConfirmDeleteId(plan.id)}
-                      className="p-1.5 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-500 transition-colors"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => openEdit(plan)}
+                        className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-300 hover:text-gray-600 transition-colors"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => setConfirmDeleteId(plan.id)}
+                        className="p-1.5 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-500 transition-colors"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -220,7 +250,7 @@ export default function CareerPlanEditor({ userId, baseSalary, annualBonus, onBa
         )}
       </Card>
 
-      <Modal isOpen={addOpen} onClose={() => setAddOpen(false)} title="Ajouter une entrée au plan">
+      <Modal isOpen={addOpen} onClose={() => { setAddOpen(false); setForm(emptyForm); setFormError('') }} title={form.id ? 'Modifier l\'entrée' : 'Ajouter une entrée au plan'}>
         <form onSubmit={handleAddPlan} className="space-y-4">
           <Input
             label="Année"
@@ -229,6 +259,12 @@ export default function CareerPlanEditor({ userId, baseSalary, annualBonus, onBa
             max={currentYear + 20}
             value={form.year}
             onChange={e => setForm(f => ({ ...f, year: e.target.value }))}
+          />
+          <Input
+            label="Date d'entrée en vigueur (optionnel)"
+            type="date"
+            value={form.effective_date}
+            onChange={e => setForm(f => ({ ...f, effective_date: e.target.value }))}
           />
           <Input
             label="Salaire prévu ($)"
@@ -250,7 +286,7 @@ export default function CareerPlanEditor({ userId, baseSalary, annualBonus, onBa
           </div>
           {formError && <p className="text-sm text-red-500">{formError}</p>}
           <div className="flex justify-end gap-3 pt-2">
-            <Button type="button" variant="secondary" onClick={() => setAddOpen(false)}>Annuler</Button>
+            <Button type="button" variant="secondary" onClick={() => { setAddOpen(false); setForm(emptyForm); setFormError('') }}>Annuler</Button>
             <Button type="submit" loading={formLoading}>Enregistrer</Button>
           </div>
         </form>
