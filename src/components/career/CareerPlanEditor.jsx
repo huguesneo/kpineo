@@ -4,6 +4,7 @@ import Button from '../shared/Button'
 import Input from '../shared/Input'
 import Modal from '../shared/Modal'
 import { useCareerPlan, upsertCareerPlan, deleteCareerPlan, updateBaseSalary, updateAnnualBonus } from '../../hooks/useCareerPlan'
+import TransitionPlanEditor from './TransitionPlanEditor'
 
 export default function CareerPlanEditor({ userId, baseSalary, annualBonus, onBaseSalaryUpdated, onAnnualBonusUpdated }) {
   const { plans, loading, refetch } = useCareerPlan(userId)
@@ -291,6 +292,8 @@ export default function CareerPlanEditor({ userId, baseSalary, annualBonus, onBa
           </div>
         </form>
       </Modal>
+
+      <TransitionPlanEditor userId={userId} />
     </div>
   )
 }

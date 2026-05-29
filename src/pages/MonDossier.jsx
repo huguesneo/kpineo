@@ -9,10 +9,11 @@ import { useAuth } from '../context/AuthContext'
 import { useKPIEntries, useEODReports, KPI_TYPE_LABELS } from '../hooks/useKPIs'
 import { SetterEODHistoryItem } from '../components/eod/SetterEODForm'
 import { useCareerPlan } from '../hooks/useCareerPlan'
+import { useVisibleTransitionPlans } from '../hooks/useTransitionPlan'
 import { format, parseISO } from 'date-fns'
 import { fr } from 'date-fns/locale'
 
-const TABS = ['Mes KPIs', 'Plan de carrière']
+const TABS_BASE = ['Mes KPIs', 'Plan de carrière']
 
 const ROLE_LABELS = {
   naturopathe:    'Naturopathe',
@@ -244,13 +245,75 @@ function CareerPlanTab({ profile }) {
   )
 }
 
+// ─── Plan de transition (lecture seule membre) ───────────────────────────────
+
+function TransitionPlanTab({ userId }) {
+  const { plans, loading } = useVisibleTransitionPlans(userId)
+
+  function monthLabel(dateStr) {
+    const d = new Date(dateStr + 'T00:00:00')
+    return d.toLocaleDateString('fr-CA', { month: 'long', year: 'numeric' })
+  }
+
+  const now = new Date()
+  const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+
+  if (loading) {
+    return (
+      <div className="space-y-3">
+        {[...Array(2)].map((_, i) => <div key={i} className="h-24 bg-gray-100 rounded-xl animate-pulse" />)}
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {plans.map(plan => {
+        const planMonth = plan.month?.slice(0, 7)
+        const isCurrent = planMonth === currentMonthStr
+        return (
+          <Card key={plan.id} className={`p-5 ${isCurrent ? 'border-[#00bbb1]/30 bg-[#00bbb1]/5' : ''}`}>
+            <div className="flex items-center gap-2 mb-3">
+              <h3 className="font-bold text-sm text-[#1a1a1a] capitalize">{monthLabel(plan.month)}</h3>
+              {isCurrent && (
+                <span className="text-xs font-semibold text-[#00bbb1] bg-[#00bbb1]/10 px-2 py-0.5 rounded-full">Mois en cours</span>
+              )}
+            </div>
+            {plan.time_split && (
+              <p className="text-xs font-medium text-[#6b7280] mb-3">{plan.time_split}</p>
+            )}
+            {plan.focus_items?.length > 0 && (
+              <ul className="space-y-1.5">
+                {plan.focus_items.map((item, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm text-[#374151]">
+                    <span className="text-[#00bbb1] font-bold mt-0.5">•</span>
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {plan.notes && (
+              <p className="text-xs text-[#6b7280] mt-3 italic">{plan.notes}</p>
+            )}
+          </Card>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── Page principale ──────────────────────────────────────────────────────────
 
 export default function MonDossier() {
   const { profile } = useAuth()
   const [activeTab, setActiveTab] = useState(0)
+  const { plans: transitionPlans } = useVisibleTransitionPlans(profile?.id)
 
   if (!profile) return null
+
+  const TABS = transitionPlans.length > 0
+    ? [...TABS_BASE, 'Plan de transition']
+    : TABS_BASE
 
   return (
     <Layout>
@@ -284,6 +347,7 @@ export default function MonDossier() {
 
       {activeTab === 0 && <KPIsTab userId={profile.id} userRole={profile.role} />}
       {activeTab === 1 && <CareerPlanTab profile={profile} />}
+      {activeTab === 2 && <TransitionPlanTab userId={profile.id} />}
     </Layout>
   )
 }
