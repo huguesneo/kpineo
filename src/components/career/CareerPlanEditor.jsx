@@ -176,20 +176,25 @@ export default function CareerPlanEditor({ userId, baseSalary, annualBonus, onBa
                 className={`flex items-center justify-between px-4 py-3 rounded-xl border transition-all ${
                   plan.year === currentYear
                     ? 'border-[#00bbb1]/30 bg-[#00bbb1]/5'
+                    : plan.year < currentYear
+                    ? 'border-[#e5e7eb] bg-white opacity-75'
                     : 'border-[#e5e7eb] bg-gray-50'
                 }`}
               >
                 <div>
                   <div className="flex items-center gap-2">
-                    <p className="font-bold text-sm text-[#1a1a1a]">{plan.year}</p>
+                    <p className={`font-bold text-sm ${plan.year < currentYear ? 'text-[#6b7280]' : 'text-[#1a1a1a]'}`}>{plan.year}</p>
                     {plan.year === currentYear && (
                       <span className="text-xs font-semibold text-[#00bbb1] bg-[#00bbb1]/10 px-2 py-0.5 rounded-full">Année en cours</span>
+                    )}
+                    {plan.year < currentYear && (
+                      <span className="text-xs font-semibold text-[#6b7280] bg-gray-100 px-2 py-0.5 rounded-full">Historique</span>
                     )}
                   </div>
                   {plan.notes && <p className="text-xs text-[#6b7280] mt-0.5 whitespace-pre-wrap">{plan.notes}</p>}
                 </div>
                 <div className="flex items-center gap-3">
-                  <p className="font-bold text-[#1a1a1a]">
+                  <p className={`font-bold ${plan.year < currentYear ? 'text-[#6b7280]' : 'text-[#1a1a1a]'}`}>
                     {Number(plan.planned_salary).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}
                   </p>
                   {confirmDeleteId === plan.id ? (
@@ -220,7 +225,7 @@ export default function CareerPlanEditor({ userId, baseSalary, annualBonus, onBa
           <Input
             label="Année"
             type="number"
-            min={currentYear}
+            min={currentYear - 20}
             max={currentYear + 20}
             value={form.year}
             onChange={e => setForm(f => ({ ...f, year: e.target.value }))}
