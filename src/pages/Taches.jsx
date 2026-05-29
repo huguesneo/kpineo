@@ -15,6 +15,7 @@ import { SkeletonCard } from '../components/shared/Skeleton'
 import { useTasks, usePendingApprovalTasks, approveTask, rejectTask } from '../hooks/useTasks'
 import { useMembers } from '../hooks/useMembers'
 import { useAuth } from '../context/AuthContext'
+import SetterTaskBoard from '../components/tasks/SetterTaskBoard'
 import { useUserPoints } from '../hooks/usePoints'
 import { useTeamPoints } from '../hooks/useRewards'
 import { useCloserEODMissedBadge } from '../hooks/useCloserEOD'
@@ -314,11 +315,15 @@ function StatPill({ value, label, color }) {
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function Taches() {
-  const { profile, hasCloserRole } = useAuth()
+  const { profile, hasCloserRole, hasSetterRole } = useAuth()
   const isAdmin = profile?.role === 'admin'
   const isRespVente = profile?.role === 'resp_vente'
   const isAdminOrRespVente = isAdmin || isRespVente
   const isCloserMember = hasCloserRole && !isAdmin
+
+  // Setter board visible to: setter role, admin, resp_vente
+  // Excludes: naturopathe, service_client, gestion, pure closers
+  const canSeeSetterBoard = hasSetterRole || isAdminOrRespVente
 
   const eodMissed = useCloserEODMissedBadge(
     isCloserMember ? profile?.id : null,
@@ -443,6 +448,7 @@ export default function Taches() {
         <div className="space-y-6">
           {isAdmin && <TeamPointsOverview />}
           <ApprovalSection memberFilter={memberFilter} onApproved={refetch} />
+          <SetterTaskBoard currentUserId={profile?.id} isAdminOrRespVente={isAdminOrRespVente} />
           <TaskSection {...taskSectionProps} priority="prioritaire" />
           <TaskSection {...taskSectionProps} priority="secondaire" />
           <CompletedSection
@@ -477,6 +483,10 @@ export default function Taches() {
         /* ── Member view ── */
         <div className="space-y-6">
           <PointsStreakHeader userId={profile?.id} tasks={tasks} />
+
+          {canSeeSetterBoard && (
+            <SetterTaskBoard currentUserId={profile?.id} isAdminOrRespVente={false} />
+          )}
 
           <MemberTaskSection
             {...memberSectionProps}
