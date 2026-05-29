@@ -59,6 +59,16 @@ export async function deleteObjective(id) {
   return { error }
 }
 
+export async function updateObjective(id, { target_value, period_start, period_end }) {
+  const { data, error } = await supabase
+    .from('objectives')
+    .update({ target_value: Number(target_value), period_start, period_end })
+    .eq('id', id)
+    .select()
+    .single()
+  return { data, error }
+}
+
 export async function setObjectiveForPeriod({ user_id, type, target_value, period_start, period_end }) {
   const { data: existing } = await supabase
     .from('objectives')

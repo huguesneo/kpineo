@@ -107,7 +107,9 @@ function ClinicAnnualCard({ objectives, revenue = 0, monthlyRevenue = 0, annualD
   const pct = Math.min(100, Math.round((ytd / activeObj.target_value) * 100))
   const remaining = Math.max(0, activeObj.target_value - ytd)
   const monthsElapsed = new Date().getMonth() + 1
-  const monthsRemaining = Math.max(1, 12 - new Date().getMonth())
+  // Current month is already counted in ytd → spread the remainder over the
+  // months that come AFTER it (e.g. end of May → June-Dec = 7 months).
+  const monthsRemaining = Math.max(1, 12 - monthsElapsed)
   const neededPerMonth = remaining / monthsRemaining
 
   // Exclude current (partial) month from the average

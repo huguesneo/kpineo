@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Layout from '../components/layout/Layout'
 import Header from '../components/layout/Header'
 import Card from '../components/shared/Card'
@@ -9,7 +9,7 @@ import Modal from '../components/shared/Modal'
 import Input from '../components/shared/Input'
 import { SkeletonTable } from '../components/shared/Skeleton'
 import { useKPIEntries, useClinicKPIEntries, useEODReports, getPeriodDates, KPI_TYPE_LABELS, deleteKPIEntry, parseKPIValue } from '../hooks/useKPIs'
-import { useClinicObjectives, createObjective, deleteObjective, CLINIC_OBJECTIVE_TYPES } from '../hooks/useObjectives'
+import { useClinicObjectives, createObjective, deleteObjective, updateObjective, CLINIC_OBJECTIVE_TYPES } from '../hooks/useObjectives'
 import { useMembers } from '../hooks/useMembers'
 import { useAuth } from '../context/AuthContext'
 import { format, parseISO } from 'date-fns'
@@ -104,23 +104,43 @@ function EODReportRow({ report }) {
   )
 }
 
-function AddClinicObjectiveModal({ isOpen, onClose, defaultType, onCreated }) {
-  const [form, setForm] = useState({ type: defaultType, target_value: '', period_start: '', period_end: '' })
-  const [loading, setLoading] = useState(false)
+function AddClinicObjectiveModal({ isOpen, onClose, defaultType, onCreated, editObjective }) {
+  const isEdit = !!editObjective
   const isAnnual = defaultType === 'clinic_revenue_annual'
+  const [form, setForm] = useState({ target_value: '', period_start: '', period_end: '' })
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (isOpen && editObjective) {
+      setForm({
+        target_value: String(editObjective.target_value),
+        period_start: editObjective.period_start,
+        period_end: editObjective.period_end,
+      })
+    } else if (!isOpen) {
+      setForm({ target_value: '', period_start: '', period_end: '' })
+    }
+  }, [isOpen, editObjective])
 
   async function handleSubmit(e) {
     e.preventDefault()
     if (!form.target_value || !form.period_start || !form.period_end) return
     setLoading(true)
-    await createObjective({ ...form, type: defaultType, target_value: Number(form.target_value), scope: 'clinic', user_id: null })
+    if (isEdit) {
+      await updateObjective(editObjective.id, form)
+    } else {
+      await createObjective({ type: defaultType, target_value: Number(form.target_value), period_start: form.period_start, period_end: form.period_end, scope: 'clinic', user_id: null })
+    }
     setLoading(false)
-    setForm({ type: defaultType, target_value: '', period_start: '', period_end: '' })
     onCreated?.(); onClose()
   }
 
+  const title = isEdit
+    ? (isAnnual ? 'Modifier objectif annuel' : 'Modifier objectif mensuel')
+    : (isAnnual ? 'Ajouter objectif annuel' : 'Ajouter objectif mensuel')
+
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={isAnnual ? 'Ajouter objectif annuel' : 'Ajouter objectif mensuel'}>
+    <Modal isOpen={isOpen} onClose={onClose} title={title}>
       <form onSubmit={handleSubmit} className="space-y-4">
         <Input
           label={isAnnual ? 'Objectif annuel ($)' : 'Objectif mensuel ($)'}
@@ -133,14 +153,14 @@ function AddClinicObjectiveModal({ isOpen, onClose, defaultType, onCreated }) {
         <Input label="Fin de période" type="date" value={form.period_end} onChange={e => setForm(f => ({ ...f, period_end: e.target.value }))} />
         <div className="flex justify-end gap-3 pt-2">
           <Button type="button" variant="secondary" onClick={onClose}>Annuler</Button>
-          <Button type="submit" loading={loading}>Créer</Button>
+          <Button type="submit" loading={loading}>{isEdit ? 'Enregistrer' : 'Créer'}</Button>
         </div>
       </form>
     </Modal>
   )
 }
 
-function ClinicObjectivesList({ objectives, isAdmin, onDelete, label, emptyText }) {
+function ClinicObjectivesList({ objectives, isAdmin, onDelete, onEdit, emptyText }) {
   return (
     <div>
       {objectives.length === 0 ? (
@@ -154,14 +174,19 @@ function ClinicObjectivesList({ objectives, isAdmin, onDelete, label, emptyText 
                   {format(parseISO(o.period_start), 'd MMM', { locale: fr })} → {format(parseISO(o.period_end), 'd MMM yyyy', { locale: fr })}
                 </p>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
                 <p className="font-bold text-sm text-[#1a1a1a]">
                   {Number(o.target_value).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })}
                 </p>
                 {isAdmin && (
-                  <button onClick={() => onDelete(o.id)} className="p-1 text-gray-300 hover:text-red-500 transition-colors">
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                  </button>
+                  <>
+                    <button onClick={() => onEdit(o)} className="p-1 text-gray-300 hover:text-[#00bbb1] transition-colors" title="Modifier">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536M9 13l6.586-6.586a2 2 0 012.828 2.828L11.828 15.828a2 2 0 01-1.414.586H7v-3a2 2 0 01.586-1.414z" /></svg>
+                    </button>
+                    <button onClick={() => onDelete(o.id)} className="p-1 text-gray-300 hover:text-red-500 transition-colors" title="Supprimer">
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
+                  </>
                 )}
               </div>
             </div>
@@ -176,6 +201,7 @@ function ClinicObjectivesPanel({ isAdmin }) {
   const { objectives, refetch } = useClinicObjectives()
   const [addMonthly, setAddMonthly] = useState(false)
   const [addAnnual, setAddAnnual] = useState(false)
+  const [editObj, setEditObj] = useState(null)
 
   const monthlyObjs = objectives.filter(o => o.type === 'clinic_revenue')
   const annualObjs = objectives.filter(o => o.type === 'clinic_revenue_annual')
@@ -200,6 +226,7 @@ function ClinicObjectivesPanel({ isAdmin }) {
           objectives={monthlyObjs}
           isAdmin={isAdmin}
           onDelete={handleDelete}
+          onEdit={setEditObj}
           emptyText="Aucun objectif mensuel défini."
         />
         <AddClinicObjectiveModal
@@ -223,6 +250,7 @@ function ClinicObjectivesPanel({ isAdmin }) {
           objectives={annualObjs}
           isAdmin={isAdmin}
           onDelete={handleDelete}
+          onEdit={setEditObj}
           emptyText="Aucun objectif annuel défini."
         />
         <AddClinicObjectiveModal
@@ -232,6 +260,17 @@ function ClinicObjectivesPanel({ isAdmin }) {
           onCreated={refetch}
         />
       </Card>
+
+      {/* Modal d'édition partagée */}
+      {editObj && (
+        <AddClinicObjectiveModal
+          isOpen={!!editObj}
+          onClose={() => setEditObj(null)}
+          defaultType={editObj.type}
+          editObjective={editObj}
+          onCreated={() => { refetch(); setEditObj(null) }}
+        />
+      )}
     </div>
   )
 }
