@@ -23,6 +23,9 @@ import SaleCallScript from './pages/SaleCallScript'
 import CloserCalendar from './pages/CloserCalendar'
 import CentreVente from './pages/CentreVente'
 import MetaAds from './pages/MetaAds'
+import Performance from './pages/Performance'
+
+const HUGUES_EMAIL = 'hugues@neoperformance.ca'
 
 function LoadingScreen() {
   return (
@@ -60,6 +63,14 @@ function SalesManagerRoute({ children }) {
   return children
 }
 
+function HuguesRoute({ children }) {
+  const { user, loading } = useAuth()
+  if (loading) return <LoadingScreen />
+  if (!user) return <Navigate to="/login" replace />
+  if (user.email !== HUGUES_EMAIL) return <Navigate to="/dashboard" replace />
+  return children
+}
+
 function PublicRoute({ children }) {
   const { user, loading } = useAuth()
   if (loading) return <LoadingScreen />
@@ -93,6 +104,7 @@ function AppRoutes() {
       <Route path="/sale-call-script/:appointmentGhlId" element={<PrivateRoute><SaleCallScript /></PrivateRoute>} />
       <Route path="/centre-vente" element={<PrivateRoute><CentreVente /></PrivateRoute>} />
       <Route path="/meta-ads"    element={<SalesManagerRoute><MetaAds /></SalesManagerRoute>} />
+      <Route path="/performance" element={<HuguesRoute><Performance /></HuguesRoute>} />
 
       {/* Admin + resp_vente — équipe de vente & naturopathe */}
       <Route path="/closer-admin" element={<SalesManagerRoute><CloserAdmin /></SalesManagerRoute>} />
