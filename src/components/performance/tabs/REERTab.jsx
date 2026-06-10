@@ -3,6 +3,8 @@ import Card from '../../shared/Card'
 import Button from '../../shared/Button'
 import Badge from '../../shared/Badge'
 import MonthNavigator from '../../shared/MonthNavigator'
+import MargeSeuilsModal from '../components/MargeSeuilsModal'
+import NaturoDossier from '../components/NaturoDossier'
 import {
   NATUROS, calcREER, calcProfitNEO, contribKey,
   formatCAD, formatPct, hasMonthData, num,
@@ -10,16 +12,15 @@ import {
 
 const MONTHS_FR = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc']
 
-function ContribRow({ naturo, value, cap, match, eligible, plancherAtteint, onChange }) {
+function ContribRow({ naturo, value, info, onChange }) {
+  const { cap, match, eligible, marge, seuil, raison } = info
   let statut
   if (eligible) statut = <Badge variant="success">NEO verse</Badge>
-  else if (!plancherAtteint) statut = <Badge variant="danger">Plancher non atteint</Badge>
-  else if (num(value) <= 0) statut = <Badge variant="default">Pas de cotisation</Badge>
-  else statut = <Badge variant="default">—</Badge>
+  else statut = <Badge variant="danger">0 $</Badge>
 
   return (
     <div className="grid grid-cols-12 items-center gap-2 py-2 border-b border-[#f1f5f9] last:border-0">
-      <span className="col-span-3 text-sm font-semibold text-[#1a1a1a]">{naturo.label}</span>
+      <span className="col-span-2 text-sm font-semibold text-[#1a1a1a]">{naturo.label}</span>
       <div className="col-span-3 relative">
         <input
           type="number"
@@ -30,11 +31,16 @@ function ContribRow({ naturo, value, cap, match, eligible, plancherAtteint, onCh
         />
         <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#9ca3af]">$</span>
       </div>
-      <span className="col-span-2 text-xs text-[#9ca3af] text-right" title="Plafond = 3 % du salaire mensuel">
-        plafond {formatCAD(cap)}
+      <span className="col-span-3 text-xs text-[#6b7280]">
+        Marge{' '}
+        <span className={marge != null && marge >= seuil ? 'font-bold text-emerald-600' : 'font-bold text-red-600'}>
+          {marge != null ? formatPct(marge / 100, 1) : '—'}
+        </span>
+        {' '}/ seuil {num(seuil)} %
+        <span className="block text-[10px] text-[#9ca3af]" title="Plafond = 3 % du salaire mensuel">plafond {formatCAD(cap)}</span>
       </span>
       <span className="col-span-2 text-right text-sm font-bold text-[#00bbb1]">{formatCAD(match)}</span>
-      <span className="col-span-2 text-right">{statut}</span>
+      <span className="col-span-2 text-right" title={raison}>{statut}</span>
     </div>
   )
 }
@@ -42,6 +48,10 @@ function ContribRow({ naturo, value, cap, match, eligible, plancherAtteint, onCh
 export default function REERTab({ data }) {
   const { months, params, selectedMonth, selectMonth, getMonthData, saveMonth } = data
   const { year, month } = selectedMonth
+
+  // Sous-menu : 'overview' ou la clé d'un naturo (son dossier)
+  const [view, setView] = useState('overview')
+  const [seuilsOpen, setSeuilsOpen] = useState(false)
 
   // ----- Saisie des cotisations du mois sélectionné -----
   const monthRecord = getMonthData(year, month)
@@ -109,13 +119,40 @@ export default function REERTab({ data }) {
 
   return (
     <div className="space-y-6">
+      {/* Sous-menu : vue d'ensemble + dossier par naturo */}
+      <div className="flex gap-1 border-b border-[#e5e7eb] overflow-x-auto">
+        <button
+          onClick={() => setView('overview')}
+          className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px whitespace-nowrap transition-colors ${view === 'overview' ? 'border-[#00bbb1] text-[#00bbb1]' : 'border-transparent text-[#6b7280] hover:text-[#1a1a1a]'}`}
+        >
+          Vue d'ensemble
+        </button>
+        {NATUROS.map(n => (
+          <button
+            key={n.key}
+            onClick={() => setView(n.key)}
+            className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px whitespace-nowrap transition-colors ${view === n.key ? 'border-[#00bbb1] text-[#00bbb1]' : 'border-transparent text-[#6b7280] hover:text-[#1a1a1a]'}`}
+          >
+            {n.label}
+          </button>
+        ))}
+      </div>
+
+      {view !== 'overview' ? (
+        <NaturoDossier naturoKey={view} data={data} />
+      ) : (
+      <>
       {/* Rappel du modèle */}
       <Card className="p-4">
-        <h3 className="text-sm font-bold text-[#1a1a1a] mb-1">Modèle REER — cotisation égalée</h3>
+        <div className="flex items-center justify-between gap-3 mb-1">
+          <h3 className="text-sm font-bold text-[#1a1a1a]">Modèle REER — cotisation égalée</h3>
+          <Button variant="secondary" size="sm" onClick={() => setSeuilsOpen(true)}>Modifier les seuils de marge</Button>
+        </div>
         <p className="text-sm text-[#6b7280]">
-          NEO verse pour un naturo ce mois si <span className="font-semibold">les 3 conditions</span> sont remplies :
+          NEO verse pour un naturo ce mois si <span className="font-semibold">les 4 conditions</span> sont remplies :
           (1) le naturo a cotisé (preuve reçue), (2) Profit NEO ≥ <span className="font-semibold">{formatCAD(params.reer_plancher)}</span>,
-          (3) NEO égale la cotisation, plafonnée à <span className="font-semibold">{formatPct(params.reer_match_cap_pct ?? 0.03, 0)}</span> du salaire mensuel.
+          (3) marge individuelle du naturo ≥ son seuil personnel,
+          (4) NEO égale la cotisation, plafonnée à <span className="font-semibold">{formatPct(params.reer_match_cap_pct ?? 0.03, 0)}</span> du salaire mensuel.
         </p>
       </Card>
 
@@ -141,9 +178,9 @@ export default function REERTab({ data }) {
         )}
 
         <div className="grid grid-cols-12 gap-2 pb-1 text-[10px] font-bold text-[#9ca3af] uppercase">
-          <span className="col-span-3">Naturo</span>
+          <span className="col-span-2">Naturo</span>
           <span className="col-span-3">A cotisé ($)</span>
-          <span className="col-span-2 text-right">Plafond 3 %</span>
+          <span className="col-span-3">Marge / seuil</span>
           <span className="col-span-2 text-right">NEO verse</span>
           <span className="col-span-2 text-right">Statut</span>
         </div>
@@ -152,10 +189,7 @@ export default function REERTab({ data }) {
             key={n.key}
             naturo={n}
             value={contribs[n.key]}
-            cap={reer.perNaturo[n.key].cap}
-            match={reer.perNaturo[n.key].match}
-            eligible={reer.perNaturo[n.key].eligible}
-            plancherAtteint={reer.plancherAtteint}
+            info={reer.perNaturo[n.key]}
             onChange={v => setContrib(n.key, v)}
           />
         ))}
@@ -248,6 +282,17 @@ export default function REERTab({ data }) {
           <p className="text-xl font-black text-[#0a1628]">{formatCAD(totalNEO + totalMembres)}</p>
         </Card>
       </div>
+      </>
+      )}
+
+      <MargeSeuilsModal
+        isOpen={seuilsOpen}
+        onClose={() => setSeuilsOpen(false)}
+        params={params}
+        months={months}
+        margeHistorique={data.margeHistorique}
+        onSave={data.saveMargeConfig}
+      />
     </div>
   )
 }

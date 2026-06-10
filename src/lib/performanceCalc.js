@@ -215,6 +215,18 @@ export function calcAllNaturos(metrics, params) {
 
 export const REER_CONTRIB_KEYS = NATUROS.map(n => `reer_contrib_${n.key}`)
 export function contribKey(naturoKey) { return `reer_contrib_${naturoKey}` }
+export function margeSeuilKey(naturoKey) { return `marge_seuil_${naturoKey}` }
+export function objectifDebutKey(naturoKey) { return `objectif_debut_${naturoKey}` }
+
+// Marge individuelle d'un naturo en % (null si revenu nul → division par zéro).
+export function calcMargeNaturo(metrics, params, naturoKey) {
+  const naturo = NATUROS.find(n => n.key === naturoKey)
+  if (!naturo) return null
+  const revenu = num(metrics?.[naturo.revenueKey])
+  if (revenu <= 0) return null
+  const np = calcProfitNaturo(metrics, params, naturoKey)
+  return (np.profit_naturo / revenu) * 100
+}
 
 export function calcREER(metrics, params) {
   const { profit_neo } = calcProfitNEO(metrics, params)
@@ -231,9 +243,28 @@ export function calcREER(metrics, params) {
     const contrib = num(metrics?.[contribKey(n.key)])
     const salaire_mensuel = num(params?.[n.salaryKey]) / 12
     const cap = capPct * salaire_mensuel
-    const eligible = plancherAtteint && contrib > 0
+    const revenu = num(metrics?.[n.revenueKey])
+    const marge = calcMargeNaturo(metrics, params, n.key)   // % ou null
+    const seuil = num(params?.[margeSeuilKey(n.key)])
+    const margeOK = marge != null && marge >= seuil
+
+    // 4 conditions : plancher NEO + cotisation + marge individuelle
+    const eligible = plancherAtteint && contrib > 0 && margeOK
     const match = eligible ? Math.min(contrib, cap) : 0
-    perNaturo[n.key] = { contrib, salaire_mensuel, cap, eligible, match }
+
+    let raison = 'OK'
+    if (!plancherAtteint) raison = 'Plancher NEO non atteint'
+    else if (contrib <= 0) raison = 'Aucune cotisation'
+    else if (!margeOK) {
+      raison = marge == null
+        ? 'Revenu nul'
+        : `Marge ${marge.toFixed(1)} % sous le seuil de ${num(seuil)} %`
+    }
+
+    perNaturo[n.key] = {
+      contrib, salaire_mensuel, cap, revenu,
+      marge, seuil, margeOK, eligible, match, raison,
+    }
     parNaturo[n.key] = match
     total_match += match
     total_contrib += contrib
