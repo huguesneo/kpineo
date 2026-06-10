@@ -6,6 +6,7 @@ import { useTotalHoraireAlertCount } from '../../hooks/useSchedule'
 import { usePendingRedemptionsCount } from '../../hooks/useRewards'
 import { useUnassignedSales } from '../../hooks/useCloserData'
 import { useCloserEODMissedBadge } from '../../hooks/useCloserEOD'
+import { useNaturoPerfAccess } from '../../hooks/useNaturoPerformance'
 
 const NEO_LOGO = 'https://assets.cdn.filesafe.space/YG2spvWJqnD75L3V95UJ/media/6941c9327109a899ec69b43c.png'
 
@@ -70,6 +71,7 @@ function NavItem({ to, icon, label, badge }) {
 export default function Sidebar() {
   const { signOut, user, profile, isAdmin, isRespVente, hasCloserRole, hasSetterRole } = useAuth()
   const isHugues = user?.email === 'hugues@neoperformance.ca'
+  const naturoPerfAccess = useNaturoPerfAccess()
   const isAdminOrRespVente = isAdmin || isRespVente
   const isPrimaryCloserOrSetter = profile?.role === 'closer' || profile?.role === 'setter'
   const monEspaceTo = profile?.role === 'closer' ? '/closer' : profile?.role === 'setter' ? '/setter' : '/mon-dossier'
@@ -274,6 +276,18 @@ export default function Sidebar() {
             icon={
               <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+              </svg>
+            }
+          />
+        )}
+        {/* Performance & REER — naturo dont l'accès est activé par l'admin */}
+        {!isAdmin && naturoPerfAccess && (
+          <NavItem
+            to="/ma-performance"
+            label="Performance & REER"
+            icon={
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.281m5.94 2.28l-2.28 5.941" />
               </svg>
             }
           />

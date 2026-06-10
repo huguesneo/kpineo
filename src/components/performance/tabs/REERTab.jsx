@@ -5,6 +5,8 @@ import Badge from '../../shared/Badge'
 import MonthNavigator from '../../shared/MonthNavigator'
 import MargeSeuilsModal from '../components/MargeSeuilsModal'
 import NaturoDossier from '../components/NaturoDossier'
+import AdminContribInbox from '../components/AdminContribInbox'
+import { supabase } from '../../../lib/supabase'
 import {
   NATUROS, calcREER, calcProfitNEO, contribKey,
   formatCAD, formatPct, hasMonthData, num,
@@ -52,6 +54,18 @@ export default function REERTab({ data }) {
   // Sous-menu : 'overview' ou la clé d'un naturo (son dossier)
   const [view, setView] = useState('overview')
   const [seuilsOpen, setSeuilsOpen] = useState(false)
+
+  // Notification temps réel : un naturo soumet une cotisation → rafraîchir la boîte admin
+  useEffect(() => {
+    if (!data.refetchSnapshots) return
+    const ch = supabase
+      .channel('reer-contrib')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'neo_naturo_monthly' }, () => {
+        data.refetchSnapshots()
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(ch) }
+  }, [data])
 
   // ----- Saisie des cotisations du mois sélectionné -----
   const monthRecord = getMonthData(year, month)
@@ -155,6 +169,12 @@ export default function REERTab({ data }) {
           (4) NEO égale la cotisation, plafonnée à <span className="font-semibold">{formatPct(params.reer_match_cap_pct ?? 0.03, 0)}</span> du salaire mensuel.
         </p>
       </Card>
+
+      <AdminContribInbox
+        snapshots={data.naturoSnapshots}
+        params={params}
+        onConfirm={data.confirmNeoContribution}
+      />
 
       {/* Saisie des cotisations du mois */}
       <Card className="p-5">

@@ -24,6 +24,7 @@ import CloserCalendar from './pages/CloserCalendar'
 import CentreVente from './pages/CentreVente'
 import MetaAds from './pages/MetaAds'
 import Performance from './pages/Performance'
+import MaPerformance from './pages/MaPerformance'
 
 const HUGUES_EMAIL = 'hugues@neoperformance.ca'
 
@@ -105,6 +106,7 @@ function AppRoutes() {
       <Route path="/centre-vente" element={<PrivateRoute><CentreVente /></PrivateRoute>} />
       <Route path="/meta-ads"    element={<SalesManagerRoute><MetaAds /></SalesManagerRoute>} />
       <Route path="/performance" element={<HuguesRoute><Performance /></HuguesRoute>} />
+      <Route path="/ma-performance" element={<PrivateRoute><MaPerformance /></PrivateRoute>} />
 
       {/* Admin + resp_vente — équipe de vente & naturopathe */}
       <Route path="/closer-admin" element={<SalesManagerRoute><CloserAdmin /></SalesManagerRoute>} />
