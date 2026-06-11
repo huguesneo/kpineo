@@ -33,6 +33,30 @@ function buildSnapshotRows(months, params) {
         published_at: new Date().toISOString(),
       })
     })
+
+    // Cloé — instantané basé sur ses KPI (pas de marge ni de profit individuel)
+    const c = reer.cloe
+    rows.push({
+      naturo_key: 'cloe',
+      year: m.year,
+      month: m.month,
+      visible: !!params.reer_visible_cloe,
+      profit_neo: neo.profit_neo,
+      depenses_total: neo.total_couts,
+      plancher: reer.plancher,
+      plancher_atteint: reer.plancherAtteint,
+      own_revenue: null,
+      own_profit: null,
+      own_marge: null,
+      marge_seuil: null,
+      marge_ok: c.reelsOK && c.leadsOK,   // proxy d'éligibilité KPI (utilisé par le RPC)
+      is_cloe: true,
+      kpi_reels: c.reels,
+      kpi_seuil_reels: c.seuilReels,
+      kpi_leads: c.leads,
+      kpi_seuil_leads: c.seuilLeads,
+      published_at: new Date().toISOString(),
+    })
   })
   return rows
 }
@@ -47,6 +71,8 @@ const PARAMS_DEFAULTS = {
   marge_seuil_thibault: 15.0, marge_seuil_brice: 15.0, marge_seuil_jessica: 12.0, marge_seuil_tamara: 12.0,
   objectif_debut_thibault: null, objectif_debut_brice: null, objectif_debut_jessica: null, objectif_debut_tamara: null,
   salaire_cloe: 0, reer_seuil_reels_cloe: 20, reer_seuil_leads_cloe: 0,
+  reer_visible_thibault: false, reer_visible_brice: false, reer_visible_jessica: false,
+  reer_visible_tamara: false, reer_visible_cloe: false,
 }
 
 export function usePerformanceData() {

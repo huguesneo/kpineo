@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import Card from '../../shared/Card'
 import Badge from '../../shared/Badge'
 import CloeReerCard from './CloeReerCard'
+import AccessCard from './AccessCard'
 import { calcReerCloe, calcProfitNEO, formatCAD, hasMonthData, num } from '../../../lib/performanceCalc'
 
 const MONTHS_FR = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
@@ -30,6 +31,9 @@ export default function CloeDossier({ data }) {
         <h3 className="text-lg font-black text-[#0a1628]">Dossier — Cloé</h3>
         <Badge variant="warning">Support &amp; réseaux sociaux</Badge>
       </div>
+
+      {/* Réglages d'accès (admin) */}
+      <AccessCard naturoKey="cloe" label="Cloé" data={data} />
 
       {!params.salaire_cloe || num(params.salaire_cloe) <= 0 ? (
         <Card className="p-4">

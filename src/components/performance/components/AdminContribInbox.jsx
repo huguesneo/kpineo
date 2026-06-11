@@ -6,15 +6,19 @@ import { NATUROS, formatCAD, num } from '../../../lib/performanceCalc'
 
 const MONTHS_FR = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
 
+function naturoLabel(key) {
+  return NATUROS.find(n => n.key === key)?.label || (key === 'cloe' ? 'Cloé' : key)
+}
+
 function suggestion(row, params) {
-  const n = NATUROS.find(x => x.key === row.naturo_key)
   const capPct = num(params?.reer_match_cap_pct) || 0.03
-  const cap = capPct * (num(params?.[n?.salaryKey]) / 12)
+  const salaryKey = row.naturo_key === 'cloe' ? 'salaire_cloe' : NATUROS.find(x => x.key === row.naturo_key)?.salaryKey
+  const cap = capPct * (num(params?.[salaryKey]) / 12)
   return Math.min(num(row.montant_naturo), cap)
 }
 
 function Row({ row, params, onConfirm }) {
-  const label = NATUROS.find(n => n.key === row.naturo_key)?.label || row.naturo_key
+  const label = naturoLabel(row.naturo_key)
   const [montant, setMontant] = useState(String(Math.round(suggestion(row, params) * 100) / 100))
   const [saving, setSaving] = useState(false)
 

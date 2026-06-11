@@ -45,7 +45,7 @@ function ContributionBox({ row, onSubmit, getProofUrl }) {
       <p className="text-xs text-[#9ca3af] mb-3">
         {conditionsHorsCotisation
           ? 'Conditions remplies ce mois — si tu cotises, NEO versera (selon le plafond).'
-          : 'Note : ce mois, le plancher NEO et/ou ta marge ne sont pas atteints — NEO ne versera pas, mais tu peux quand même enregistrer ta cotisation.'}
+          : 'Note : ce mois, les conditions (plancher NEO et/ou tes objectifs) ne sont pas toutes atteintes — NEO ne versera pas, mais tu peux quand même enregistrer ta cotisation.'}
       </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
@@ -117,7 +117,8 @@ function margeColor(marge, seuil) {
 }
 
 export default function NaturoSelfView({ rows, naturoKey, loading, submitContribution, getProofUrl }) {
-  const label = NATUROS.find(n => n.key === naturoKey)?.label || ''
+  const isCloe = naturoKey === 'cloe'
+  const label = NATUROS.find(n => n.key === naturoKey)?.label || (isCloe ? 'Cloé' : '')
   const sorted = useMemo(
     () => [...(rows || [])].sort((a, b) => b.year - a.year || b.month - a.month),
     [rows],
@@ -162,13 +163,28 @@ export default function NaturoSelfView({ rows, naturoKey, loading, submitContrib
             ? <Badge variant="success" className="mt-1">▲ Plancher atteint</Badge>
             : <Badge variant="danger" className="mt-1">▼ Sous le plancher</Badge>} />
         <MetricCard label="Dépenses du mois" value={formatCAD(cur.depenses_total)} color="#0a1628" />
-        <MetricCard label="Ma marge"
-          value={cur.own_marge != null ? formatPct(num(cur.own_marge) / 100, 1) : '—'}
-          sub={`Seuil requis : ${num(cur.marge_seuil)} %`}
-          color={num(cur.own_marge) >= num(cur.marge_seuil) ? '#10b981' : '#ef4444'}
-          badge={cur.marge_ok
-            ? <Badge variant="success" className="mt-1">✅ Marge atteinte</Badge>
-            : <Badge variant="danger" className="mt-1">❌ Marge insuffisante</Badge>} />
+        {isCloe ? (
+          <>
+            <MetricCard label="Reels publiés"
+              value={`${num(cur.kpi_reels)} / ${num(cur.kpi_seuil_reels)}`}
+              color={num(cur.kpi_reels) >= num(cur.kpi_seuil_reels) ? '#10b981' : '#ef4444'}
+              badge={num(cur.kpi_reels) >= num(cur.kpi_seuil_reels)
+                ? <Badge variant="success" className="mt-1">✅ Seuil atteint</Badge>
+                : <Badge variant="danger" className="mt-1">❌ Sous le seuil</Badge>} />
+            <MetricCard label="Leads organiques"
+              value={num(cur.kpi_seuil_leads) > 0 ? `${num(cur.kpi_leads)} / ${num(cur.kpi_seuil_leads)}` : `${num(cur.kpi_leads)}`}
+              sub={num(cur.kpi_seuil_leads) > 0 ? null : 'Non requis'}
+              color={num(cur.kpi_seuil_leads) <= 0 || num(cur.kpi_leads) >= num(cur.kpi_seuil_leads) ? '#10b981' : '#ef4444'} />
+          </>
+        ) : (
+          <MetricCard label="Ma marge"
+            value={cur.own_marge != null ? formatPct(num(cur.own_marge) / 100, 1) : '—'}
+            sub={`Seuil requis : ${num(cur.marge_seuil)} %`}
+            color={num(cur.own_marge) >= num(cur.marge_seuil) ? '#10b981' : '#ef4444'}
+            badge={cur.marge_ok
+              ? <Badge variant="success" className="mt-1">✅ Marge atteinte</Badge>
+              : <Badge variant="danger" className="mt-1">❌ Marge insuffisante</Badge>} />
+        )}
       </div>
 
       {/* Cotisation du mois (saisie + preuve) */}
@@ -182,9 +198,18 @@ export default function NaturoSelfView({ rows, naturoKey, loading, submitContrib
             <tr className="text-[#9ca3af] text-left">
               <th className="px-3 py-2">Mois</th>
               <th className="px-3 py-2 text-right">Profit NEO</th>
-              <th className="px-3 py-2 text-right">Mon revenu</th>
-              <th className="px-3 py-2 text-right">Ma marge</th>
-              <th className="px-3 py-2 text-center">Objectif</th>
+              {isCloe ? (
+                <>
+                  <th className="px-3 py-2 text-right">Reels</th>
+                  <th className="px-3 py-2 text-right">Leads</th>
+                </>
+              ) : (
+                <>
+                  <th className="px-3 py-2 text-right">Mon revenu</th>
+                  <th className="px-3 py-2 text-right">Ma marge</th>
+                </>
+              )}
+              <th className="px-3 py-2 text-center">Conditions</th>
               <th className="px-3 py-2 text-right">Ma cotis.</th>
               <th className="px-3 py-2 text-right">NEO verse</th>
             </tr>
@@ -194,8 +219,17 @@ export default function NaturoSelfView({ rows, naturoKey, loading, submitContrib
               <tr key={`${r.year}-${r.month}`} className={`border-t border-[#f1f5f9] cursor-pointer ${i === idx ? 'bg-[#00bbb1]/5' : ''}`} onClick={() => setIdx(i)}>
                 <td className="px-3 py-2 font-semibold">{MONTHS_ABBR[r.month - 1]} {r.year}</td>
                 <td className={`px-3 py-2 text-right ${r.plancher_atteint ? 'text-emerald-600' : 'text-red-600'}`}>{formatCAD(r.profit_neo)}</td>
-                <td className="px-3 py-2 text-right">{formatCAD(r.own_revenue)}</td>
-                <td className={`px-3 py-2 text-right font-semibold ${margeColor(r.own_marge, r.marge_seuil)}`}>{r.own_marge != null ? formatPct(num(r.own_marge) / 100, 1) : '—'}</td>
+                {isCloe ? (
+                  <>
+                    <td className={`px-3 py-2 text-right font-semibold ${num(r.kpi_reels) >= num(r.kpi_seuil_reels) ? 'text-emerald-600' : 'text-red-600'}`}>{num(r.kpi_reels)}/{num(r.kpi_seuil_reels)}</td>
+                    <td className="px-3 py-2 text-right">{num(r.kpi_seuil_leads) > 0 ? `${num(r.kpi_leads)}/${num(r.kpi_seuil_leads)}` : '—'}</td>
+                  </>
+                ) : (
+                  <>
+                    <td className="px-3 py-2 text-right">{formatCAD(r.own_revenue)}</td>
+                    <td className={`px-3 py-2 text-right font-semibold ${margeColor(r.own_marge, r.marge_seuil)}`}>{r.own_marge != null ? formatPct(num(r.own_marge) / 100, 1) : '—'}</td>
+                  </>
+                )}
                 <td className="px-3 py-2 text-center">{r.marge_ok ? '✅' : '❌'}</td>
                 <td className="px-3 py-2 text-right">{r.montant_naturo > 0 ? formatCAD(r.montant_naturo) : '— $'}</td>
                 <td className="px-3 py-2 text-right font-semibold text-[#00bbb1]">{r.montant_neo > 0 ? formatCAD(r.montant_neo) : '— $'}</td>
