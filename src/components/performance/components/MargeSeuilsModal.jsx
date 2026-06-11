@@ -29,6 +29,10 @@ export default function MargeSeuilsModal({ isOpen, onClose, params, months, marg
     return d
   }
   const [draft, setDraft] = useState(init)
+  const [cloe, setCloe] = useState({
+    seuilReels: num(params.reer_seuil_reels_cloe),
+    seuilLeads: num(params.reer_seuil_leads_cloe),
+  })
   const [saving, setSaving] = useState(false)
 
   const avgs = useMemo(() => {
@@ -60,6 +64,9 @@ export default function MargeSeuilsModal({ isOpen, onClose, params, months, marg
         })
       }
     })
+    // Seuils KPI de Cloé (le salaire se règle dans « Modifier les paramètres fixes »)
+    paramUpdates.reer_seuil_reels_cloe = Math.round(num(cloe.seuilReels))
+    paramUpdates.reer_seuil_leads_cloe = Math.round(num(cloe.seuilLeads))
     await onSave(paramUpdates, historyRows)
     setSaving(false)
     onClose()
@@ -108,6 +115,29 @@ export default function MargeSeuilsModal({ isOpen, onClose, params, months, marg
             </div>
           )
         })}
+
+        {/* Cloé — conditions KPI */}
+        <div className="rounded-lg border border-[#e5e7eb] p-4">
+          <h4 className="text-sm font-bold text-[#1a1a1a] mb-2">Cloé — Conditions KPI</h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold text-[#6b7280]">Seuil Reels / mois</label>
+              <input type="number" value={cloe.seuilReels}
+                onChange={e => setCloe(c => ({ ...c, seuilReels: e.target.value }))}
+                className="px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00bbb1]" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-semibold text-[#6b7280]">Seuil leads organiques / mois</label>
+              <input type="number" value={cloe.seuilLeads}
+                onChange={e => setCloe(c => ({ ...c, seuilLeads: e.target.value }))}
+                className="px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#00bbb1]" />
+            </div>
+          </div>
+          <p className="text-xs text-[#9ca3af] mt-2">
+            Les conditions de Cloé sont basées sur ses KPIs réseaux sociaux plutôt que sur une marge individuelle, puisqu'elle est en support.
+            Les seuils doivent être équivalents en effort aux conditions des naturos. Mettre le seuil leads à 0 désactive cette condition.
+          </p>
+        </div>
 
         {/* Historique */}
         {margeHistorique?.length > 0 && (

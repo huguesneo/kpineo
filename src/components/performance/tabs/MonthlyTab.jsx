@@ -6,16 +6,18 @@ import MonthNavigator from '../../shared/MonthNavigator'
 import MonthlyForm from '../components/MonthlyForm'
 import MonthSummaryCard from '../components/MonthSummaryCard'
 import NaturoProfitCard from '../components/NaturoProfitCard'
+import CloeReerCard from '../components/CloeReerCard'
 import ImportCSVModal from '../components/ImportCSVModal'
 import ImportNaturoModal from '../components/ImportNaturoModal'
 import {
-  NATUROS, VARIABLE_KEYS, FIXED_KEYS, REER_CONTRIB_KEYS, calcProfitNEO, calcREER, calcAllNaturos,
+  NATUROS, VARIABLE_KEYS, FIXED_KEYS, REER_CONTRIB_KEYS, CLOE_METRIC_KEYS,
+  calcProfitNEO, calcREER, calcAllNaturos,
   buildPlaceholders, formatCAD, hasMonthData, num,
 } from '../../../lib/performanceCalc'
 
 const MONTHS_FR = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre']
-// Champs numériques saisissables : revenus, revenus/naturo, coûts variables, coûts fixes du mois.
-const NUMERIC_KEYS = ['revenue_total', ...NATUROS.map(n => n.revenueKey), ...VARIABLE_KEYS, ...FIXED_KEYS]
+// Champs numériques saisissables : revenus, revenus/naturo, coûts variables, coûts fixes du mois, KPI Cloé.
+const NUMERIC_KEYS = ['revenue_total', ...NATUROS.map(n => n.revenueKey), ...VARIABLE_KEYS, ...FIXED_KEYS, ...CLOE_METRIC_KEYS]
 // Coûts fixes optionnels : vides => on retombe sur les paramètres globaux.
 const NULLABLE_KEYS = new Set(FIXED_KEYS)
 
@@ -258,6 +260,9 @@ export default function MonthlyTab({ data }) {
                 reerActive={reer.active}
               />
             ))}
+          </div>
+          <div className="mt-4">
+            <CloeReerCard cloe={reer.cloe} />
           </div>
         </div>
       )}

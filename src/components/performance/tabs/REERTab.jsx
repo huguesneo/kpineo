@@ -6,6 +6,7 @@ import MonthNavigator from '../../shared/MonthNavigator'
 import MargeSeuilsModal from '../components/MargeSeuilsModal'
 import NaturoDossier from '../components/NaturoDossier'
 import AdminContribInbox from '../components/AdminContribInbox'
+import CloeDossier from '../components/CloeDossier'
 import { supabase } from '../../../lib/supabase'
 import {
   NATUROS, calcREER, calcProfitNEO, contribKey,
@@ -47,6 +48,40 @@ function ContribRow({ naturo, value, info, onChange }) {
   )
 }
 
+// Ligne de Cloé dans la carte « Cotisations du mois » (KPI au lieu de marge).
+function CloeContribRow({ value, cloe, onChange }) {
+  const statut = cloe.eligible
+    ? <Badge variant="success">NEO verse</Badge>
+    : <Badge variant="danger">0 $</Badge>
+  return (
+    <div className="grid grid-cols-12 items-center gap-2 py-2 border-t-2 border-[#e5e7eb]">
+      <span className="col-span-2 text-sm font-semibold text-[#1a1a1a]">
+        Cloé <span className="block text-[10px] font-normal text-[#9ca3af]">réseaux</span>
+      </span>
+      <div className="col-span-3 relative">
+        <input
+          type="number"
+          value={value === 0 || value ? value : ''}
+          onChange={e => onChange(e.target.value)}
+          placeholder="0"
+          className="w-full px-3 py-2 pr-7 text-sm border border-[#e5e7eb] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#00bbb1] focus:border-transparent"
+        />
+        <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#9ca3af]">$</span>
+      </div>
+      <span className="col-span-3 text-xs text-[#6b7280]">
+        Reels{' '}
+        <span className={cloe.reelsOK ? 'font-bold text-emerald-600' : 'font-bold text-red-600'}>{cloe.reels}/{cloe.seuilReels}</span>
+        {cloe.leadsActive && (
+          <> · Leads <span className={cloe.leadsOK ? 'font-bold text-emerald-600' : 'font-bold text-red-600'}>{cloe.leads}/{cloe.seuilLeads}</span></>
+        )}
+        <span className="block text-[10px] text-[#9ca3af]" title="Plafond = 3 % du salaire mensuel">plafond {formatCAD(cloe.cap)}</span>
+      </span>
+      <span className="col-span-2 text-right text-sm font-bold text-[#00bbb1]">{formatCAD(cloe.montant)}</span>
+      <span className="col-span-2 text-right" title={cloe.raison}>{statut}</span>
+    </div>
+  )
+}
+
 export default function REERTab({ data }) {
   const { months, params, selectedMonth, selectMonth, getMonthData, saveMonth } = data
   const { year, month } = selectedMonth
@@ -77,6 +112,7 @@ export default function REERTab({ data }) {
     const rec = getMonthData(year, month) || {}
     const init = {}
     NATUROS.forEach(n => { init[n.key] = rec[contribKey(n.key)] ?? '' })
+    init.cloe = rec.cotisation_cloe ?? ''
     setContribs(init)
     setDirty(false)
   }, [year, month, getMonthData])
@@ -85,6 +121,7 @@ export default function REERTab({ data }) {
   const liveMetrics = useMemo(() => {
     const m = { ...(monthRecord || {}), year, month }
     NATUROS.forEach(n => { m[contribKey(n.key)] = num(contribs[n.key]) })
+    m.cotisation_cloe = num(contribs.cloe)
     return m
   }, [monthRecord, contribs, year, month])
 
@@ -101,6 +138,7 @@ export default function REERTab({ data }) {
     setSaving(true)
     const payload = { year, month }
     NATUROS.forEach(n => { payload[contribKey(n.key)] = num(contribs[n.key]) })
+    payload.cotisation_cloe = num(contribs.cloe)
     await saveMonth(payload)
     setSaving(false)
     setDirty(false)
@@ -130,6 +168,8 @@ export default function REERTab({ data }) {
   })
   const totalNEO = monthlyReer.reduce((s, mr) => s + num(mr.reer.total_match), 0)
   const totalMembres = monthlyReer.reduce((s, mr) => s + num(mr.reer.total_contrib), 0)
+  const ytdCloe = monthlyReer.reduce((s, mr) => s + num(mr.reer.cloe?.montant), 0)
+  const ytdCloeContrib = monthlyReer.reduce((s, mr) => s + num(mr.reer.cloe?.cotisation), 0)
 
   return (
     <div className="space-y-6">
@@ -150,9 +190,17 @@ export default function REERTab({ data }) {
             {n.label}
           </button>
         ))}
+        <button
+          onClick={() => setView('cloe')}
+          className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px whitespace-nowrap transition-colors ${view === 'cloe' ? 'border-[#00bbb1] text-[#00bbb1]' : 'border-transparent text-[#6b7280] hover:text-[#1a1a1a]'}`}
+        >
+          Cloé
+        </button>
       </div>
 
-      {view !== 'overview' ? (
+      {view === 'cloe' ? (
+        <CloeDossier data={data} />
+      ) : view !== 'overview' ? (
         <NaturoDossier naturoKey={view} data={data} />
       ) : (
       <>
@@ -200,7 +248,7 @@ export default function REERTab({ data }) {
         <div className="grid grid-cols-12 gap-2 pb-1 text-[10px] font-bold text-[#9ca3af] uppercase">
           <span className="col-span-2">Naturo</span>
           <span className="col-span-3">A cotisé ($)</span>
-          <span className="col-span-3">Marge / seuil</span>
+          <span className="col-span-3">Marge / KPI</span>
           <span className="col-span-2 text-right">NEO verse</span>
           <span className="col-span-2 text-right">Statut</span>
         </div>
@@ -213,6 +261,9 @@ export default function REERTab({ data }) {
             onChange={v => setContrib(n.key, v)}
           />
         ))}
+        {reer.cloe && (
+          <CloeContribRow value={contribs.cloe} cloe={reer.cloe} onChange={v => setContrib('cloe', v)} />
+        )}
 
         <div className="flex items-center justify-between mt-3 pt-3 border-t border-[#e5e7eb]">
           <div className="flex gap-6 text-sm">
@@ -222,6 +273,7 @@ export default function REERTab({ data }) {
           </div>
           <Button onClick={handleSave} loading={saving} size="sm">Sauvegarder les cotisations</Button>
         </div>
+        <p className="text-[11px] text-[#9ca3af] mt-2">Les Reels et leads de Cloé se saisissent dans l'onglet « Mensuel » ; sa cotisation est modifiable ici comme les autres.</p>
       </Card>
 
       {/* Totaux annuels */}
@@ -260,6 +312,23 @@ export default function REERTab({ data }) {
                 <td className="px-3 py-2 text-right font-bold text-[#00bbb1]">{formatCAD(ytdMatch[n.key])}</td>
               </tr>
             ))}
+            {/* Cloé — support & réseaux (séparée des naturos) */}
+            <tr className="border-t-2 border-[#e5e7eb]">
+              <td className="px-3 py-2 text-left font-semibold text-[#1a1a1a] sticky left-0 bg-[#fcfcfd]">
+                Cloé <span className="text-[10px] font-normal text-[#9ca3af]">(support &amp; réseaux)</span>
+              </td>
+              {monthlyReer.map(mr => {
+                const c = mr.reer.cloe
+                const v = num(c?.montant)
+                return (
+                  <td key={mr.month} className={`px-3 py-2 text-right ${c?.eligible && v > 0 ? 'bg-emerald-50 text-emerald-700 font-medium' : 'bg-gray-50 text-[#9ca3af]'}`}
+                    title={c ? `Reels ${c.reels}/${c.seuilReels}${c.leadsActive ? ` · Leads ${c.leads}/${c.seuilLeads}` : ''}` : ''}>
+                    {v > 0 ? formatCAD(v) : '— $'}
+                  </td>
+                )
+              })}
+              <td className="px-3 py-2 text-right font-bold text-[#00bbb1]">{formatCAD(ytdCloe)}</td>
+            </tr>
             <tr className="font-bold bg-gray-50">
               <td className="px-3 py-2 text-left sticky left-0 bg-gray-50">Total NEO</td>
               {monthlyReer.map(mr => (
@@ -284,6 +353,12 @@ export default function REERTab({ data }) {
               <div className="flex justify-between text-xs pt-1 border-t border-[#f1f5f9] mt-1"><span className="text-[#6b7280]">Total</span><span className="font-bold">{formatCAD(num(ytdContrib[n.key]) + num(ytdMatch[n.key]))}</span></div>
             </div>
           ))}
+          <div className="p-3 rounded-lg border border-[#e5e7eb] bg-amber-50/30">
+            <p className="text-sm font-bold text-[#1a1a1a] mb-1">Cloé <span className="text-[10px] font-normal text-[#9ca3af]">(réseaux)</span></p>
+            <div className="flex justify-between text-xs"><span className="text-[#6b7280]">Elle</span><span className="font-semibold">{formatCAD(ytdCloeContrib)}</span></div>
+            <div className="flex justify-between text-xs"><span className="text-[#6b7280]">NEO</span><span className="font-semibold text-[#00bbb1]">{formatCAD(ytdCloe)}</span></div>
+            <div className="flex justify-between text-xs pt-1 border-t border-[#f1f5f9] mt-1"><span className="text-[#6b7280]">Total</span><span className="font-bold">{formatCAD(ytdCloe + ytdCloeContrib)}</span></div>
+          </div>
         </div>
       </Card>
 

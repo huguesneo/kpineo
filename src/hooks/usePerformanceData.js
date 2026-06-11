@@ -46,6 +46,7 @@ const PARAMS_DEFAULTS = {
   reer_plancher: 17000, reer_match_cap_pct: 0.03,
   marge_seuil_thibault: 15.0, marge_seuil_brice: 15.0, marge_seuil_jessica: 12.0, marge_seuil_tamara: 12.0,
   objectif_debut_thibault: null, objectif_debut_brice: null, objectif_debut_jessica: null, objectif_debut_tamara: null,
+  salaire_cloe: 0, reer_seuil_reels_cloe: 20, reer_seuil_leads_cloe: 0,
 }
 
 export function usePerformanceData() {

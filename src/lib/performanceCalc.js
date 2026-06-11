@@ -12,6 +12,18 @@ export const NATUROS = [
   { key: 'tamara',   label: 'Tamara',   revenueKey: 'revenue_tamara',   salaryKey: 'salaire_tamara' },
 ]
 
+// Cloé — au programme REER avec conditions KPI réseaux sociaux (pas de marge)
+export const CLOE = {
+  key: 'cloe', label: 'Cloé',
+  salaryKey: 'salaire_cloe',
+  contribKey: 'cotisation_cloe',
+  reelsKey: 'reels_cloe',
+  leadsKey: 'leads_organiques_cloe',
+  seuilReelsKey: 'reer_seuil_reels_cloe',
+  seuilLeadsKey: 'reer_seuil_leads_cloe',
+}
+export const CLOE_METRIC_KEYS = ['cotisation_cloe', 'reels_cloe', 'leads_organiques_cloe']
+
 // Postes de coûts fixes mensuels
 export const FIXED_KEYS = ['loyer', 'amortissement', 'auto_fixe', 'essence', 'telecom', 'abonnements', 'outils_info']
 export const FIXED_LABELS = {
@@ -270,6 +282,11 @@ export function calcREER(metrics, params) {
     total_contrib += contrib
   })
 
+  // Cloé — conditions KPI réseaux sociaux (pas de marge)
+  const cloe = calcReerCloe(metrics, params, plancherAtteint)
+  total_match += cloe.montant
+  total_contrib += cloe.cotisation
+
   return {
     profit_neo,
     plancher,
@@ -277,14 +294,53 @@ export function calcREER(metrics, params) {
     capPct,
     perNaturo,
     parNaturo,
+    cloe,
     total_match,                       // ce que NEO (Hugues) verse
-    total_contrib,                     // ce que les naturos versent
+    total_contrib,                     // ce que l'équipe verse
     total_global: total_match + total_contrib,
     active: plancherAtteint && total_match > 0,
     profit_apres_reer: profit_neo - total_match,
     // compat avec l'ancien nommage
     reer_pool: total_match,
     reer_avec_charges: total_match,
+  }
+}
+
+// REER de Cloé : conditions KPI réseaux sociaux (Reels + leads organiques).
+export function calcReerCloe(metrics, params, plancherAtteint) {
+  const salaire = num(params?.salaire_cloe)
+  const capPct = num(params?.reer_match_cap_pct) || 0.03
+  const cap = salaire * capPct / 12
+  const cotisation = num(metrics?.cotisation_cloe)
+  const reels = num(metrics?.reels_cloe)
+  const leads = num(metrics?.leads_organiques_cloe)
+  const seuilReels = num(params?.reer_seuil_reels_cloe)
+  const seuilLeads = num(params?.reer_seuil_leads_cloe)
+  const configured = salaire > 0
+
+  const reelsOK = reels >= seuilReels
+  const leadsActive = seuilLeads > 0
+  const leadsOK = !leadsActive || leads >= seuilLeads
+  const cotisationOK = cotisation > 0
+
+  let montant = 0
+  let raison = 'Toutes les conditions sont remplies'
+  if (!configured) raison = 'Salaire de Cloé non configuré'
+  else if (!plancherAtteint) raison = 'Plancher NEO non atteint'
+  else if (!reelsOK) raison = `${reels} Reels publiés ce mois, ${seuilReels} requis.`
+  else if (!leadsOK) raison = `${leads} leads organiques ce mois, ${seuilLeads} requis.`
+  else if (!cotisationOK) raison = 'Aucune cotisation ce mois'
+  else montant = Math.min(cotisation, cap)
+
+  const eligible = configured && plancherAtteint && reelsOK && leadsOK && cotisationOK
+
+  return {
+    key: 'cloe', label: 'Cloé',
+    configured, plancherAtteint,
+    reels, seuilReels, reelsOK,
+    leads, seuilLeads, leadsActive, leadsOK,
+    cotisation, cotisationOK,
+    cap, montant, eligible, raison,
   }
 }
 

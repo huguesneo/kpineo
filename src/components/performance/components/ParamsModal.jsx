@@ -41,6 +41,7 @@ export default function ParamsModal({ isOpen, onClose, params, onSave }) {
     }
     FIXED_KEYS.forEach(k => { payload[k] = Number(draft[k]) })
     NATUROS.forEach(n => { payload[n.salaryKey] = Number(draft[n.salaryKey]) })
+    payload.salaire_cloe = Number(draft.salaire_cloe)
     payload.reer_plancher = Number(draft.reer_plancher)
     await onSave(payload)
     setSaving(false)
@@ -60,12 +61,14 @@ export default function ParamsModal({ isOpen, onClose, params, onSave }) {
         </section>
 
         <section>
-          <h3 className="text-sm font-bold text-[#1a1a1a] mb-3">Salaires annuels des naturopathes</h3>
+          <h3 className="text-sm font-bold text-[#1a1a1a] mb-3">Salaires annuels</h3>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {NATUROS.map(n => (
               <NumField key={n.key} label={n.label} value={draft[n.salaryKey]} onChange={v => set(n.salaryKey, v)} />
             ))}
+            <NumField label="Cloé (support)" value={draft.salaire_cloe} onChange={v => set('salaire_cloe', v)} />
           </div>
+          <p className="text-xs text-[#9ca3af] mt-2">Le salaire de Cloé sert à calculer le plafond REER (3 %). Ses seuils Reels/leads se règlent dans « Modifier les seuils de marge ».</p>
         </section>
 
         <section>
