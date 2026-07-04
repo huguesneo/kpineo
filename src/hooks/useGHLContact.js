@@ -51,7 +51,9 @@ export function useGHLContactById(contactId) {
 //   { id, value }  ← no fieldKey
 //
 // We search by all possible formats.
-export function getContactCustomField(raw, fieldKey) {
+// fieldId (optional): the GHL custom field id — used as a fallback when the
+// cached contact was batch-synced (only {id, value}, no fieldKey).
+export function getContactCustomField(raw, fieldKey, fieldId = null) {
   if (!raw) return null
   const fields = Array.isArray(raw.customFields) ? raw.customFields : []
   const searchKey = fieldKey.toLowerCase().replace(/^contact\./, '')
@@ -62,7 +64,7 @@ export function getContactCustomField(raw, fieldKey) {
     // key: sometimes the short name
     const k  = (f.key ?? '').toLowerCase().replace(/^contact\./, '')
 
-    return fk === searchKey || k === searchKey
+    return fk === searchKey || k === searchKey || (fieldId != null && f.id === fieldId)
   })
 
   if (!f) return null
@@ -81,6 +83,22 @@ export function getContactCustomField(raw, fieldKey) {
     null
   )
 }
+
+// ─── Booking form field definitions ──────────────────────────
+// Two free-text questions the client fills when booking the discovery call.
+// Stored as GHL contact custom fields — matched by fieldKey or id.
+export const BOOKING_FORM_FIELDS = [
+  {
+    key:   'information_complmentaire',
+    id:    'N4LsXlp2RjtQF74WjuBD',
+    label: 'Information complémentaire',
+  },
+  {
+    key:   'rfrence_appel_dcouverte',
+    id:    '4SdaSD7vozfcKONhiQAL',
+    label: 'Avez-vous été référé(e) ? Si oui, indiquez le nom de la personne.',
+  },
+]
 
 // ─── Quiz Métabolique field definitions ───────────────────────
 // Keys match GHL fieldKey format: "contact.questionnaire_xxx"

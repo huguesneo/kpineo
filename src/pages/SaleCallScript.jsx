@@ -5,7 +5,12 @@ import { fr } from 'date-fns/locale'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import Layout from '../components/layout/Layout'
-import { useGHLContactById, addContactNoteGHL } from '../hooks/useGHLContact'
+import {
+  useGHLContactById,
+  addContactNoteGHL,
+  getContactCustomField,
+  BOOKING_FORM_FIELDS,
+} from '../hooks/useGHLContact'
 import {
   useQuizResponseByEmail,
   getQuizField,
@@ -252,6 +257,12 @@ export default function SaleCallScript() {
   }, [savedNote])
 
   const quizCompleted = isQuizCompleted(quiz)
+
+  // Réponses du formulaire de réservation (champs personnalisés GHL du contact)
+  const bookingAnswers = BOOKING_FORM_FIELDS
+    .map(f => ({ ...f, value: getContactCustomField(contact?.raw, `contact.${f.key}`, f.id) }))
+    .filter(f => f.value && String(f.value).trim())
+
   const contactName = appt?.contact_name || `${contact?.first_name ?? ''} ${contact?.last_name ?? ''}`.trim() || '—'
   const duration = appt?.raw?.duration ?? appt?.raw?.durationMinutes ?? 60
 
@@ -441,6 +452,17 @@ export default function SaleCallScript() {
             <p className="text-sm italic text-[#9ca3af]">Quiz non complété par le client</p>
           )}
         </Section>
+
+        {/* ── Réponses du formulaire de réservation (si remplies) ── */}
+        {bookingAnswers.length > 0 && (
+          <Section title="Formulaire de réservation" icon="📝" bg>
+            <div className="divide-y divide-[#f0f0f0]">
+              {bookingAnswers.map(f => (
+                <QuizRow key={f.key} label={f.label} value={f.value} />
+              ))}
+            </div>
+          </Section>
+        )}
 
         {/* ── Section 3 : Qualification ── */}
         <Section title="Qualification" icon="📋">

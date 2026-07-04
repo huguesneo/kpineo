@@ -2,7 +2,12 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
-import { useGHLContactById, updateAppointmentStatus } from '../../hooks/useGHLContact'
+import {
+  useGHLContactById,
+  updateAppointmentStatus,
+  getContactCustomField,
+  BOOKING_FORM_FIELDS,
+} from '../../hooks/useGHLContact'
 import {
   useQuizResponseByEmail,
   getQuizField,
@@ -58,6 +63,12 @@ export default function AppointmentDrawer({ appt, onClose, onStatusUpdate, userI
   }, [appt?.ghl_id, appt?.status])
 
   const quizCompleted = isQuizCompleted(quiz)
+
+  // Réponses du formulaire de réservation (champs personnalisés GHL du contact)
+  const bookingAnswers = BOOKING_FORM_FIELDS
+    .map(f => ({ ...f, value: getContactCustomField(contact?.raw, `contact.${f.key}`, f.id) }))
+    .filter(f => f.value && String(f.value).trim())
+
   const hasMeetLink   = appt?.meeting_url?.startsWith('http')
   const duration      = getApptDuration(appt)
 
@@ -192,6 +203,21 @@ export default function AppointmentDrawer({ appt, onClose, onStatusUpdate, userI
               </div>
             )}
           </div>
+
+          {/* Réponses du formulaire de réservation (si remplies) */}
+          {bookingAnswers.length > 0 && (
+            <div className="px-5 py-4 border-b border-[#e5e7eb]">
+              <p className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wide mb-3">Formulaire de réservation</p>
+              <div className="space-y-2">
+                {bookingAnswers.map(f => (
+                  <div key={f.key} className="bg-[#f9fafb] rounded-lg px-3 py-2">
+                    <p className="text-[10px] font-semibold text-[#6b7280] mb-0.5">{f.label}</p>
+                    <p className="text-xs text-[#1a1a1a] font-medium whitespace-pre-wrap">{f.value}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Actions principales */}
           <div className="px-5 py-4 border-b border-[#e5e7eb] space-y-2">
