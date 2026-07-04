@@ -22,11 +22,40 @@ import {
   isCloseInPeriod,
   closerFieldMatches,
   getCloserField,
+  closeDateForDisplay,
 } from '../lib/ghlHelpers'
 import { supabase } from '../lib/supabase'
 
 function fmtCAD(n) {
   return Number(n ?? 0).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })
+}
+
+function fmtDate(d) {
+  if (!d) return '—'
+  const date = d instanceof Date ? d : new Date(d)
+  return format(date, 'd MMM yyyy', { locale: fr })
+}
+
+// ─── Modal ────────────────────────────────────────────────────
+
+function Modal({ isOpen, onClose, title, children }) {
+  if (!isOpen) return null
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[80vh] flex flex-col">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#e5e7eb]">
+          <h2 className="text-base font-bold text-[#1a1a1a]">{title}</h2>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100 text-[#9ca3af]">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="overflow-y-auto flex-1 px-6 py-4 space-y-2">{children}</div>
+      </div>
+    </div>
+  )
 }
 
 function initials(name) {
@@ -98,6 +127,11 @@ function useAllCloserStats(closers, startDate, endDate) {
       const ventesCount  = wonSales.length
       const closeRate    = shows > 0 ? Math.round((ventesCount / shows) * 100) : null
 
+      // Liste des ventes (nom + date) pour le détail au clic
+      const salesList = wonSales
+        .map(o => ({ name: o.contact_name || '—', date: closeDateForDisplay(o) }))
+        .sort((a, b) => (a.date?.getTime() ?? 0) - (b.date?.getTime() ?? 0))
+
       return {
         id:         closer.id,
         name:       closer.full_name,
@@ -108,6 +142,7 @@ function useAllCloserStats(closers, startDate, endDate) {
         showUpPct,
         noShowPct,
         ventesCount,
+        salesList,
         closeRate,
         cash:       null, // chargé séparément
         commission: null,
@@ -159,6 +194,7 @@ function ComparisonTable({ closers, startDate, endDate }) {
   const { rows, loading } = useAllCloserStats(closers, startDate, endDate)
   const [sortKey, setSortKey] = useState('ventesCount')
   const [sortDir, setSortDir] = useState('desc')
+  const [salesModal, setSalesModal] = useState(null) // { title, list } | null
 
   function handleSort(key) {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -206,6 +242,7 @@ function ComparisonTable({ closers, startDate, endDate }) {
   }
 
   return (
+    <>
     <div className="overflow-x-auto rounded-xl border border-[#e5e7eb]">
       <table className="w-full text-sm">
         <thead>
@@ -249,7 +286,18 @@ function ComparisonTable({ closers, startDate, endDate }) {
                   </span>
                 ) : '—'}
               </td>
-              <td className="px-4 py-3 font-bold text-[#1a1a1a]">{row.ventesCount}</td>
+              <td className="px-4 py-3">
+                {row.ventesCount > 0 ? (
+                  <button
+                    onClick={() => setSalesModal({ title: `Ventes de ${row.name} — ${row.ventesCount}`, list: row.salesList ?? [] })}
+                    className="font-bold text-[#00bbb1] hover:underline"
+                  >
+                    {row.ventesCount}
+                  </button>
+                ) : (
+                  <span className="font-bold text-[#1a1a1a]">{row.ventesCount}</span>
+                )}
+              </td>
               <td className="px-4 py-3">
                 {row.closeRate !== null ? (
                   <span className={`font-bold ${row.closeRate >= 50 ? 'text-[#10b981]' : 'text-[#1a1a1a]'}`}>
@@ -291,7 +339,23 @@ function ComparisonTable({ closers, startDate, endDate }) {
               <td className="px-4 py-3 font-bold text-[#1a1a1a]">
                 {totalNoShowPct !== null ? `${totalNoShowPct}%` : '—'}
               </td>
-              <td className="px-4 py-3 font-bold text-[#1a1a1a]">{totals.ventesCount}</td>
+              <td className="px-4 py-3">
+                {totals.ventesCount > 0 ? (
+                  <button
+                    onClick={() => setSalesModal({
+                      title: `Toutes les ventes — ${totals.ventesCount}`,
+                      list: [...rows]
+                        .flatMap(r => (r.salesList ?? []).map(s => ({ ...s, closer: r.name })))
+                        .sort((a, b) => (a.date?.getTime() ?? 0) - (b.date?.getTime() ?? 0)),
+                    })}
+                    className="font-bold text-[#00bbb1] hover:underline"
+                  >
+                    {totals.ventesCount}
+                  </button>
+                ) : (
+                  <span className="font-bold text-[#1a1a1a]">{totals.ventesCount}</span>
+                )}
+              </td>
               <td className="px-4 py-3 font-bold text-[#1a1a1a]">
                 {totalCloseRate !== null ? `${totalCloseRate}%` : '—'}
               </td>
@@ -302,6 +366,28 @@ function ComparisonTable({ closers, startDate, endDate }) {
         </tbody>
       </table>
     </div>
+
+    {/* ── Modal : détail des ventes ── */}
+    <Modal
+      isOpen={!!salesModal}
+      onClose={() => setSalesModal(null)}
+      title={salesModal?.title ?? 'Ventes'}
+    >
+      {(salesModal?.list ?? []).length === 0 ? (
+        <p className="text-sm text-[#9ca3af] text-center py-6">Aucune vente sur cette période.</p>
+      ) : (
+        salesModal.list.map((s, i) => (
+          <div key={i} className="flex items-center justify-between gap-3 px-4 py-3 bg-[#f9fafb] rounded-xl border border-[#f0f0f0]">
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-[#1a1a1a] truncate">{s.name}</p>
+              {s.closer && <p className="text-xs text-[#00bbb1] font-semibold mt-0.5">{s.closer}</p>}
+            </div>
+            <p className="text-xs text-[#6b7280] flex-shrink-0">Closé le {fmtDate(s.date)}</p>
+          </div>
+        ))
+      )}
+    </Modal>
+    </>
   )
 }
 

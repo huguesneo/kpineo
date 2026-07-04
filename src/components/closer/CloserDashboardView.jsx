@@ -509,17 +509,20 @@ export default function CloserDashboardView({
                   label="Shows"
                   value={discShows}
                   sub={discShowRate !== null ? `show rate : ${discShowRate}%` : 'aucun RDV'}
+                  onClick={discShows > 0 ? () => { setApptTypeFilter('discovery'); setApptFilter('showed'); setApptModal(true) } : undefined}
                 />
                 <KPICard
                   label="No-shows"
                   value={discNoShows}
                   sub={discTotal > 0 ? `${Math.round((discNoShows / discTotal) * 100)}% des RDV` : 'aucun RDV'}
                   alert={discTotal > 0 && Math.round((discNoShows / discTotal) * 100) > 25}
+                  onClick={discNoShows > 0 ? () => { setApptTypeFilter('discovery'); setApptFilter('noshow'); setApptModal(true) } : undefined}
                 />
                 <KPICard
                   label="Annulés"
                   value={discCancelled}
                   sub={discTotal > 0 ? `${Math.round((discCancelled / discTotal) * 100)}% des RDV` : 'aucun RDV'}
+                  onClick={discCancelled > 0 ? () => { setApptTypeFilter('discovery'); setApptFilter('cancelled'); setApptModal(true) } : undefined}
                 />
                 <KPICard
                   label="Ventes fermées"
@@ -555,17 +558,20 @@ export default function CloserDashboardView({
                   label="Shows"
                   value={decShows}
                   sub={decShowRate !== null ? `show rate : ${decShowRate}%` : 'aucune rencontre'}
+                  onClick={decShows > 0 ? () => { setApptTypeFilter('decision'); setApptFilter('showed'); setApptModal(true) } : undefined}
                 />
                 <KPICard
                   label="No-shows"
                   value={decNoShows}
                   sub={decTotal > 0 ? `${Math.round((decNoShows / decTotal) * 100)}% des RDV` : 'aucune rencontre'}
                   alert={decTotal > 0 && Math.round((decNoShows / decTotal) * 100) > 25}
+                  onClick={decNoShows > 0 ? () => { setApptTypeFilter('decision'); setApptFilter('noshow'); setApptModal(true) } : undefined}
                 />
                 <KPICard
                   label="Annulés"
                   value={decCancelled}
                   sub={decTotal > 0 ? `${Math.round((decCancelled / decTotal) * 100)}% des RDV` : 'aucune rencontre'}
+                  onClick={decCancelled > 0 ? () => { setApptTypeFilter('decision'); setApptFilter('cancelled'); setApptModal(true) } : undefined}
                 />
                 <KPICard
                   label="Ventes fermées"
