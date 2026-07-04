@@ -135,7 +135,12 @@ Deno.serve(async (req) => {
         assigned_to:       String(opp.assignedTo ?? ''),
         source:            String(opp.source ?? ''),
         created_at_ghl:    opp.createdAt ? new Date(opp.createdAt as string).toISOString() : null,
-        closed_at:         opp.closedDate ? new Date(opp.closedDate as string).toISOString() : null,
+        // closed_at : date de close GHL, sinon (opp gagnée) le passage au stage Gagné.
+        closed_at:         opp.closedDate
+                             ? new Date(opp.closedDate as string).toISOString()
+                             : (String(opp.status ?? '').toLowerCase() === 'won' && opp.lastStageChangeAt
+                                 ? new Date(opp.lastStageChangeAt as string).toISOString()
+                                 : null),
         raw:               opp,
         synced_at:         new Date().toISOString(),
       }, { onConflict: 'ghl_id' })

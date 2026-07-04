@@ -124,7 +124,11 @@ Deno.serve(async (req) => {
         status:            String(opp.status ?? ''),
         monetary_value:    Number(opp.monetaryValue ?? 0),
         assigned_to:       String(opp.assignedTo ?? ''),
-        closed_at:         opp.closedDate ? new Date(opp.closedDate as string).toISOString() : null,
+        closed_at:         opp.closedDate
+                             ? new Date(opp.closedDate as string).toISOString()
+                             : (String(opp.status ?? '').toLowerCase() === 'won' && opp.lastStageChangeAt
+                                 ? new Date(opp.lastStageChangeAt as string).toISOString()
+                                 : null),
         raw:               opp,
         synced_at:         new Date().toISOString(),
       }, { onConflict: 'ghl_id' })

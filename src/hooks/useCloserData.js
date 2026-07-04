@@ -1,33 +1,31 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import {
+  GHL_PIPELINE_CLOSER,
+  GHL_CALENDAR_DECISION,
+  GHL_STAGE_GAGNE,
+  GHL_FIELD_CLOSER,
+  GHL_FIELD_DATE_CLOSE,
+  COMMISSION_RATE,
+  fetchAllRows,
+  getGHLField,
+  parseGHLDate,
+  closeDateForDisplay,
+  isCloseInPeriod,
+  isWonStage,
+  closerFieldMatches,
+  getCloserField,
+} from '../lib/ghlHelpers'
 
-export const GHL_PIPELINE_CLOSER    = 'YPTruORTl0LOSdS2vWJS'
-export const GHL_CALENDAR_DECISION  = 'BQK4NoyrVNuJA3e1VHDH'
-export const GHL_STAGE_GAGNE      = '🏆 Gagné'
-export const GHL_FIELD_CLOSER     = 'JSltN3nE7nm4cUjuGxTs'
-export const GHL_FIELD_DATE_CLOSE = 'UPqvJX8MkZ4thsPX2tjV'
-export const COMMISSION_RATE      = 0.086
-
-// ─── Helper : extraire un champ custom GHL ────────────────────
-// GHL stocke les champs par "id" (pas key/fieldKey) et la valeur
-// dans fieldValueString / fieldValueDate / fieldValueNumber.
-function getGHLField(raw, fieldId) {
-  const fields = raw?.customFields ?? []
-  const f = fields.find(f => f.id === fieldId || f.key === fieldId || f.fieldKey === fieldId)
-  if (!f) return null
-  return f.fieldValueNumber ?? f.fieldValueString ?? f.fieldValueDate ?? f.value ?? null
-}
-
-// ─── Helper : parser une date GHL (Unix ts ou ISO) ────────────
-export function parseGHLDate(v) {
-  if (!v) return null
-  const n = Number(v)
-  if (!isNaN(n) && n > 0) {
-    const d = new Date(n > 9_999_999_999 ? n : n * 1000)
-    return isNaN(d.getTime()) ? null : d
-  }
-  const d = new Date(v)
-  return isNaN(d.getTime()) ? null : d
+// Ré-exports pour compatibilité avec les imports existants
+export {
+  GHL_PIPELINE_CLOSER,
+  GHL_CALENDAR_DECISION,
+  GHL_STAGE_GAGNE,
+  GHL_FIELD_CLOSER,
+  GHL_FIELD_DATE_CLOSE,
+  COMMISSION_RATE,
+  parseGHLDate,
 }
 
 // ─── Status GHL → label FR ────────────────────────────────────
@@ -51,6 +49,18 @@ export const APPT_STATUS_COLORS = {
   pending:    { bg: '#6b728018', text: '#6b7280' },
 }
 
+// ─── Chargement paginé des opportunités du pipeline closer ────
+// Une seule source pour toutes les requêtes → jamais de cap à 1000.
+async function loadCloserOpps(columns = 'contact_id, contact_name, stage_name, raw, closed_at, monetary_value, ghl_id') {
+  return fetchAllRows((from, to) =>
+    supabase
+      .from('ghl_opportunities')
+      .select(columns)
+      .eq('pipeline_id', GHL_PIPELINE_CLOSER)
+      .range(from, to)
+  )
+}
+
 // ─── useCloserAppointments ────────────────────────────────────
 // Rendez-vous depuis ghl_appointments.
 // Si ghlUserId fourni : filtre direct par assigned_user_id (fiable).
@@ -65,14 +75,15 @@ export function useCloserAppointments(closerName, startDate, endDate, ghlUserId 
 
     if (ghlUserId) {
       // Chemin direct : assigned_user_id = ghlUserId
-      const { data: appts } = await supabase
+      const appts = await fetchAllRows((from, to) => supabase
         .from('ghl_appointments')
         .select('*')
         .eq('assigned_user_id', ghlUserId)
         .gte('start_time', startDate + 'T00:00:00')
         .lte('start_time', endDate   + 'T23:59:59')
         .order('start_time', { ascending: false })
-      setAppointments(appts ?? [])
+        .range(from, to))
+      setAppointments(appts)
       setLoading(false)
       return
     }
@@ -80,33 +91,24 @@ export function useCloserAppointments(closerName, startDate, endDate, ghlUserId 
     if (!closerName) { setLoading(false); return }
 
     // Fallback : passer par les opportunités (champ closer)
-    const { data: opps } = await supabase
-      .from('ghl_opportunities')
-      .select('contact_id, raw')
-      .eq('pipeline_id', GHL_PIPELINE_CLOSER)
-
-    const nl = closerName.trim().toLowerCase()
-    const firstName = nl.split(' ')[0]
-    const contactIds = (opps ?? [])
-      .filter(o => {
-        const cf = getGHLField(o.raw ?? {}, GHL_FIELD_CLOSER)?.trim().toLowerCase() ?? ''
-        if (!cf) return false
-        return cf === nl || cf === firstName || nl.startsWith(cf) || cf.startsWith(firstName)
-      })
+    const opps = await loadCloserOpps('contact_id, raw')
+    const contactIds = opps
+      .filter(o => closerFieldMatches(getCloserField(o), closerName))
       .map(o => o.contact_id)
       .filter(Boolean)
 
     if (contactIds.length === 0) { setAppointments([]); setLoading(false); return }
 
-    const { data: appts } = await supabase
+    const appts = await fetchAllRows((from, to) => supabase
       .from('ghl_appointments')
       .select('*')
       .in('contact_id', contactIds)
       .gte('start_time', startDate + 'T00:00:00')
       .lte('start_time', endDate   + 'T23:59:59')
       .order('start_time', { ascending: false })
+      .range(from, to))
 
-    setAppointments(appts ?? [])
+    setAppointments(appts)
     setLoading(false)
   }, [closerName, startDate, endDate, ghlUserId])
 
@@ -136,45 +138,18 @@ export function useCloserSales(closerName, startDate, endDate, ghlUserId = null)
     if (!startDate || !endDate) { setLoading(false); return }
     setLoading(true)
 
-    const { data: opps } = await supabase
-      .from('ghl_opportunities')
-      .select('contact_id, contact_name, stage_name, raw, closed_at, monetary_value')
-      .eq('pipeline_id', GHL_PIPELINE_CLOSER)
+    const opps = await loadCloserOpps()
 
-    const nl        = closerName?.trim().toLowerCase() ?? ''
-    const firstName = nl.split(' ')[0]
-    const startMs   = new Date(startDate + 'T00:00:00').getTime()
-    const endMs     = new Date(endDate   + 'T23:59:59').getTime()
-
-    const won = (opps ?? []).filter(o => {
-      const raw = o.raw ?? {}
-      // Toujours matcher par le champ custom "closer" (assigned_to peut être vide en DB)
-      const closerField = getGHLField(raw, GHL_FIELD_CLOSER)
-      const cf = closerField?.trim().toLowerCase() ?? ''
-      if (!cf) return false
-      if (cf !== nl && cf !== firstName && !nl.startsWith(cf) && !cf.startsWith(firstName)) return false
-
-      // Stage Gagné via stage_name (colonne DB) OU raw
-      const stageName = String(o.stage_name ?? o.raw?.pipelineStage?.name ?? '')
-      if (!stageName.includes('Gagné') && !stageName.includes('gagne')) return false
-
-      // Date de close dans la période
-      const closeDateRaw = getGHLField(raw, GHL_FIELD_DATE_CLOSE)
-      const closeDate = parseGHLDate(closeDateRaw) ?? (o.closed_at ? new Date(o.closed_at) : null)
-      if (!closeDate) return false
-      const ms = closeDate.getTime()
-      return ms >= startMs && ms <= endMs
-    }).map(o => {
-      const raw = o.raw ?? {}
-      const closeDateRaw = getGHLField(raw, GHL_FIELD_DATE_CLOSE)
-      const closeDate = parseGHLDate(closeDateRaw) ?? (o.closed_at ? new Date(o.closed_at) : null)
-      return {
-        contactId:      o.contact_id ?? null,
-        contactName:    o.contact_name ?? '',
-        closeDate,
-        monetaryValue:  Number(o.monetary_value ?? 0),
-      }
-    })
+    const won = opps.filter(o => {
+      if (!closerFieldMatches(getCloserField(o), closerName)) return false
+      if (!isWonStage(o)) return false
+      return isCloseInPeriod(o, startDate, endDate)
+    }).map(o => ({
+      contactId:      o.contact_id ?? null,
+      contactName:    o.contact_name ?? '',
+      closeDate:      closeDateForDisplay(o),
+      monetaryValue:  Number(o.monetary_value ?? 0),
+    }))
 
     setSales(won)
     setLoading(false)
@@ -214,8 +189,10 @@ export function useCloserCashCollected(closerName, startDate, endDate) {
 }
 
 // ─── useCloserMonthStats (pour le dashboard admin) ────────────
-// Stats agrégées du mois courant pour la ligne d'un closer dans le dashboard.
-export function useCloserMonthStats(closerName, startDate, endDate) {
+// Stats agrégées pour la ligne d'un closer dans le dashboard.
+// Utilise EXACTEMENT la même logique que le dashboard individuel :
+// RDV par assigned_user_id si dispo, sinon par contacts.
+export function useCloserMonthStats(closerName, startDate, endDate, ghlUserId = null) {
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(true)
 
@@ -223,33 +200,29 @@ export function useCloserMonthStats(closerName, startDate, endDate) {
     if (!closerName || !startDate || !endDate) { setLoading(false); return }
     setLoading(true)
 
-    const { data: opps } = await supabase
-      .from('ghl_opportunities')
-      .select('contact_id, stage_name, raw, closed_at')
-      .eq('pipeline_id', GHL_PIPELINE_CLOSER)
-
-    const nl        = closerName.trim().toLowerCase()
-    const firstName = nl.split(' ')[0]
-    const startMs   = new Date(startDate + 'T00:00:00').getTime()
-    const endMs     = new Date(endDate   + 'T23:59:59').getTime()
-
-    const myOpps = (opps ?? []).filter(o => {
-      const cf = getGHLField(o.raw ?? {}, GHL_FIELD_CLOSER)?.trim().toLowerCase() ?? ''
-      if (!cf) return false
-      return cf === nl || cf === firstName || nl.startsWith(cf) || cf.startsWith(firstName)
-    })
+    const opps = await loadCloserOpps('contact_id, stage_name, raw, closed_at')
+    const myOpps = opps.filter(o => closerFieldMatches(getCloserField(o), closerName))
     const contactIds = [...new Set(myOpps.map(o => o.contact_id).filter(Boolean))]
 
-    // Rendez-vous
+    // Rendez-vous : chemin direct par assigned_user_id si disponible (fiable),
+    // sinon fallback par les contacts des opportunités.
     let appts = []
-    if (contactIds.length > 0) {
-      const { data } = await supabase
+    if (ghlUserId) {
+      appts = await fetchAllRows((from, to) => supabase
+        .from('ghl_appointments')
+        .select('status, calendar_id')
+        .eq('assigned_user_id', ghlUserId)
+        .gte('start_time', startDate + 'T00:00:00')
+        .lte('start_time', endDate   + 'T23:59:59')
+        .range(from, to))
+    } else if (contactIds.length > 0) {
+      appts = await fetchAllRows((from, to) => supabase
         .from('ghl_appointments')
         .select('status, calendar_id')
         .in('contact_id', contactIds)
         .gte('start_time', startDate + 'T00:00:00')
         .lte('start_time', endDate   + 'T23:59:59')
-      appts = data ?? []
+        .range(from, to))
     }
 
     // hotCount = shows de Consultation Découverte uniquement (exclut Rencontre de Décision)
@@ -258,20 +231,13 @@ export function useCloserMonthStats(closerName, startDate, endDate) {
     ).length
 
     // Ventes (stage Gagné + date de close dans la période)
-    const salesCount = myOpps.filter(o => {
-      const stageName = String(o.stage_name ?? o.raw?.pipelineStage?.name ?? '')
-      if (!stageName.includes('Gagné')) return false
-      const closeDateRaw = getGHLField(o.raw ?? {}, GHL_FIELD_DATE_CLOSE)
-      const cd = parseGHLDate(closeDateRaw) ?? (o.closed_at ? new Date(o.closed_at) : null)
-      if (!cd) return false
-      return cd.getTime() >= startMs && cd.getTime() <= endMs
-    }).length
+    const salesCount = myOpps.filter(o => isWonStage(o) && isCloseInPeriod(o, startDate, endDate)).length
 
     const closeRate = hotCount > 0 ? Math.round((salesCount / hotCount) * 100) : null
 
     setStats({ rdvCount: appts.length, hotCount, salesCount, closeRate })
     setLoading(false)
-  }, [closerName, startDate, endDate])
+  }, [closerName, startDate, endDate, ghlUserId])
 
   useEffect(() => { load() }, [load])
 
@@ -289,29 +255,16 @@ export function useUnassignedSales(startDate, endDate) {
     if (!startDate || !endDate) { setLoading(false); return }
     setLoading(true)
 
-    const { data: opps } = await supabase
-      .from('ghl_opportunities')
-      .select('ghl_id, contact_name, stage_name, raw, closed_at')
-      .eq('pipeline_id', GHL_PIPELINE_CLOSER)
+    const opps = await loadCloserOpps('ghl_id, contact_name, stage_name, raw, closed_at')
 
-    const startMs = new Date(startDate + 'T00:00:00').getTime()
-    const endMs   = new Date(endDate   + 'T23:59:59').getTime()
-
-    const unassigned = (opps ?? []).filter(o => {
-      const cf = getGHLField(o.raw ?? {}, GHL_FIELD_CLOSER)?.trim() ?? ''
-      if (cf) return false
-
-      const stageName = String(o.stage_name ?? (o.raw?.pipelineStage)?.name ?? '')
-      if (!stageName.includes('Gagné')) return false
-
-      const closeDateRaw = getGHLField(o.raw ?? {}, GHL_FIELD_DATE_CLOSE)
-      const closeDate = parseGHLDate(closeDateRaw) ?? (o.closed_at ? new Date(o.closed_at) : null)
-      if (!closeDate) return false
-      return closeDate.getTime() >= startMs && closeDate.getTime() <= endMs
+    const unassigned = opps.filter(o => {
+      if (getCloserField(o)) return false          // a déjà un closer
+      if (!isWonStage(o)) return false
+      return isCloseInPeriod(o, startDate, endDate)
     }).map(o => ({
       ghlId:       o.ghl_id,
       contactName: String(o.contact_name ?? '').trim() || '—',
-      closeDate:   parseGHLDate(getGHLField(o.raw ?? {}, GHL_FIELD_DATE_CLOSE)) ?? (o.closed_at ? new Date(o.closed_at) : null),
+      closeDate:   closeDateForDisplay(o),
     }))
 
     setSales(unassigned)
@@ -333,40 +286,33 @@ export function useDecisionContactIds(closerName, ghlUserId) {
     if (!ghlUserId && !closerName) return
 
     if (ghlUserId) {
-      const { data } = await supabase
+      const data = await fetchAllRows((from, to) => supabase
         .from('ghl_appointments')
         .select('contact_id')
         .eq('calendar_id', GHL_CALENDAR_DECISION)
         .eq('assigned_user_id', ghlUserId)
-      setIds(new Set((data ?? []).map(a => a.contact_id).filter(Boolean)))
+        .range(from, to))
+      setIds(new Set(data.map(a => a.contact_id).filter(Boolean)))
       return
     }
 
     // Fallback : passer par les opportunités du closer
-    const { data: opps } = await supabase
-      .from('ghl_opportunities')
-      .select('contact_id, raw')
-      .eq('pipeline_id', GHL_PIPELINE_CLOSER)
-
-    const nl        = closerName.trim().toLowerCase()
-    const firstName = nl.split(' ')[0]
-    const contactIds = (opps ?? [])
-      .filter(o => {
-        const cf = getGHLField(o.raw ?? {}, GHL_FIELD_CLOSER)?.trim().toLowerCase() ?? ''
-        return cf === nl || cf === firstName || nl.startsWith(cf) || cf.startsWith(firstName)
-      })
+    const opps = await loadCloserOpps('contact_id, raw')
+    const contactIds = opps
+      .filter(o => closerFieldMatches(getCloserField(o), closerName))
       .map(o => o.contact_id)
       .filter(Boolean)
 
     if (contactIds.length === 0) return
 
-    const { data: appts } = await supabase
+    const appts = await fetchAllRows((from, to) => supabase
       .from('ghl_appointments')
       .select('contact_id')
       .eq('calendar_id', GHL_CALENDAR_DECISION)
       .in('contact_id', contactIds)
+      .range(from, to))
 
-    setIds(new Set((appts ?? []).map(a => a.contact_id).filter(Boolean)))
+    setIds(new Set(appts.map(a => a.contact_id).filter(Boolean)))
   }, [closerName, ghlUserId])
 
   useEffect(() => { load() }, [load])

@@ -12,7 +12,7 @@ import { useUnassignedSales, useCloserMonthStats } from '../hooks/useCloserData'
 // ─── Closer card ──────────────────────────────────────────────
 function CloserCard({ member, startDate, endDate }) {
   const navigate = useNavigate()
-  const { stats, loading } = useCloserMonthStats(member.full_name, startDate, endDate)
+  const { stats, loading } = useCloserMonthStats(member.full_name, startDate, endDate, member.ghl_user_id || null)
 
   return (
     <Card className="p-4">
@@ -83,13 +83,13 @@ function SetterCard({ member }) {
 }
 
 // ─── Modal assignation closer ─────────────────────────────────
-function AssignCloserModal({ sale, onClose, onSaved }) {
+function AssignCloserModal({ sale, closers, onClose, onSaved }) {
   const [closerName, setCloserName] = useState('')
   const [saving, setSaving] = useState(false)
   const [error,  setError]  = useState(null)
 
   async function handleSave() {
-    if (!closerName.trim()) { setError('Veuillez entrer un nom.'); return }
+    if (!closerName.trim()) { setError('Veuillez choisir un closer.'); return }
     setSaving(true)
     setError(null)
 
@@ -118,19 +118,22 @@ function AssignCloserModal({ sale, onClose, onSaved }) {
       {/* Nom du closer */}
       <div>
         <label className="block text-xs font-semibold text-[#6b7280] uppercase tracking-wide mb-1.5">
-          Nom du closer dans GHL
+          Closer
         </label>
-        <input
-          type="text"
+        <select
           value={closerName}
           onChange={e => setCloserName(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && handleSave()}
-          placeholder="ex: Vicky"
           autoFocus
-          className="w-full px-3 py-2.5 rounded-lg border border-[#e5e7eb] text-sm text-[#1a1a1a] focus:outline-none focus:border-[#00bbb1] placeholder-[#9ca3af]"
-        />
+          className="w-full px-3 py-2.5 rounded-lg border border-[#e5e7eb] text-sm text-[#1a1a1a] focus:outline-none focus:border-[#00bbb1] bg-white"
+        >
+          <option value="">— Choisir un closer —</option>
+          {(closers ?? []).map(c => (
+            <option key={c.id} value={c.full_name}>{c.full_name}</option>
+          ))}
+        </select>
         <p className="text-[11px] text-[#9ca3af] mt-1">
           Sera écrit dans les champs <span className="font-mono">opportunity.closer</span> et <span className="font-mono">contact.closer_neo</span> dans GHL.
+          Choisir dans la liste garantit un nom cohérent (évite les variantes d'orthographe).
         </p>
       </div>
 
@@ -304,6 +307,7 @@ export default function EquipeVente() {
         {selectedSale && (
           <AssignCloserModal
             sale={selectedSale}
+            closers={closers}
             onClose={() => setSelectedSale(null)}
             onSaved={handleSaved}
           />

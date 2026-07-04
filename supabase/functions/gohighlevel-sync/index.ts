@@ -265,7 +265,13 @@ async function syncOpportunities(
     assigned_to:       String(o.assignedTo ?? ''),
     source:            String(o.source ?? ''),
     created_at_ghl:    o.createdAt ? new Date(o.createdAt as string).toISOString() : null,
-    closed_at:         o.closedDate ? new Date(o.closedDate as string).toISOString() : null,
+    // closed_at : date de close GHL, sinon (opp gagnée) le passage au stage Gagné.
+    // Évite les ventes "sans date" invisibles dans les rapports.
+    closed_at:         o.closedDate
+                         ? new Date(o.closedDate as string).toISOString()
+                         : (String(o.status ?? '').toLowerCase() === 'won' && o.lastStageChangeAt
+                             ? new Date(o.lastStageChangeAt as string).toISOString()
+                             : null),
     raw:               o,
     synced_at:         new Date().toISOString(),
   }))

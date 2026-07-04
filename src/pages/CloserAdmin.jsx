@@ -6,6 +6,7 @@ import Header from '../components/layout/Header'
 import Card from '../components/shared/Card'
 import { SkeletonCard } from '../components/shared/Skeleton'
 import CloserDashboardView from '../components/closer/CloserDashboardView'
+import DataHygienePanel from '../components/closer/DataHygienePanel'
 import { useMembers } from '../hooks/useMembers'
 import { usePayPeriodConfig, getCurrentPayPeriod } from '../hooks/usePayPeriod'
 import {
@@ -14,29 +15,15 @@ import {
   useCloserCashCollected,
   COMMISSION_RATE,
 } from '../hooks/useCloserData'
+import {
+  GHL_PIPELINE_CLOSER,
+  fetchAllRows,
+  isWonStage,
+  isCloseInPeriod,
+  closerFieldMatches,
+  getCloserField,
+} from '../lib/ghlHelpers'
 import { supabase } from '../lib/supabase'
-
-const GHL_PIPELINE_CLOSER  = 'YPTruORTl0LOSdS2vWJS'
-const GHL_FIELD_CLOSER     = 'JSltN3nE7nm4cUjuGxTs'
-const GHL_FIELD_DATE_CLOSE = 'UPqvJX8MkZ4thsPX2tjV'
-
-function getGHLField(raw, fieldId) {
-  const fields = raw?.customFields ?? []
-  const f = fields.find(f => f.id === fieldId || f.key === fieldId || f.fieldKey === fieldId)
-  if (!f) return null
-  return f.fieldValueNumber ?? f.fieldValueString ?? f.fieldValueDate ?? f.value ?? null
-}
-
-function parseGHLDate(v) {
-  if (!v) return null
-  const n = Number(v)
-  if (!isNaN(n) && n > 0) {
-    const d = new Date(n > 9_999_999_999 ? n : n * 1000)
-    return isNaN(d.getTime()) ? null : d
-  }
-  const d = new Date(v)
-  return isNaN(d.getTime()) ? null : d
-}
 
 function fmtCAD(n) {
   return Number(n ?? 0).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })
@@ -56,28 +43,20 @@ function useAllCloserStats(closers, startDate, endDate) {
     if (!closers.length || !startDate || !endDate) return
     setLoading(true)
 
-    const startMs = new Date(startDate + 'T00:00:00').getTime()
-    const endMs   = new Date(endDate   + 'T23:59:59').getTime()
-
-    // Charger toutes les opportunités du pipeline en une seule requête
-    const { data: allOpps } = await supabase
+    // Charger toutes les opportunités du pipeline (paginé → jamais capé à 1000)
+    const opps = await fetchAllRows((from, to) => supabase
       .from('ghl_opportunities')
       .select('contact_id, stage_name, raw, closed_at, contact_name')
       .eq('pipeline_id', GHL_PIPELINE_CLOSER)
+      .range(from, to))
 
-    const opps = allOpps ?? []
-
-    // Tous les contact_ids des opps pour charger les RDV d'un coup
-    const allContactIds = [...new Set(opps.map(o => o.contact_id).filter(Boolean))]
-    let allAppts = []
-    if (allContactIds.length > 0) {
-      const { data } = await supabase
-        .from('ghl_appointments')
-        .select('contact_id, assigned_user_id, status')
-        .gte('start_time', startDate + 'T00:00:00')
-        .lte('start_time', endDate   + 'T23:59:59')
-      allAppts = data ?? []
-    }
+    // Tous les RDV de la période, en une passe paginée
+    const allAppts = await fetchAllRows((from, to) => supabase
+      .from('ghl_appointments')
+      .select('contact_id, assigned_user_id, status')
+      .gte('start_time', startDate + 'T00:00:00')
+      .lte('start_time', endDate   + 'T23:59:59')
+      .range(from, to))
 
     // Si on a des ghl_user_id, on peut aussi matcher les RDV directs
     const apptsByUserId = {}
@@ -95,15 +74,8 @@ function useAllCloserStats(closers, startDate, endDate) {
 
     // Calculer les stats par closer
     const statsRows = closers.map(closer => {
-      const nl        = (closer.full_name ?? '').trim().toLowerCase()
-      const firstName = nl.split(' ')[0]
-
-      // Filtrer les opps de ce closer
-      const myOpps = opps.filter(o => {
-        const cf = getGHLField(o.raw ?? {}, GHL_FIELD_CLOSER)?.trim().toLowerCase() ?? ''
-        if (!cf) return false
-        return cf === nl || cf === firstName || nl.startsWith(cf) || cf.startsWith(firstName)
-      })
+      // Filtrer les opps de ce closer (matching centralisé)
+      const myOpps = opps.filter(o => closerFieldMatches(getCloserField(o), closer.full_name))
 
       const myContactIds = [...new Set(myOpps.map(o => o.contact_id).filter(Boolean))]
 
@@ -115,19 +87,13 @@ function useAllCloserStats(closers, startDate, endDate) {
         myAppts = myContactIds.flatMap(id => apptsByContactId[id] ?? [])
       }
 
-      const rdvCount  = myAppts.length
-      const shows     = myAppts.filter(a => a.status === 'showed' || a.status === 'attended').length
-      const noShows   = myAppts.filter(a => a.status === 'noshow').length
-      const noShowPct = rdvCount > 0 ? Math.round((noShows / rdvCount) * 100) : null
+      const rdvCount   = myAppts.length
+      const shows      = myAppts.filter(a => a.status === 'showed' || a.status === 'attended').length
+      const noShows    = myAppts.filter(a => a.status === 'noshow').length
+      const showUpPct  = rdvCount > 0 ? Math.round((shows / rdvCount) * 100) : null
+      const noShowPct  = rdvCount > 0 ? Math.round((noShows / rdvCount) * 100) : null
 
-      const wonSales = myOpps.filter(o => {
-        const stageName = String(o.stage_name ?? o.raw?.pipelineStage?.name ?? '')
-        if (!stageName.includes('Gagné')) return false
-        const closeDateRaw = getGHLField(o.raw ?? {}, GHL_FIELD_DATE_CLOSE)
-        const cd = parseGHLDate(closeDateRaw) ?? (o.closed_at ? new Date(o.closed_at) : null)
-        if (!cd) return false
-        return cd.getTime() >= startMs && cd.getTime() <= endMs
-      })
+      const wonSales = myOpps.filter(o => isWonStage(o) && isCloseInPeriod(o, startDate, endDate))
 
       const ventesCount  = wonSales.length
       const closeRate    = shows > 0 ? Math.round((ventesCount / shows) * 100) : null
@@ -138,6 +104,8 @@ function useAllCloserStats(closers, startDate, endDate) {
         ghlUserId:  closer.ghl_user_id,
         rdvCount,
         shows,
+        noShows,
+        showUpPct,
         noShowPct,
         ventesCount,
         closeRate,
@@ -208,12 +176,26 @@ function ComparisonTable({ closers, startDate, endDate }) {
     { key: 'name',        label: 'Closer' },
     { key: 'rdvCount',    label: 'RDV' },
     { key: 'shows',       label: 'Shows' },
+    { key: 'showUpPct',   label: '% Show up' },
     { key: 'noShowPct',   label: 'No-show %' },
     { key: 'ventesCount', label: 'Ventes' },
     { key: 'closeRate',   label: 'Taux close' },
     { key: 'cash',        label: 'Cash collecté' },
     { key: 'commission',  label: 'Commission' },
   ]
+
+  const totals = rows.reduce((acc, r) => ({
+    rdvCount:    acc.rdvCount    + (r.rdvCount ?? 0),
+    shows:       acc.shows       + (r.shows ?? 0),
+    noShows:     acc.noShows     + (r.noShows ?? 0),
+    ventesCount: acc.ventesCount + (r.ventesCount ?? 0),
+    cash:        acc.cash        + (r.cash ?? 0),
+    commission:  acc.commission  + (r.commission ?? 0),
+  }), { rdvCount: 0, shows: 0, noShows: 0, ventesCount: 0, cash: 0, commission: 0 })
+
+  const totalShowUpPct = totals.rdvCount > 0 ? Math.round((totals.shows / totals.rdvCount) * 100) : null
+  const totalNoShowPct = totals.rdvCount > 0 ? Math.round((totals.noShows / totals.rdvCount) * 100) : null
+  const totalCloseRate = totals.shows > 0 ? Math.round((totals.ventesCount / totals.shows) * 100) : null
 
   if (loading && rows.length === 0) {
     return (
@@ -254,6 +236,13 @@ function ComparisonTable({ closers, startDate, endDate }) {
               <td className="px-4 py-3 font-bold text-[#1a1a1a]">{row.rdvCount}</td>
               <td className="px-4 py-3 font-bold text-[#1a1a1a]">{row.shows}</td>
               <td className="px-4 py-3">
+                {row.showUpPct !== null ? (
+                  <span className={`font-bold ${row.showUpPct >= 75 ? 'text-[#10b981]' : 'text-[#1a1a1a]'}`}>
+                    {row.showUpPct}%
+                  </span>
+                ) : '—'}
+              </td>
+              <td className="px-4 py-3">
                 {row.noShowPct !== null ? (
                   <span className={`font-bold ${row.noShowPct > 25 ? 'text-[#f59e0b]' : 'text-[#1a1a1a]'}`}>
                     {row.noShowPct}%
@@ -286,9 +275,28 @@ function ComparisonTable({ closers, startDate, endDate }) {
           ))}
           {sorted.length === 0 && (
             <tr>
-              <td colSpan={8} className="px-4 py-8 text-center text-sm text-[#9ca3af]">
+              <td colSpan={9} className="px-4 py-8 text-center text-sm text-[#9ca3af]">
                 Aucun closer actif trouvé.
               </td>
+            </tr>
+          )}
+          {sorted.length > 0 && (
+            <tr className="border-t-2 border-[#e5e7eb] bg-[#f9fafb]">
+              <td className="px-4 py-3 font-bold text-[#1a1a1a]">Total</td>
+              <td className="px-4 py-3 font-bold text-[#1a1a1a]">{totals.rdvCount}</td>
+              <td className="px-4 py-3 font-bold text-[#1a1a1a]">{totals.shows}</td>
+              <td className="px-4 py-3 font-bold text-[#1a1a1a]">
+                {totalShowUpPct !== null ? `${totalShowUpPct}%` : '—'}
+              </td>
+              <td className="px-4 py-3 font-bold text-[#1a1a1a]">
+                {totalNoShowPct !== null ? `${totalNoShowPct}%` : '—'}
+              </td>
+              <td className="px-4 py-3 font-bold text-[#1a1a1a]">{totals.ventesCount}</td>
+              <td className="px-4 py-3 font-bold text-[#1a1a1a]">
+                {totalCloseRate !== null ? `${totalCloseRate}%` : '—'}
+              </td>
+              <td className="px-4 py-3 font-bold text-[#1a1a1a]">{fmtCAD(totals.cash)}</td>
+              <td className="px-4 py-3 font-bold text-[#00bbb1]">{fmtCAD(totals.commission)}</td>
             </tr>
           )}
         </tbody>
@@ -299,7 +307,7 @@ function ComparisonTable({ closers, startDate, endDate }) {
 
 // ─── Page principale ──────────────────────────────────────────
 
-const ADMIN_TABS = ['Tableau de bord', 'Comparaison']
+const ADMIN_TABS = ['Tableau de bord', 'Comparaison', 'Hygiène des données']
 
 export default function CloserAdmin() {
   const { config: payConfig } = usePayPeriodConfig()
@@ -357,7 +365,7 @@ export default function CloserAdmin() {
       </div>
 
       {/* ── Sélecteur de closer (dans les deux onglets) ── */}
-      {membersLoading ? (
+      {activeTab === 2 ? null : membersLoading ? (
         <div className="h-12 bg-gray-100 rounded-xl animate-pulse mb-6" />
       ) : closers.length > 0 && (
         <div className="mb-6 relative">
@@ -489,6 +497,9 @@ export default function CloserAdmin() {
           </Card>
         </div>
       )}
+
+      {/* ── Onglet 2 : Hygiène des données ── */}
+      {activeTab === 2 && <DataHygienePanel />}
     </Layout>
   )
 }
