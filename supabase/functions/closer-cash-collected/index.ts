@@ -23,7 +23,32 @@ const QB_CLOSER_PRODUCTS = [
   "Programme d'optimisation ajout entraînement personnalisé",
 ]
 
-const COMMISSION_RATE = 0.086
+// Taux par défaut. Un closer peut avoir son propre taux dans
+// profiles.closer_commission_rate (fraction, NULL = ce taux global).
+const DEFAULT_COMMISSION_RATE = 0.086
+
+// Taux effectif du closer. Rétroactif : le taux courant s'applique à
+// toutes les périodes, y compris passées.
+async function getCommissionRate(
+  supabase: ReturnType<typeof createClient>,
+  closerName: string,
+): Promise<number> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('closer_commission_rate')
+    .ilike('full_name', closerName.trim())
+    .limit(1)
+
+  if (error) {
+    console.error('[Commission] lecture du taux impossible:', error.message)
+    return DEFAULT_COMMISSION_RATE
+  }
+  const rate = (data as { closer_commission_rate: number | null }[] | null)?.[0]?.closer_commission_rate
+  if (rate === null || rate === undefined) return DEFAULT_COMMISSION_RATE
+
+  const n = Number(rate)
+  return isNaN(n) ? DEFAULT_COMMISSION_RATE : n
+}
 
 interface PaymentLine {
   clientName:  string
@@ -351,9 +376,10 @@ Deno.serve(async (req) => {
     const newTotal       = newSales.reduce((s, l) => s + l.amount, 0)
     const recurringTotal = recurring.reduce((s, l) => s + l.amount, 0)
     const total          = newTotal + recurringTotal
-    const commission     = Math.round(total * COMMISSION_RATE * 100) / 100
+    const commissionRate = await getCommissionRate(supabase, closerName)
+    const commission     = Math.round(total * commissionRate * 100) / 100
 
-    return json({ newSales, recurring, total, newTotal, recurringTotal, commission })
+    return json({ newSales, recurring, total, newTotal, recurringTotal, commission, commissionRate })
 
   } catch (err) {
     console.error('closer-cash-collected error:', err)

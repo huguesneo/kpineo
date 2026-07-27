@@ -38,9 +38,12 @@ import {
   useCloserCashCollected,
   APPT_STATUS_LABELS,
   APPT_STATUS_COLORS,
-  COMMISSION_RATE,
 } from '../hooks/useCloserData'
+import { COMMISSION_RATE, fmtCommissionPct } from '../lib/ghlHelpers'
 import CloserDashboardViewComponent from '../components/closer/CloserDashboardView'
+import CommissionRateEditor from '../components/closer/CommissionRateEditor'
+
+const HUGUES_EMAIL = 'hugues@neoperformance.ca'
 
 const ROLE_LABELS = {
   naturopathe:    'Naturopathe',
@@ -1154,7 +1157,7 @@ function CloserPayOverview({ member }) {
       <div className="rounded-2xl p-5" style={{ background: 'linear-gradient(135deg, #00bbb1 0%, #009e95 100%)' }}>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <p className="text-xs font-bold text-white/70 uppercase tracking-wide mb-1">Commission totale (8.6%)</p>
+            <p className="text-xs font-bold text-white/70 uppercase tracking-wide mb-1">Commission totale ({fmtCommissionPct(cashData?.commissionRate)})</p>
             {cashLoading
               ? <div className="h-10 w-36 bg-white/20 rounded-xl animate-pulse" />
               : cashError
@@ -1397,7 +1400,7 @@ function ClosingPaySection({ member }) {
           <CloserStatCard
             label="Commission période de paie"
             value={fmtCAD(commission)}
-            sub={`sur ${fmtCAD(totalCash)}`}
+            sub={`${fmtCommissionPct(cashData?.commissionRate)} sur ${fmtCAD(totalCash)}`}
             color="#00bbb1"
             onClick={() => { setCashFilter('all'); setCashModalOpen(true) }}
           />
@@ -1481,6 +1484,8 @@ function SetterEODTab({ userId }) {
 }
 
 function CloserSettingsTab({ member, onSaved }) {
+  const { user } = useAuth()
+  const isHugues = user?.email === HUGUES_EMAIL
   const [ghlInput,     setGhlInput]     = useState(member?.ghl_user_id ?? '')
   const [fathomKey,    setFathomKey]    = useState(member?.fathom_api_key ?? '')
   const [fathomSecret, setFathomSecret] = useState(member?.fathom_webhook_secret ?? '')
@@ -1555,6 +1560,23 @@ function CloserSettingsTab({ member, onSaved }) {
           )}
         </div>
       </Card>
+
+      {/* Taux de commission individuel — Hugues uniquement (le composant se masque tout seul) */}
+      {isHugues && (
+        <Card className="p-6">
+          <div className="flex items-center gap-2 mb-1">
+            <h3 className="text-sm font-bold text-[#1a1a1a]">Taux de commission closing</h3>
+            <span className="text-[10px] font-bold text-[#f59e0b] bg-[#f59e0b]/10 px-2 py-0.5 rounded-full">Privé</span>
+          </div>
+          <p className="text-xs text-[#9ca3af] mb-3">
+            {member?.closer_commission_rate != null
+              ? <>Taux individuel : <span className="font-bold text-[#00bbb1]">{fmtCommissionPct(member.closer_commission_rate)}</span></>
+              : <>Taux global appliqué ({fmtCommissionPct(COMMISSION_RATE)})</>
+            }
+          </p>
+          <CommissionRateEditor member={member} onSaved={onSaved} tone="card" />
+        </Card>
+      )}
 
       <button
         onClick={handleSave}

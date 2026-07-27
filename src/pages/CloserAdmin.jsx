@@ -13,7 +13,6 @@ import {
   useCloserAppointments,
   useCloserSales,
   useCloserCashCollected,
-  COMMISSION_RATE,
 } from '../hooks/useCloserData'
 import {
   GHL_PIPELINE_CLOSER,
@@ -165,7 +164,9 @@ function useAllCloserStats(closers, startDate, endDate) {
       const res = cashResults.find(r => r.id === row.id)
       const cashData = res?.data
       const cash = cashData?.total ?? null
-      const commission = cash !== null ? Math.round(cash * COMMISSION_RATE) : null
+      // Commission calculée côté serveur : elle tient compte du taux
+      // individuel du closer (profiles.closer_commission_rate).
+      const commission = cashData?.commission ?? null
       return { ...row, cash, commission, cashLoading: false }
     }))
 

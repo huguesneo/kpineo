@@ -10,9 +10,10 @@ import {
   useDecisionContactIds,
   APPT_STATUS_LABELS,
   APPT_STATUS_COLORS,
-  COMMISSION_RATE,
 } from '../../hooks/useCloserData'
 import { useObjectives, setObjectiveForPeriod } from '../../hooks/useObjectives'
+import { resolveCommissionRate, fmtCommissionPct } from '../../lib/ghlHelpers'
+import CommissionRateEditor from './CommissionRateEditor'
 
 const CALENDAR_DECISION = 'BQK4NoyrVNuJA3e1VHDH'
 
@@ -306,7 +307,7 @@ export default function CloserDashboardView({
   // Données live
   const { appointments, loading: apptLoading, byStatus, hotCount } = useCloserAppointments(closerName, startDate, endDate, ghlUserId)
   const { sales, loading: salesLoading }                           = useCloserSales(closerName, startDate, endDate, ghlUserId)
-  const { data: cashData, loading: cashLoading, error: cashError } = useCloserCashCollected(closerName, startDate, endDate)
+  const { data: cashData, loading: cashLoading, error: cashError, refetch: refetchCash } = useCloserCashCollected(closerName, startDate, endDate)
 
   // Objectifs du mois courant (basé sur startDate)
   const [objSaving, setObjSaving] = useState(null)
@@ -376,7 +377,8 @@ export default function CloserDashboardView({
   const totalCash    = cashData?.total ?? 0
   const newTotal     = cashData?.newTotal ?? 0
   const recurTotal   = cashData?.recurringTotal ?? 0
-  const commission   = cashData?.commission ?? Math.round(totalCash * COMMISSION_RATE * 100) / 100
+  const commissionRate = resolveCommissionRate(cashData?.commissionRate)
+  const commission   = cashData?.commission ?? Math.round(totalCash * commissionRate * 100) / 100
   const newSalesCount  = (cashData?.newSales ?? []).length
   const recurCount     = (cashData?.recurring ?? []).length
   const avgTicket      = newSalesCount > 0 ? Math.round(newTotal / newSalesCount) : null
@@ -447,9 +449,12 @@ export default function CloserDashboardView({
         <div className="rounded-2xl px-6 py-5 text-white" style={{ background: 'linear-gradient(135deg, #00bbb1 0%, #009e94 100%)' }}>
           <div className="flex items-start justify-between flex-wrap gap-4">
             <div>
-              <p className="text-sm font-semibold text-white/80 mb-1">
-                Commission totale ({(COMMISSION_RATE * 100).toFixed(1)}%)
-              </p>
+              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                <p className="text-sm font-semibold text-white/80">
+                  Commission totale ({fmtCommissionPct(commissionRate)})
+                </p>
+                {isAdmin && <CommissionRateEditor member={closerProfile} onSaved={refetchCash} />}
+              </div>
               <p className="text-4xl font-black">{fmtCAD(commission)}</p>
               {totalCash > 0 && (
                 <p className="text-sm text-white/70 mt-1">

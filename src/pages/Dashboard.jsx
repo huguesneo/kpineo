@@ -18,7 +18,8 @@ import { supabase } from '../lib/supabase'
 import {
   format, startOfMonth, endOfMonth, startOfQuarter, endOfQuarter, parseISO,
 } from 'date-fns'
-import { useCloserMonthStats, useCloserAppointments, useCloserSales, useCloserCashCollected, APPT_STATUS_LABELS, APPT_STATUS_COLORS, COMMISSION_RATE } from '../hooks/useCloserData'
+import { useCloserMonthStats, useCloserAppointments, useCloserSales, useCloserCashCollected, APPT_STATUS_LABELS, APPT_STATUS_COLORS } from '../hooks/useCloserData'
+import { resolveCommissionRate, fmtCommissionPct } from '../lib/ghlHelpers'
 import { fr } from 'date-fns/locale'
 import { usePayPeriodConfig, getCurrentPayPeriod } from '../hooks/usePayPeriod'
 import SetterEODForm from '../components/eod/SetterEODForm'
@@ -1409,7 +1410,7 @@ function MemberDashboard() {
   const totalCash    = cashData?.total ?? 0
   const newTotal     = cashData?.newTotal ?? 0
   const recurTotal   = cashData?.recurringTotal ?? 0
-  const commission   = cashData?.commission ?? Math.round(totalCash * COMMISSION_RATE * 100) / 100
+  const commission   = cashData?.commission ?? Math.round(totalCash * resolveCommissionRate(cashData?.commissionRate) * 100) / 100
   const closerPeriodLabel = closerPeriodType === 'paie' && payPeriod
     ? `Période de paie en cours (${format(parseISO(payPeriod.start), 'd MMM', { locale: fr })} au ${format(parseISO(payPeriod.end), 'd MMM yyyy', { locale: fr })})`
     : `Du ${format(parseISO(closerStartDate), 'd MMM', { locale: fr })} au ${format(parseISO(closerEndDate), 'd MMM yyyy', { locale: fr })}`
@@ -1613,7 +1614,7 @@ function MemberDashboard() {
                   <div>
                     <p className="text-xs font-bold text-[#6b7280] uppercase tracking-wide mb-1">Commission période de paie</p>
                     <p className="text-3xl font-black text-[#00bbb1]">{fmtCAD(commission)}</p>
-                    <p className="text-xs text-[#9ca3af] mt-0.5">8,6 % × {fmtCAD(totalCash)} cash collected</p>
+                    <p className="text-xs text-[#9ca3af] mt-0.5">{fmtCommissionPct(cashData?.commissionRate)} × {fmtCAD(totalCash)} cash collected</p>
                   </div>
                   <div className="flex gap-4">
                     <div className="text-center">

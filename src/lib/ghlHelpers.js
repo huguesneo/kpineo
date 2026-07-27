@@ -11,8 +11,23 @@ export const GHL_CALENDAR_DECISION  = 'BQK4NoyrVNuJA3e1VHDH'
 export const GHL_STAGE_GAGNE        = '🏆 Gagné'
 export const GHL_FIELD_CLOSER       = 'JSltN3nE7nm4cUjuGxTs'
 export const GHL_FIELD_DATE_CLOSE   = 'UPqvJX8MkZ4thsPX2tjV'
+// Taux de commission closing par défaut. Un closer peut avoir son propre taux :
+// profiles.closer_commission_rate (fraction, NULL = ce taux global).
 export const COMMISSION_RATE        = 0.086
 export const MONTREAL_TZ            = 'America/Toronto'
+
+// ─── Taux de commission ───────────────────────────────────────
+// Taux effectif d'un closer : son taux individuel s'il en a un, sinon le global.
+export function resolveCommissionRate(rate) {
+  const n = Number(rate)
+  return rate === null || rate === undefined || isNaN(n) ? COMMISSION_RATE : n
+}
+
+// 0.086 → "8,6 %" · 0.1 → "10 %"
+export function fmtCommissionPct(rate) {
+  const pct = resolveCommissionRate(rate) * 100
+  return `${pct.toFixed(1).replace(/\.0$/, '').replace('.', ',')} %`
+}
 
 // ─── Pagination : contourne le cap PostgREST (~1000 lignes) ───
 // Supabase plafonne le nombre de lignes retournées par requête.
