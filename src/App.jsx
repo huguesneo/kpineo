@@ -25,6 +25,8 @@ import CentreVente from './pages/CentreVente'
 import MetaAds from './pages/MetaAds'
 import Performance from './pages/Performance'
 import MaPerformance from './pages/MaPerformance'
+import ReseauxSociaux from './pages/ReseauxSociaux'
+import { hasSocialAccess } from './lib/socialAccess'
 
 const HUGUES_EMAIL = 'hugues@neoperformance.ca'
 
@@ -72,6 +74,15 @@ function HuguesRoute({ children }) {
   return children
 }
 
+// Réseaux sociaux — Hugues et Cloé seulement
+function SocialRoute({ children }) {
+  const { user, loading } = useAuth()
+  if (loading) return <LoadingScreen />
+  if (!user) return <Navigate to="/login" replace />
+  if (!hasSocialAccess(user.email)) return <Navigate to="/dashboard" replace />
+  return children
+}
+
 function PublicRoute({ children }) {
   const { user, loading } = useAuth()
   if (loading) return <LoadingScreen />
@@ -107,6 +118,7 @@ function AppRoutes() {
       <Route path="/meta-ads"    element={<SalesManagerRoute><MetaAds /></SalesManagerRoute>} />
       <Route path="/performance" element={<HuguesRoute><Performance /></HuguesRoute>} />
       <Route path="/ma-performance" element={<PrivateRoute><MaPerformance /></PrivateRoute>} />
+      <Route path="/reseaux-sociaux" element={<SocialRoute><ReseauxSociaux /></SocialRoute>} />
 
       {/* Admin + resp_vente — équipe de vente & naturopathe */}
       <Route path="/closer-admin" element={<SalesManagerRoute><CloserAdmin /></SalesManagerRoute>} />
