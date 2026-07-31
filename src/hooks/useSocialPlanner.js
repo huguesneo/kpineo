@@ -109,6 +109,68 @@ export function useSocialHooks() {
 }
 
 // ============================================================================
+// Moteur d'analyse — publications natives, scores, snapshots de compte
+// ============================================================================
+
+// Tout ce qu'il faut pour les onglets Performance et Patterns.
+// Les trois tables sont petites (quelques centaines de lignes) : on charge
+// tout et on fait la jointure côté client, comme pour le reste du module.
+export function useSocialPerformance() {
+  const [publications, setPublications] = useState([])
+  const [scores, setScores] = useState([])
+  const [accountSnapshots, setAccountSnapshots] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  const refetch = useCallback(async () => {
+    setLoading(true)
+    const [pubs, scr, snaps] = await Promise.all([
+      supabase.from('social_publications').select('*').order('published_at', { ascending: false }),
+      supabase.from('social_post_scores').select('*'),
+      supabase.from('social_account_snapshots').select('*').order('snapshot_date', { ascending: false }).limit(120),
+    ])
+    const err = pubs.error ?? scr.error ?? snaps.error
+    if (err) setError(err.message)
+    else {
+      setError(null)
+      setPublications(pubs.data ?? [])
+      setScores(scr.data ?? [])
+      setAccountSnapshots(snaps.data ?? [])
+    }
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { refetch() }, [refetch])
+
+  return { publications, scores, accountSnapshots, loading, error, refetch }
+}
+
+// Historique des relevés d'une publication (panneau de détail).
+export function useSocialSnapshots(publicationId) {
+  const [snapshots, setSnapshots] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!publicationId) { setSnapshots([]); setLoading(false); return }
+    let cancelled = false
+    setLoading(true)
+    supabase
+      .from('social_metric_snapshots')
+      .select('*')
+      .eq('publication_id', publicationId)
+      .order('captured_at', { ascending: true })
+      .then(({ data }) => {
+        if (cancelled) return
+        setSnapshots(data ?? [])
+        setLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [publicationId])
+
+  return { snapshots, loading }
+}
+
+// ============================================================================
 // GHL (edge function social-planner) — comptes, publication, stats
 // ============================================================================
 
