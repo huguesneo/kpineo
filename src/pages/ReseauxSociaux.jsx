@@ -213,28 +213,31 @@ function PostModal({ post, defaultDate, accounts, hooksBank, onSave, onDelete, o
     else onClose()
   }
 
-  // Envoie (ou met à jour) le post dans le Social Planner GHL, programmé à la date choisie
-  async function handlePublish() {
+  // Envoie le post dans le Social Planner GHL.
+  // mode 'schedule' = programmé à la date choisie · mode 'now' = publié immédiatement
+  async function handlePublish(mode = 'schedule') {
     setError(null)
     if (!f.title.trim())            return setError('Le titre est requis.')
     if (!f.caption.trim())          return setError('La légende (caption) est requise pour publier.')
-    if (!f.scheduled_at)            return setError('Choisis une date et heure de publication.')
+    if (mode === 'schedule' && !f.scheduled_at) return setError('Choisis une date et heure de publication.')
     if (!f.platforms.length)        return setError('Choisis au moins une plateforme.')
     if (!f.media_urls.length)       return setError('Ajoute au moins un média (image ou vidéo).')
+
+    const platformLabels = f.platforms.map(p => PLATFORM_META[p]?.label ?? p).join(' + ')
+    if (mode === 'now' && !window.confirm(`Publier immédiatement sur ${platformLabels} ?`)) return
 
     const accountIds = accounts
       .filter(a => f.platforms.includes(a.platform))
       .map(a => a.id)
     if (!accountIds.length) return setError('Aucun compte GHL connecté pour ces plateformes.')
 
-    const scheduleDate = new Date(f.scheduled_at).toISOString()
     const isReel = (f.format ?? '').toLowerCase().includes('reel')
     const payload = {
       accountIds,
       summary: f.caption,
       media: f.media_urls.map(url => ({ url })),
-      status: 'scheduled',
-      scheduleDate,
+      status: mode === 'now' ? 'published' : 'scheduled',
+      ...(mode === 'schedule' ? { scheduleDate: new Date(f.scheduled_at).toISOString() } : {}),
       type: isReel ? 'reel' : 'post',
     }
 
@@ -247,11 +250,17 @@ function PostModal({ post, defaultDate, accounts, hooksBank, onSave, onDelete, o
       return setError(`GHL : ${res.error}`)
     }
     const ghlId = res.data?.results?.post?._id ?? res.data?.post?._id ?? res.data?._id ?? post?.ghl_post_id ?? null
-    const saveRes = await onSave(buildFields({ status: 'programme', ghl_post_id: ghlId }))
+    const saveRes = await onSave(buildFields(
+      mode === 'now'
+        ? { status: 'publie', published_at: new Date().toISOString(), ghl_post_id: ghlId }
+        : { status: 'programme', ghl_post_id: ghlId },
+    ))
     setPublishing(false)
     if (saveRes?.error) return setError(saveRes.error)
-    setOkMsg(`Post ${post?.ghl_post_id ? 'mis à jour' : 'programmé'} sur ${f.platforms.map(p => PLATFORM_META[p]?.label ?? p).join(' + ')} ✓`)
-    setTimeout(onClose, 1200)
+    setOkMsg(mode === 'now'
+      ? `Post publié sur ${platformLabels} ✓ (l'envoi peut prendre 1-2 minutes)`
+      : `Post ${post?.ghl_post_id ? 'mis à jour' : 'programmé'} sur ${platformLabels} ✓`)
+    setTimeout(onClose, 1500)
   }
 
   async function handleUnschedule() {
@@ -482,8 +491,15 @@ function PostModal({ post, defaultDate, accounts, hooksBank, onSave, onDelete, o
           </div>
           <div className="flex items-center gap-2">
             <Button variant="secondary" onClick={handleSave} loading={saving}>Enregistrer</Button>
-            <Button onClick={handlePublish} loading={publishing}>
+            <Button onClick={() => handlePublish('schedule')} loading={publishing}>
               {post?.ghl_post_id ? 'Mettre à jour sur les réseaux' : 'Programmer sur les réseaux'}
+            </Button>
+            <Button
+              onClick={() => handlePublish('now')}
+              loading={publishing}
+              className="!bg-[#1a1a1a] hover:!bg-black focus:!ring-[#1a1a1a]"
+            >
+              Publier maintenant
             </Button>
           </div>
         </div>
