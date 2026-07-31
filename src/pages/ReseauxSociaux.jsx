@@ -84,7 +84,9 @@ const KIND = {
 function postKind(format) {
   const f = (format ?? '').toLowerCase()
   if (f.includes('reel')) return 'reel'
-  if (f.includes('carrousel') || f.includes('carousel')) return 'carrousel'
+  // 'carrous' couvre « Carrousel » et « Carroussel » (l'orthographe de FORMATS,
+  // qui sinon retombait silencieusement sur 'post'), 'carous' couvre l'anglais.
+  if (f.includes('carrous') || f.includes('carous')) return 'carrousel'
   if (f.includes('story')) return 'story'
   if (f.trim()) return 'post'
   return 'autre'

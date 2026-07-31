@@ -21,6 +21,16 @@ const REELS_METRICS = ['ig_reels_avg_watch_time', 'ig_reels_video_view_total_tim
 const MATCH_WINDOW_MS = 5 * 60 * 1000   // ±5 min pour la réconciliation avec le backfill Metricool
 const FINAL_AFTER_H = 72
 
+// ── Matching GHL → plateforme (section 4.3 du plan) ────────────────────────
+// GHL ne renvoie pas l'identifiant natif du média : il faut le retrouver.
+const LINK_MAX_AGE_DAYS = 14          // au-delà, on cesse d'essayer
+const LINK_WINDOW_BEFORE_MS = 2 * 3_600_000   // published_at − 2 h
+const LINK_WINDOW_AFTER_MS = 8 * 3_600_000    // published_at + 8 h (retard de publication GHL)
+const LINK_TIME_SPAN_MIN = 240        // dénominateur du score de temps
+const LINK_AUTO_MIN = 0.80            // seuil de match automatique
+const LINK_AUTO_MARGIN = 0.15         // écart minimal avec le 2e candidat
+const LINK_AMBIGUOUS_MIN = 0.50       // en dessous : on ne lie rien, on réessaie
+
 type Media = {
   id: string
   caption?: string
@@ -95,6 +105,95 @@ function metricMap(insights: Record<string, unknown> | null): Record<string, num
   return out
 }
 
+// ============================================================================
+// Matching GHL → plateforme (plan, section 4.3)
+// ============================================================================
+
+/** Normalisation avant comparaison : accents retirés, emojis et symboles
+ *  retirés, casse ignorée, espaces normalisés, 120 premiers caractères. */
+function normalizeCaption(text: string | null | undefined): string {
+  if (!text) return ''
+  return text
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')  // diacritiques
+    .toLowerCase()
+    .replace(/[\p{Extended_Pictographic}\p{Emoji_Presentation}]/gu, ' ')
+    .replace(/[^\p{Letter}\p{Number}\s]/gu, ' ')  // ponctuation et symboles
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120)
+}
+
+/** Similarité de légende : indice de Jaccard sur les trigrammes de caractères.
+ *
+ *  Le plan ne tranche pas entre Jaccard et Levenshtein normalisée — je retiens
+ *  Jaccard sur trigrammes pour trois raisons : il est insensible au
+ *  réordonnancement (une légende retravaillée avant publication garde son
+ *  score), il dégrade proprement quand un texte est tronqué ou allongé — ce
+ *  qui est le cas courant ici — et il coûte O(n) là où Levenshtein coûte
+ *  O(n·m). Sur 120 caractères la différence de coût est négligeable, mais la
+ *  robustesse au réordonnancement, elle, ne l'est pas. */
+function trigrams(s: string): Set<string> {
+  const padded = `  ${s} `
+  const out = new Set<string>()
+  for (let i = 0; i < padded.length - 2; i++) out.add(padded.slice(i, i + 3))
+  return out
+}
+
+function captionSimilarity(a: string, b: string): number {
+  if (!a || !b) return 0
+  const A = trigrams(a), B = trigrams(b)
+  if (!A.size || !B.size) return 0
+  let inter = 0
+  for (const t of A) if (B.has(t)) inter++
+  return inter / (A.size + B.size - inter)
+}
+
+/** KIND(format) du plan — même logique que postKind() côté React. */
+function postKind(format: string | null | undefined): string {
+  const f = (format ?? '').toLowerCase()
+  if (f.includes('reel')) return 'reel'
+  // 'carrous' couvre « Carrousel » et « Carroussel » (l'orthographe de la
+  // liste FORMATS), 'carous' couvre l'anglais « Carousel ».
+  if (f.includes('carrous') || f.includes('carous')) return 'carrousel'
+  if (f.includes('story')) return 'story'
+  if (f.trim()) return 'post'
+  return 'autre'
+}
+
+/** 1.0 si le media_type natif concorde avec KIND(format), 0.3 sinon.
+ *  Meta range les Reels sous media_type = VIDEO (REELS est dans
+ *  media_product_type, que la table ne conserve pas). */
+const KIND_MEDIA_TYPE: Record<string, string> = {
+  reel: 'VIDEO', carrousel: 'CAROUSEL_ALBUM', post: 'IMAGE', story: 'STORY',
+}
+
+function formatScore(format: string | null | undefined, mediaType: string | null | undefined): number {
+  const want = KIND_MEDIA_TYPE[postKind(format)]
+  if (!want || !mediaType) return 0.3
+  return want === mediaType ? 1.0 : 0.3
+}
+
+type Candidate = { id: string; published_at: string; caption: string | null; media_type: string | null }
+
+function scoreCandidate(
+  post: { published_at: string; caption: string | null; title: string | null; format: string | null },
+  cand: Candidate,
+) {
+  const deltaMin = Math.abs(new Date(cand.published_at).getTime() - new Date(post.published_at).getTime()) / 60_000
+  const timeScore = Math.max(0, 1 - deltaMin / LINK_TIME_SPAN_MIN)
+
+  // Repli sur le titre quand la légende locale est vide : les posts importés
+  // depuis GHL n'ont pas de caption, et sans repli le terme qui pèse 0,50
+  // vaudrait toujours zéro — aucun match ne pourrait jamais atteindre 0,80.
+  const localText = normalizeCaption(post.caption || post.title)
+  const captionScore = captionSimilarity(localText, normalizeCaption(cand.caption))
+
+  const fmtScore = formatScore(post.format, cand.media_type)
+  const total = 0.35 * timeScore + 0.50 * captionScore + 0.15 * fmtScore
+  return { total, timeScore, captionScore, fmtScore, deltaMin }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
@@ -111,6 +210,11 @@ Deno.serve(async (req) => {
     publications_created: 0,
     publications_reconciled: 0,
     snapshots_inserted: 0,
+    match_attempts: 0,
+    matched_auto: 0,
+    matched_ambiguous: 0,
+    match_rejected: 0,
+    marked_unlinked: 0,
     errors,
   }
 
@@ -215,7 +319,10 @@ Deno.serve(async (req) => {
               caption: m.caption ?? null,
               published_at: publishedAt.toISOString(),
               source: 'meta_direct',
-              match_status: 'auto',
+              // Pas encore de post_id : le statut le dit. Le passage de
+              // matching (étape 6) le fait passer en 'auto' ou 'ambiguous'
+              // s'il trouve une correspondance crédible.
+              match_status: 'unlinked',
               is_final: isFinal,
             }, { onConflict: 'platform,platform_post_id', ignoreDuplicates: true })
             .select('id')
@@ -284,7 +391,122 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 6. Horodatage du compte ---------------------------------------------
+    // 6. Matching GHL → plateforme (plan, section 4.3) ---------------------
+    //
+    // « Un mauvais appariement pollue les baselines de façon invisible et
+    //   durable. Mieux vaut un post non lié — visible dans l'UI, corrigeable
+    //   en deux clics — qu'un post mal lié qui fausse silencieusement tes
+    //   médianes pendant six mois. »
+    //
+    // D'où : en dessous de 0,50 on ne lie rien du tout et on réessaiera au
+    // prochain passage. On ne force jamais.
+    try {
+      const cutoff = new Date(now - LINK_MAX_AGE_DAYS * 86_400_000).toISOString()
+
+      const { data: candidates, error: candErr } = await supabase
+        .from('social_publications')
+        .select('id, published_at, caption, media_type, post_id, match_status')
+        .eq('account_id', accountId)
+        .gte('published_at', new Date(now - (LINK_MAX_AGE_DAYS * 86_400_000 + LINK_WINDOW_AFTER_MS)).toISOString())
+      if (candErr) throw new Error(`candidats: ${candErr.message}`)
+
+      // Une publication déjà liée n'est plus candidate : c'est ce qui rend
+      // deux passages successifs idempotents.
+      const free: Candidate[] = (candidates ?? [])
+        .filter(c => !c.post_id)
+        .map(c => ({
+          id: String(c.id),
+          published_at: String(c.published_at),
+          caption: c.caption as string | null,
+          media_type: c.media_type as string | null,
+        }))
+
+      const { data: posts, error: postErr } = await supabase
+        .from('social_posts')
+        .select('id, title, caption, format, platforms, published_at')
+        .eq('status', 'publie')
+        .gte('published_at', cutoff)
+      if (postErr) throw new Error(`social_posts: ${postErr.message}`)
+
+      // Un post déjà représenté sur cette plateforme est terminé.
+      const alreadyLinked = new Set(
+        (candidates ?? []).filter(c => c.post_id).map(c => String(c.post_id)),
+      )
+
+      const claimed = new Set<string>()
+      for (const post of posts ?? []) {
+        const platforms = (post.platforms as string[] | null) ?? []
+        if (!platforms.includes('instagram')) continue
+        if (alreadyLinked.has(String(post.id))) continue
+        if (!post.published_at) continue
+
+        const postMs = new Date(String(post.published_at)).getTime()
+        const scored = free
+          .filter(c => !claimed.has(c.id))
+          .filter(c => {
+            const t = new Date(c.published_at).getTime()
+            return t >= postMs - LINK_WINDOW_BEFORE_MS && t <= postMs + LINK_WINDOW_AFTER_MS
+          })
+          .map(c => ({ cand: c, ...scoreCandidate({
+            published_at: String(post.published_at),
+            caption: post.caption as string | null,
+            title: post.title as string | null,
+            format: post.format as string | null,
+          }, c) }))
+          .sort((a, b) => b.total - a.total)
+
+        summary.match_attempts++
+        if (!scored.length) continue
+
+        const best = scored[0]
+        const runnerUp = scored[1]?.total ?? 0
+
+        let status: string | null = null
+        if (best.total >= LINK_AUTO_MIN && best.total - runnerUp >= LINK_AUTO_MARGIN) status = 'auto'
+        else if (best.total >= LINK_AMBIGUOUS_MIN) status = 'ambiguous'
+
+        if (!status) {
+          // Aucun candidat crédible : on ne crée rien, on réessaiera.
+          summary.match_rejected++
+          continue
+        }
+
+        const { error: linkErr } = await supabase
+          .from('social_publications')
+          .update({
+            post_id: post.id,
+            match_status: status,
+            match_score: Number(best.total.toFixed(4)),
+          })
+          .eq('id', best.cand.id)
+          .is('post_id', null)   // garde-fou concurrent : ne vole pas un lien déjà posé
+        if (linkErr) { errors.push(`lien ${post.id}: ${linkErr.message}`); continue }
+
+        claimed.add(best.cand.id)
+        alreadyLinked.add(String(post.id))
+        if (status === 'auto') summary.matched_auto++
+        else summary.matched_ambiguous++
+      }
+
+      // Après 14 jours sans correspondance, le média reste en base mais son
+      // statut dit la vérité : non lié, avec un bouton « Lier à un post »
+      // dans l'UI plutôt qu'un lien inventé.
+      const { data: stale, error: staleErr } = await supabase
+        .from('social_publications')
+        .update({ match_status: 'unlinked' })
+        .eq('account_id', accountId)
+        .is('post_id', null)
+        .neq('match_status', 'unlinked')
+        .neq('match_status', 'manual')
+        .lt('published_at', cutoff)
+        .select('id')
+      if (staleErr) errors.push(`unlinked: ${staleErr.message}`)
+      else summary.marked_unlinked = stale?.length ?? 0
+    } catch (e) {
+      errors.push(`matching: ${e instanceof Error ? e.message : String(e)}`)
+    }
+
+    // 7. Horodatage du compte ---------------------------------------------
     await supabase.from('social_accounts')
       .update({ last_synced_at: new Date().toISOString(), last_sync_error: errors.length ? errors.join(' | ').slice(0, 2000) : null })
       .eq('id', accountId)
