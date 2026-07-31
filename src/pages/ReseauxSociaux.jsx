@@ -30,6 +30,46 @@ const INTENTIONS = ['Éduquer/Valeur', 'Engagement/Discussion', 'Divertissement'
 const CTAS = ['Commente Métabolisme', 'Question à l\'audience', 'Détails en description',
   'Lien en bio/Rencontre découverte']
 
+// Tagging de contenu — alimente l'analyse de performance par type de contenu
+const HOOK_TYPES = [
+  'Mythe à casser',            // « On t'a menti sur… »
+  'Erreur fréquente',          // « L'erreur que 90 % des femmes font »
+  'Mécanisme / le pourquoi',   // explication physiologique
+  'Confession / vécu',         // « J'avais une routine de 2h, je l'ai abandonnée »
+  'Liste / checklist',         // « 5 choses que… »
+  'À contre-courant',          // position qui dérange
+  'Résultat / promesse',
+  'Question à l\'audience',
+  'Comparaison / avant-après',
+  'Statistique choc',
+]
+
+const AUDIENCE_PROBLEMS = [
+  'Reprise de poids après une diète',
+  'Plateau — ça ne bouge plus',
+  'Fatigue chronique / manque d\'énergie',
+  'Réveils nocturnes / mauvais sommeil',
+  'Ballonnements / digestion difficile',
+  'Périménopause / ménopause',
+  'Bouffées de chaleur',
+  'Stress / cortisol élevé',
+  'Fringales / rages de sucre',
+  'Gras abdominal',
+  'Découragement / honte du corps',
+  'Manque de temps',
+  'Confusion — trop d\'infos contradictoires',
+]
+
+const PROOF_METHODS = [
+  'Mécanisme physiologique',
+  'Cas client / témoignage',
+  'Étude / source scientifique',
+  'Démonstration en direct',
+  'Expérience personnelle',
+  'Donnée interne NEO',
+  'Aucune preuve',
+]
+
 // Type de publication (couleur dominante dans le calendrier et le pipeline)
 const KIND = {
   reel:      { label: 'Reel',      color: '#8b5cf6' },
@@ -56,6 +96,18 @@ function KindBadge({ format }) {
       style={{ backgroundColor: k.color }}
     >
       {k.label}
+    </span>
+  )
+}
+
+function HookTypeBadge({ hookType }) {
+  if (!hookType) return null
+  return (
+    <span
+      className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 text-[#6b7280]"
+      title={`Type de hook : ${hookType}`}
+    >
+      {hookType}
     </span>
   )
 }
@@ -145,6 +197,11 @@ function PostModal({ post, defaultDate, accounts, hooksBank, onSave, onDelete, o
     media_urls: post?.media_urls ?? [],
     script_url: post?.script_url ?? '',
     notes: post?.notes ?? '',
+    hook_type: post?.hook_type ?? '',
+    audience_problem: post?.audience_problem ?? '',
+    proof_method: post?.proof_method ?? '',
+    seo_keyword: post?.seo_keyword ?? '',
+    is_trial: post?.is_trial ?? false,
   }))
   const [saving, setSaving] = useState(false)
   const [publishing, setPublishing] = useState(false)
@@ -199,6 +256,11 @@ function PostModal({ post, defaultDate, accounts, hooksBank, onSave, onDelete, o
       media_urls: f.media_urls,
       script_url: f.script_url || null,
       notes: f.notes || null,
+      hook_type: f.hook_type || null,
+      audience_problem: f.audience_problem || null,
+      proof_method: f.proof_method || null,
+      seo_keyword: f.seo_keyword || null,
+      is_trial: f.is_trial,
       ...extra,
     }
   }
@@ -277,9 +339,19 @@ function PostModal({ post, defaultDate, accounts, hooksBank, onSave, onDelete, o
 
   const connectedPlatforms = [...new Set(accounts.map(a => a.platform))].filter(p => p !== 'google')
 
+  // Rappel non bloquant : un post programmé ou publié sans tagging ne pourra pas être analysé
+  const taggingIncomplete = (f.status === 'programme' || f.status === 'publie')
+    && (!f.hook_type || !f.audience_problem)
+
   return (
     <Modal isOpen onClose={onClose} title={isNew ? 'Nouveau contenu' : 'Modifier le contenu'} size="lg">
       <div className="space-y-4">
+        {taggingIncomplete && (
+          <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            Tagging incomplet — ce post ne pourra pas être analysé par type de contenu.
+          </p>
+        )}
+
         {/* Titre + statut */}
         <div className="grid grid-cols-3 gap-3">
           <div className="col-span-2 flex flex-col gap-1">
@@ -324,6 +396,41 @@ function PostModal({ post, defaultDate, accounts, hooksBank, onSave, onDelete, o
           <SelectOrText label="Format" listId="list-format" value={f.format} onChange={v => set('format', v)} options={FORMATS} />
           <SelectOrText label="Intention" listId="list-intention" value={f.intention} onChange={v => set('intention', v)} options={INTENTIONS} />
           <SelectOrText label="CTA" listId="list-cta" value={f.cta} onChange={v => set('cta', v)} options={CTAS} />
+        </div>
+
+        {/* Section analyse — tagging de contenu */}
+        <div className="rounded-xl border border-[#e5e7eb] bg-[#f9fafb] p-4 space-y-3">
+          <div>
+            <p className="text-xs font-bold text-[#6b7280] uppercase tracking-wide">Analyse</p>
+            <p className="text-xs text-[#9ca3af] mt-0.5">
+              Ces champs alimentent l'analyse de performance. Remplis-les au moment de créer le post — ça ne se rattrape pas après.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <SelectOrText label="Type de hook" listId="list-hook-type" value={f.hook_type} onChange={v => set('hook_type', v)} options={HOOK_TYPES} />
+            <SelectOrText label="Problème d'audience visé" listId="list-audience-problem" value={f.audience_problem} onChange={v => set('audience_problem', v)} options={AUDIENCE_PROBLEMS} />
+            <SelectOrText label="Méthode de preuve" listId="list-proof-method" value={f.proof_method} onChange={v => set('proof_method', v)} options={PROOF_METHODS} />
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-semibold text-[#1a1a1a]">Mot-clé SEO ciblé</label>
+              <input
+                value={f.seo_keyword}
+                onChange={e => set('seo_keyword', e.target.value)}
+                placeholder="cortisol, périménopause, métabolisme…"
+                className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#00bbb1] focus:border-transparent"
+              />
+            </div>
+          </div>
+
+          <label className="flex items-center gap-2.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={f.is_trial}
+              onChange={e => set('is_trial', e.target.checked)}
+              className="w-4 h-4 rounded accent-[#00bbb1] flex-shrink-0"
+            />
+            <span className="text-sm text-[#1a1a1a]">Trial Reel <span className="text-[#9ca3af]">(testé sur audience froide)</span></span>
+          </label>
         </div>
 
         {/* Date + script */}
@@ -794,6 +901,7 @@ function PipelineView({ posts, onPostClick, onNewPost, onMoveStatus }) {
                 <p className="text-sm font-semibold text-[#1a1a1a] leading-snug mb-1.5">{p.title}</p>
                 <div className="flex items-center gap-2 flex-wrap">
                   <KindBadge format={p.format} />
+                  <HookTypeBadge hookType={p.hook_type} />
                   {p.sphere && <span className="text-[11px] text-[#9ca3af]">{p.sphere}</span>}
                 </div>
                 <div className="flex items-center justify-between mt-2">
@@ -1069,6 +1177,7 @@ function PerformanceView({ accounts, accountsError, posts, onPostClick }) {
               <span className="text-xs font-bold text-[#9ca3af] w-14 flex-shrink-0">{fmtDate(p.published_at) ?? '—'}</span>
               <span className="flex-1 text-sm font-semibold text-[#1a1a1a] truncate">{p.title}</span>
               <KindBadge format={p.format} />
+              <HookTypeBadge hookType={p.hook_type} />
               {p.sphere && <span className="text-xs text-[#9ca3af] hidden xl:block">{p.sphere}</span>}
               <PlatformDots platforms={p.platforms} />
             </button>
