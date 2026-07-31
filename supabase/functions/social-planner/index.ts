@@ -29,6 +29,36 @@ function ghlHeaders(apiKey: string) {
   }
 }
 
+// L'API GHL exige un type mime sur chaque média
+const MIME: Record<string, string> = {
+  jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp',
+  gif: 'image/gif', heic: 'image/heic',
+  mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm', avi: 'video/avi',
+}
+
+function mediaType(url: string): string {
+  const ext = (url.split('?')[0].split('.').pop() ?? '').toLowerCase()
+  return MIME[ext] ?? 'image/jpeg'
+}
+
+// L'API GHL exige un userId : on le résout par email, sinon premier utilisateur du compte
+async function resolveGhlUserId(apiKey: string, locationId: string, email: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${GHL_BASE}/users/?locationId=${locationId}`, { headers: ghlHeaders(apiKey) })
+    if (!res.ok) {
+      console.error(`[GHL] users lookup ${res.status}:`, (await res.text()).slice(0, 300))
+      return null
+    }
+    const data = await res.json() as { users?: Array<{ id?: string; email?: string }> }
+    const users = data.users ?? []
+    const match = users.find(u => (u.email ?? '').toLowerCase() === email)
+    return (match ?? users[0])?.id ?? null
+  } catch (err) {
+    console.error('[GHL] users lookup error:', err)
+    return null
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
@@ -59,7 +89,25 @@ Deno.serve(async (req) => {
       postId?: string
       payload?: Record<string, unknown>
     }
-    const { action, postId, payload } = body
+    const { action, postId } = body
+    let payload = body.payload
+
+    // Enrichissement requis par l'API GHL pour créer/mettre à jour un post
+    if ((action === 'create' || action === 'update') && payload) {
+      const p = { ...payload } as Record<string, unknown>
+      if (Array.isArray(p.media)) {
+        p.media = p.media.map((m: unknown) => {
+          if (typeof m === 'string') return { url: m, type: mediaType(m) }
+          const obj = m as { url?: string; type?: string }
+          return { ...obj, type: obj.type || mediaType(obj.url ?? '') }
+        })
+      }
+      if (!p.userId) {
+        const uid = await resolveGhlUserId(apiKey, locationId, user.email.toLowerCase())
+        if (uid) p.userId = uid
+      }
+      payload = p
+    }
 
     const call = async (method: string, path: string, data?: unknown) => {
       const res = await fetch(`${GHL_BASE}${path}`, {
