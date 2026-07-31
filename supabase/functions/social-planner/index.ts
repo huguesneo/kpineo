@@ -69,7 +69,8 @@ Deno.serve(async (req) => {
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) return json({ error: 'Non autorisé' }, 401)
 
-    // Vérifier que l'utilisateur connecté fait partie de l'allowlist
+    // Auth applicative (JWT OFF sur la fonction) : on valide la session Supabase
+    // de l'utilisateur et on refuse quiconque n'est pas dans l'allowlist.
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_ANON_KEY') ?? '',
