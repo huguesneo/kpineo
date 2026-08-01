@@ -206,16 +206,24 @@ function scoreCandidate(
 
 type AccountRow = { id: string; platform: string; external_id: string }
 
-async function fetchFollowerCount(nodeId: string): Promise<number | null> {
+async function fetchFollowerCount(nodeId: string): Promise<{ value: number | null; error: string | null }> {
   const res = await fetch(metaUrl(`/${nodeId}`, { fields: 'followers_count' }))
-  if (!res.ok) return null
+  if (!res.ok) {
+    // Message d'erreur Meta — on ne logue jamais l'URL (elle contient le token).
+    const txt = await res.text().catch(() => '')
+    let json: Record<string, unknown> = {}
+    try { json = JSON.parse(txt) } catch { /* réponse non JSON */ }
+    const err = (json.error as Record<string, unknown> | undefined) ?? {}
+    const message = String(err.message ?? txt).slice(0, 400)
+    return { value: null, error: `followers_count ${nodeId}: ${message}` }
+  }
   const json = await res.json().catch(() => ({})) as { followers_count?: unknown }
-  return num(json.followers_count)
+  return { value: num(json.followers_count), error: null }
 }
 
 async function fetchInstagramAccountSnapshot(account: AccountRow) {
   const nodeId = account.external_id
-  const followers = await fetchFollowerCount(nodeId)
+  const { value: followers, error: followersErr } = await fetchFollowerCount(nodeId)
 
   const { data: basic, error: basicErr } = await fetchNodeInsights(
     nodeId, ['reach', 'profile_views'], { period: 'day', metric_type: 'total_value' },
@@ -253,15 +261,22 @@ async function fetchInstagramAccountSnapshot(account: AccountRow) {
     reach: byName['reach'] ?? null,
     profile_views: byName['profile_views'] ?? null,
     non_follower_view_share: nonFollowerShare,
-    error: basicErr ?? breakdownErr,
+    error: [followersErr, basicErr, breakdownErr].filter(Boolean).join(' | ') || null,
     raw: { basic: basic ?? null, breakdown: breakdown ?? null },
   }
 }
 
 async function fetchFacebookAccountSnapshot(account: AccountRow) {
   const nodeId = account.external_id
-  const followers = await fetchFollowerCount(nodeId)
+  const { value: followers, error: followersErr } = await fetchFollowerCount(nodeId)
 
+  // NB (confirmé en live le 2026-08-01) : `page_impressions_unique` et
+  // `page_views_total` sont actuellement rejetées par l'API Graph avec
+  // l'erreur « (#100) The value must be a valid insights metric » — limite
+  // connue (scope du token et/ou nom de métrique), pas un bug de cette
+  // fonction. `followers_count` fonctionne indépendamment via fetchFollowerCount
+  // ci-dessus (appel séparé, pas une métrique insights). Inutile de relancer
+  // la fonction pour re-découvrir ce comportement.
   const { data: basic, error: basicErr } = await fetchNodeInsights(
     nodeId, ['page_impressions_unique', 'page_views_total'], { period: 'day' },
   )
@@ -278,7 +293,7 @@ async function fetchFacebookAccountSnapshot(account: AccountRow) {
     reach: byName['page_impressions_unique'] ?? null,
     profile_views: byName['page_views_total'] ?? null,
     non_follower_view_share: null,
-    error: basicErr,
+    error: [followersErr, basicErr].filter(Boolean).join(' | ') || null,
     raw: { basic: basic ?? null },
   }
 }
@@ -307,6 +322,11 @@ Deno.serve(async (req) => {
     errors,
   }
 
+  // Étapes 1 à 6 : synchronisation des médias Instagram + matching GHL.
+  // Isolées dans leur propre try/catch pour que 6.5 (insights de compte,
+  // Facebook + Instagram) reste indépendante — un échec ici (compte Instagram
+  // manquant, appel média en erreur, etc.) ne doit jamais empêcher la mise à
+  // jour des followers/insights des deux plateformes plus bas.
   try {
     // 1. Compte Instagram --------------------------------------------------
     const { data: account, error: accErr } = await supabase
@@ -594,7 +614,14 @@ Deno.serve(async (req) => {
     } catch (e) {
       errors.push(`matching: ${e instanceof Error ? e.message : String(e)}`)
     }
+  } catch (e) {
+    // Un échec aux étapes 1-6 (ex. compte Instagram introuvable, appel média
+    // en erreur) ne doit pas empêcher l'étape 6.5 (insights de compte) de
+    // tourner : elle ne dépend d'aucune des étapes ci-dessus.
+    errors.push(e instanceof Error ? e.message : String(e))
+  }
 
+  try {
     // 6.5. Insights de compte — Instagram + Facebook, une fois par passage --
     try {
       const { data: acctRows, error: acctErr } = await supabase
@@ -604,7 +631,10 @@ Deno.serve(async (req) => {
         .eq('is_active', true)
       if (acctErr) throw new Error(`social_accounts (insights compte): ${acctErr.message}`)
 
-      const today = new Date().toISOString().slice(0, 10)
+      // America/Toronto, pas UTC : le reste du schéma (ex. social_publications)
+      // s'aligne sur ce fuseau, et le cron tourne à des heures qui chevauchent
+      // la frontière de jour UTC/Toronto.
+      const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Toronto' }).format(new Date())
 
       for (const acct of (acctRows ?? []) as AccountRow[]) {
         const snap = acct.platform === 'instagram'
@@ -631,6 +661,16 @@ Deno.serve(async (req) => {
             .eq('id', acct.id)
           if (followErr) errors.push(`followers_count ${acct.platform}: ${followErr.message}`)
         }
+
+        // Horodatage propre à ce compte (Facebook + Instagram) : additif à
+        // l'écriture Instagram-only de l'étape 7 ci-dessous, qui reste le
+        // résumé du flux média/matching existant. Sans ceci, les erreurs
+        // spécifiques à Facebook n'étaient jamais visibles sur sa propre
+        // ligne social_accounts.
+        const { error: acctTsErr } = await supabase.from('social_accounts')
+          .update({ last_synced_at: new Date().toISOString(), last_sync_error: snap.error ?? null })
+          .eq('id', acct.id)
+        if (acctTsErr) errors.push(`horodatage ${acct.platform}: ${acctTsErr.message}`)
       }
     } catch (e) {
       errors.push(`insights compte: ${e instanceof Error ? e.message : String(e)}`)
