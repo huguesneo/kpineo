@@ -119,30 +119,33 @@ export function useSocialPerformance() {
   const [publications, setPublications] = useState([])
   const [scores, setScores] = useState([])
   const [accountSnapshots, setAccountSnapshots] = useState([])
+  const [analyticsAccounts, setAnalyticsAccounts] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
   const refetch = useCallback(async () => {
     setLoading(true)
-    const [pubs, scr, snaps] = await Promise.all([
+    const [pubs, scr, snaps, accts] = await Promise.all([
       supabase.from('social_publications').select('*').order('published_at', { ascending: false }),
       supabase.from('social_post_scores').select('*'),
       supabase.from('social_account_snapshots').select('*').order('snapshot_date', { ascending: false }).limit(120),
+      supabase.from('social_accounts').select('id, platform, followers_count'),
     ])
-    const err = pubs.error ?? scr.error ?? snaps.error
+    const err = pubs.error ?? scr.error ?? snaps.error ?? accts.error
     if (err) setError(err.message)
     else {
       setError(null)
       setPublications(pubs.data ?? [])
       setScores(scr.data ?? [])
       setAccountSnapshots(snaps.data ?? [])
+      setAnalyticsAccounts(accts.data ?? [])
     }
     setLoading(false)
   }, [])
 
   useEffect(() => { refetch() }, [refetch])
 
-  return { publications, scores, accountSnapshots, loading, error, refetch }
+  return { publications, scores, accountSnapshots, analyticsAccounts, loading, error, refetch }
 }
 
 // Historique des relevés d'une publication (panneau de détail).
