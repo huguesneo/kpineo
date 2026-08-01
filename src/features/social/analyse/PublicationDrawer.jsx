@@ -1,5 +1,6 @@
-import { useEffect } from 'react'
-import { ScoreCell, PiBars, RATIO_KEYS, VERDICT_META, num } from './scoring'
+import { useEffect, useState } from 'react'
+import { ScoreCell, PiBar, PI_KEYS, RATIO_KEYS, VERDICT_META, num } from './scoring'
+import IndexExplainer from './IndexExplainer'
 import {
   fmtInt, fmtPct, fmtSeconds, fmtDuration, fmtDateLong, platformMeta,
   publicationTitle, mediaLabel,
@@ -19,6 +20,8 @@ function Stat({ label, value }) {
 }
 
 export default function PublicationDrawer({ row, onClose, onEditPost }) {
+  const [explainerOpen, setExplainerOpen] = useState(false)
+
   useEffect(() => {
     const onKey = e => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
@@ -90,11 +93,40 @@ export default function PublicationDrawer({ row, onClose, onEditPost }) {
             </div>
             {score ? (
               <>
-                <p className="text-xs text-[#6b7280] mt-1.5">
-                  {verdict.label} · baseline de {score.baseline_n ?? 0} publications
-                  {score.window_tag === 'd28' && ' · mesuré à J+28'}
-                </p>
-                <div className="mt-3"><PiBars score={score} /></div>
+                <div className="flex items-center gap-2 mt-1.5">
+                  <p className="text-xs text-[#6b7280]">
+                    {verdict.label} · baseline de {score.baseline_n ?? 0} publications
+                    {score.window_tag === 'd28' && ' · mesuré à J+28'}
+                  </p>
+                  <button
+                    onClick={() => setExplainerOpen(true)}
+                    className="text-xs font-semibold text-[#009e95] hover:underline shrink-0"
+                  >
+                    Comment lire ?
+                  </button>
+                </div>
+
+                {/* Une ligne par index, avec son nom : les cinq barres nues du
+                    tableau ne disent rien sans leur libellé. */}
+                <div className="flex flex-col gap-2 mt-3">
+                  {PI_KEYS.map(k => {
+                    const v = num(score[k.key])
+                    return (
+                      <button
+                        key={k.key}
+                        onClick={() => setExplainerOpen(true)}
+                        className="flex items-center gap-3 text-left rounded-lg px-2 py-1 -mx-2 hover:bg-[#f7f7f9] transition-colors"
+                      >
+                        <span className="w-24 shrink-0 text-xs font-medium text-[#1a1a1a]">{k.label}</span>
+                        <PiBar value={score[k.key]} label={k.label} width="w-20" />
+                        <span className="text-xs text-[#6b7280] tabular-nums">
+                          {v == null ? 'non mesuré' : `${v.toFixed(2).replace('.', ',')}×`}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+
                 <div className="grid grid-cols-2 gap-x-6 gap-y-2 mt-4">
                   {RATIO_KEYS.map(k => {
                     const v = num(score[k.key])
@@ -152,6 +184,12 @@ export default function PublicationDrawer({ row, onClose, onEditPost }) {
           )}
         </div>
       </div>
+
+      <IndexExplainer
+        isOpen={explainerOpen}
+        onClose={() => setExplainerOpen(false)}
+        score={score}
+      />
     </div>
   )
 }

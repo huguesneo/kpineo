@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import Card from '../../../components/shared/Card'
 import { ScoreCell, num } from './scoring'
+import IndexExplainer from './IndexExplainer'
 import {
   fmtInt, fmtPct, fmtSeconds, fmtDate, platformMeta, publicationTitle, mediaLabel, hookTone,
 } from '../../../lib/socialFormat'
@@ -33,16 +34,26 @@ const MEDIA_FILTERS = [
   { key: 'IMAGE', label: 'Images' },
 ]
 
-function Th({ column, sort, onSort, align = 'right' }) {
+function Th({ column, sort, onSort, onExplain }) {
   const active = sort.key === column.key
   return (
     <th
       onClick={() => onSort(column.key)}
       className={`px-3 py-3 text-[10px] font-bold uppercase tracking-wider cursor-pointer select-none whitespace-nowrap
-        ${align === 'right' ? 'text-right' : 'text-left'} ${active ? 'text-[#1a1a1a]' : 'text-[#9ca3af]'}`}
+        text-right ${active ? 'text-[#1a1a1a]' : 'text-[#9ca3af]'}`}
     >
       {column.label}
       {active && <span className="ml-1">{sort.dir === -1 ? '↓' : '↑'}</span>}
+      {onExplain && (
+        <button
+          onClick={e => { e.stopPropagation(); onExplain() }}
+          title="Comment lire le score et l'index"
+          className="ml-1.5 w-4 h-4 rounded-full border border-current text-[9px] leading-none
+            inline-flex items-center justify-center align-middle hover:bg-[#f3f4f6]"
+        >
+          ?
+        </button>
+      )}
     </th>
   )
 }
@@ -50,6 +61,7 @@ function Th({ column, sort, onSort, align = 'right' }) {
 export default function Publications({ rows, onSelect }) {
   const [sort, setSort] = useState({ key: 'views', dir: -1 })
   const [mediaFilter, setMediaFilter] = useState('all')
+  const [explainerOpen, setExplainerOpen] = useState(false)
 
   function toggleSort(key) {
     setSort(s => (s.key === key ? { key, dir: -s.dir } : { key, dir: -1 }))
@@ -110,7 +122,12 @@ export default function Publications({ rows, onSelect }) {
               <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-[#9ca3af]">
                 Publication
               </th>
-              {COLUMNS.map(c => <Th key={c.key} column={c} sort={sort} onSort={toggleSort} />)}
+              {COLUMNS.map(c => (
+                <Th
+                  key={c.key} column={c} sort={sort} onSort={toggleSort}
+                  onExplain={c.key === 'score' ? () => setExplainerOpen(true) : null}
+                />
+              ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-[#f0f0f2]">
@@ -170,6 +187,8 @@ export default function Publications({ rows, onSelect }) {
           </tbody>
         </table>
       </div>
+
+      <IndexExplainer isOpen={explainerOpen} onClose={() => setExplainerOpen(false)} />
     </Card>
   )
 }
