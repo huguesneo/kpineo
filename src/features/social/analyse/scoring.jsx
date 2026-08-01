@@ -93,6 +93,14 @@ export function ScoreCell({ score, lateMeasure = false }) {
           J+28
         </span>
       )}
+      {score.denominator === 'views' && (
+        <span
+          className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-[#f3f4f6] text-[#6b7280]"
+          title="Taux rapportés aux vues et non à la portée : les Reels Facebook et TikTok n'exposent pas la portée. La comparaison reste juste — elle ne se fait qu'entre publications de même plateforme, même format et même base."
+        >
+          vues
+        </span>
+      )}
       {lateMeasure && <LateMeasureBadge />}
     </span>
   )

@@ -96,6 +96,24 @@ export default function IndexExplainer({ isOpen, onClose, score = null }) {
           de relevé à 7 jours. Les deux fenêtres ne se comparent jamais entre elles.
         </p>
       </div>
+
+      <div className="mt-6 pt-5 border-t border-[#f0f0f2]">
+        <div className="text-[11px] font-bold uppercase tracking-wider text-[#9ca3af] mb-2">
+          Les étiquettes « vues » et « tardif »
+        </div>
+        <p className="text-[13px] text-[#4b5563] leading-relaxed">
+          <b>vues</b> — les taux sont rapportés au nombre de vues et non à la portée. Meta n'expose
+          pas la portée des Reels Facebook, et l'API TikTok ne la donne pas du tout. La comparaison
+          reste juste : une publication n'est jamais comparée qu'à d'autres de même plateforme,
+          même format et même base de calcul.
+        </p>
+        <p className="text-[13px] text-[#4b5563] leading-relaxed mt-2.5">
+          <b>tardif</b> — le relevé a été pris plus de 30 jours après la publication. La valeur est
+          cumulée depuis, donc plus haute qu'une mesure faite dans la fenêtre. Lis le score comme un
+          ordre de grandeur, pas comme une mesure propre. Les publications à venir n'auront pas
+          cette étiquette : la synchronisation quotidienne les relève au bon moment.
+        </p>
+      </div>
     </Modal>
   )
 }
