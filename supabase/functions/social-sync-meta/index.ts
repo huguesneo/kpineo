@@ -61,11 +61,12 @@ function num(v: unknown): number | null {
   return Number.isFinite(n) ? n : null
 }
 
-/** Récupère les insights d'un média. Si l'API rejette une métrique (code 100),
- *  on retire les métriques nommées dans le message d'erreur et on réessaie une fois. */
-async function fetchInsights(mediaId: string, metrics: string[]) {
+/** Récupère les insights d'un nœud Graph API (média ou compte). Si l'API rejette
+ *  une métrique (code 100), on retire les métriques nommées dans le message
+ *  d'erreur et on réessaie une fois. */
+async function fetchNodeInsights(nodeId: string, metrics: string[], extraParams: Record<string, string> = {}) {
   const call = async (list: string[]) => {
-    const res = await fetch(metaUrl(`/${mediaId}/insights`, { metric: list.join(',') }))
+    const res = await fetch(metaUrl(`/${nodeId}/insights`, { metric: list.join(','), ...extraParams }))
     const txt = await res.text()
     let json: Record<string, unknown> = {}
     try { json = JSON.parse(txt) } catch { /* réponse non JSON */ }
@@ -79,20 +80,22 @@ async function fetchInsights(mediaId: string, metrics: string[]) {
   const err = (attempt.json.error as Record<string, unknown> | undefined) ?? {}
   const message = String(err.message ?? attempt.txt).slice(0, 400)
   const rejected = metrics.filter(m => message.includes(m))
-  const retryList = rejected.length > 0
-    ? metrics.filter(m => !rejected.includes(m))
-    : BASE_METRICS.filter(m => metrics.includes(m))
+  const retryList = metrics.filter(m => !rejected.includes(m))
 
-  if (retryList.length === 0 || retryList.length === metrics.length) {
-    return { data: null, metrics, error: `insights ${mediaId}: ${message}` }
+  if (retryList.length === 0 || rejected.length === 0) {
+    return { data: null, metrics, error: `insights ${nodeId}: ${message}` }
   }
 
-  console.warn(`insights ${mediaId}: retrait de [${metrics.filter(m => !retryList.includes(m)).join(',')}] — ${message}`)
+  console.warn(`insights ${nodeId}: retrait de [${rejected.join(',')}] — ${message}`)
   attempt = await call(retryList)
   if (attempt.ok) return { data: attempt.json, metrics: retryList, error: null }
 
   const err2 = (attempt.json.error as Record<string, unknown> | undefined) ?? {}
-  return { data: null, metrics: retryList, error: `insights ${mediaId}: ${String(err2.message ?? attempt.txt).slice(0, 400)}` }
+  return { data: null, metrics: retryList, error: `insights ${nodeId}: ${String(err2.message ?? attempt.txt).slice(0, 400)}` }
+}
+
+async function fetchInsights(mediaId: string, metrics: string[]) {
+  return fetchNodeInsights(mediaId, metrics)
 }
 
 function metricMap(insights: Record<string, unknown> | null): Record<string, number | null> {
