@@ -197,6 +197,92 @@ function scoreCandidate(
   return { total, timeScore, captionScore, fmtScore, deltaMin }
 }
 
+// ============================================================================
+// Insights de compte (Instagram + Facebook) — une fois par passage.
+// Le nœud IG expose followers_count comme champ direct (pas une métrique
+// insights) ; Facebook aussi via le champ Page. Les vraies "insights" ne
+// couvrent que reach/profile_views/non-follower share.
+// ============================================================================
+
+type AccountRow = { id: string; platform: string; external_id: string }
+
+async function fetchFollowerCount(nodeId: string): Promise<number | null> {
+  const res = await fetch(metaUrl(`/${nodeId}`, { fields: 'followers_count' }))
+  if (!res.ok) return null
+  const json = await res.json().catch(() => ({})) as { followers_count?: unknown }
+  return num(json.followers_count)
+}
+
+async function fetchInstagramAccountSnapshot(account: AccountRow) {
+  const nodeId = account.external_id
+  const followers = await fetchFollowerCount(nodeId)
+
+  const { data: basic, error: basicErr } = await fetchNodeInsights(
+    nodeId, ['reach', 'profile_views'], { period: 'day', metric_type: 'total_value' },
+  )
+  const { data: breakdown, error: breakdownErr } = await fetchNodeInsights(
+    nodeId, ['reach'], { period: 'day', metric_type: 'total_value', breakdown: 'follow_type' },
+  )
+
+  const rows = (basic?.data as InsightValue[] | undefined) ?? []
+  const byName: Record<string, number | null> = {}
+  for (const row of rows) {
+    if (!row.name) continue
+    const tv = (row as unknown as { total_value?: { value?: unknown } }).total_value
+    byName[row.name] = num(tv?.value ?? row.values?.[0]?.value)
+  }
+
+  let nonFollowerShare: number | null = null
+  const bRows = (breakdown?.data as InsightValue[] | undefined) ?? []
+  const reachRow = bRows.find(r => r.name === 'reach') as unknown as
+    { total_value?: { breakdowns?: { results?: { dimension_values?: string[]; value?: number }[] }[] } } | undefined
+  const results = reachRow?.total_value?.breakdowns?.[0]?.results ?? []
+  if (results.length) {
+    let follower = 0, nonFollower = 0
+    for (const r of results) {
+      const dim = (r.dimension_values ?? [])[0]
+      const v = num(r.value) ?? 0
+      if (dim === 'FOLLOWER') follower += v
+      else if (dim === 'NON_FOLLOWER') nonFollower += v
+    }
+    if (follower + nonFollower > 0) nonFollowerShare = nonFollower / (follower + nonFollower)
+  }
+
+  return {
+    followers,
+    reach: byName['reach'] ?? null,
+    profile_views: byName['profile_views'] ?? null,
+    non_follower_view_share: nonFollowerShare,
+    error: basicErr ?? breakdownErr,
+    raw: { basic: basic ?? null, breakdown: breakdown ?? null },
+  }
+}
+
+async function fetchFacebookAccountSnapshot(account: AccountRow) {
+  const nodeId = account.external_id
+  const followers = await fetchFollowerCount(nodeId)
+
+  const { data: basic, error: basicErr } = await fetchNodeInsights(
+    nodeId, ['page_impressions_unique', 'page_views_total'], { period: 'day' },
+  )
+  const rows = (basic?.data as InsightValue[] | undefined) ?? []
+  const byName: Record<string, number | null> = {}
+  for (const row of rows) {
+    if (!row.name) continue
+    byName[row.name] = num(row.values?.[0]?.value)
+  }
+
+  // Meta n'expose pas d'équivalent "part de vues non-abonnés" pour les Pages.
+  return {
+    followers,
+    reach: byName['page_impressions_unique'] ?? null,
+    profile_views: byName['page_views_total'] ?? null,
+    non_follower_view_share: null,
+    error: basicErr,
+    raw: { basic: basic ?? null },
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
 
@@ -507,6 +593,47 @@ Deno.serve(async (req) => {
       else summary.marked_unlinked = stale?.length ?? 0
     } catch (e) {
       errors.push(`matching: ${e instanceof Error ? e.message : String(e)}`)
+    }
+
+    // 6.5. Insights de compte — Instagram + Facebook, une fois par passage --
+    try {
+      const { data: acctRows, error: acctErr } = await supabase
+        .from('social_accounts')
+        .select('id, platform, external_id')
+        .in('platform', ['instagram', 'facebook'])
+        .eq('is_active', true)
+      if (acctErr) throw new Error(`social_accounts (insights compte): ${acctErr.message}`)
+
+      const today = new Date().toISOString().slice(0, 10)
+
+      for (const acct of (acctRows ?? []) as AccountRow[]) {
+        const snap = acct.platform === 'instagram'
+          ? await fetchInstagramAccountSnapshot(acct)
+          : await fetchFacebookAccountSnapshot(acct)
+
+        if (snap.error) errors.push(`compte ${acct.platform}: ${snap.error}`)
+
+        const { error: upsertErr } = await supabase.from('social_account_snapshots').upsert({
+          account_id: acct.id,
+          snapshot_date: today,
+          followers: snap.followers,
+          reach: snap.reach,
+          views: null,
+          non_follower_view_share: snap.non_follower_view_share,
+          profile_views: snap.profile_views,
+          raw: snap.raw,
+        }, { onConflict: 'account_id,snapshot_date' })
+        if (upsertErr) errors.push(`snapshot compte ${acct.platform}: ${upsertErr.message}`)
+
+        if (snap.followers != null) {
+          const { error: followErr } = await supabase.from('social_accounts')
+            .update({ followers_count: snap.followers })
+            .eq('id', acct.id)
+          if (followErr) errors.push(`followers_count ${acct.platform}: ${followErr.message}`)
+        }
+      }
+    } catch (e) {
+      errors.push(`insights compte: ${e instanceof Error ? e.message : String(e)}`)
     }
 
     // 7. Horodatage du compte ---------------------------------------------
