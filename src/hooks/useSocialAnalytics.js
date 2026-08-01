@@ -52,7 +52,7 @@ export function useSocialAnalytics() {
     const [pubs, snaps, scores, accounts, acctSnaps, audience, posts] = await Promise.all([
       supabase.from('social_publications').select('*').order('published_at', { ascending: false }),
       supabase.from('social_metric_snapshots')
-        .select('publication_id, captured_at, window_tag, ' + METRIC_FIELDS.join(', ')),
+        .select('publication_id, captured_at, window_tag, is_late_measure, ' + METRIC_FIELDS.join(', ')),
       supabase.from('social_post_scores').select('*'),
       supabase.from('social_accounts').select('*'),
       supabase.from('social_account_snapshots').select('*').order('snapshot_date'),
@@ -94,8 +94,15 @@ export function useSocialAnalytics() {
     const postsById = new Map(data.posts.map(p => [p.id, p]))
 
     return data.publications.map(pub => {
-      const m = mergeSnapshots(snapsByPub.get(pub.id) ?? [])
+      const snaps = snapsByPub.get(pub.id) ?? []
+      const m = mergeSnapshots(snaps)
       const post = pub.post_id ? postsById.get(pub.post_id) ?? null : null
+      const score = pickScore(scoresByPub.get(pub.id))
+      // Le score a-t-il été calculé sur un relevé pris bien après sa fenêtre ?
+      // On regarde le relevé de la fenêtre exacte qui a servi au calcul.
+      const lateMeasure = !!score && snaps.some(
+        s => s.window_tag === score.window_tag && s.is_late_measure,
+      )
       const reach = m.reach ?? null
       // Somme de repli quand la plateforme ne renvoie pas total_interactions.
       // Zéro interaction est une valeur légitime : on ne la convertit pas en
@@ -116,7 +123,8 @@ export function useSocialAnalytics() {
         mediaType: pub.media_type,
         permalink: pub.permalink,
         durationSeconds: pub.duration_seconds != null ? Number(pub.duration_seconds) : null,
-        score: pickScore(scoresByPub.get(pub.id)),
+        score,
+        lateMeasure,
 
         views: m.views ?? null,
         reach,

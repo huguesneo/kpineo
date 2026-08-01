@@ -48,7 +48,18 @@ export const RATIO_KEYS = [
 
 export const num = v => (v == null || v === '' ? null : Number(v))
 
-export function ScoreCell({ score }) {
+export function LateMeasureBadge() {
+  return (
+    <span
+      className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-700"
+      title="Relevé pris plus de 30 jours après la publication : la valeur est cumulée depuis, donc plus haute qu'une mesure faite dans la fenêtre. Le score est un ordre de grandeur."
+    >
+      tardif
+    </span>
+  )
+}
+
+export function ScoreCell({ score, lateMeasure = false }) {
   if (!score) return <span className="text-xs text-[#9ca3af]">en attente de relevé</span>
 
   const value = num(score.score)
@@ -82,6 +93,7 @@ export function ScoreCell({ score }) {
           J+28
         </span>
       )}
+      {lateMeasure && <LateMeasureBadge />}
     </span>
   )
 }

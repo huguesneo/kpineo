@@ -89,7 +89,7 @@ export default function PublicationDrawer({ row, onClose, onEditPost }) {
           <div className="mt-7">
             <div className="flex items-center justify-between">
               <h4 className="text-sm font-bold text-[#1a1a1a]">Score et index de performance</h4>
-              <ScoreCell score={score} />
+              <ScoreCell score={score} lateMeasure={row.lateMeasure} />
             </div>
             {score ? (
               <>

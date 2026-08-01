@@ -59,7 +59,9 @@ function Th({ column, sort, onSort, onExplain }) {
 }
 
 export default function Publications({ rows, onSelect }) {
-  const [sort, setSort] = useState({ key: 'views', dir: -1 })
+  // Le tableau s'ouvre sur les mieux scorées. Les non scorées tombent en bas,
+  // là où le comparateur envoie déjà toute métrique absente.
+  const [sort, setSort] = useState({ key: 'score', dir: -1 })
   const [mediaFilter, setMediaFilter] = useState('all')
   const [explainerOpen, setExplainerOpen] = useState(false)
 
@@ -173,7 +175,7 @@ export default function Publications({ rows, onSelect }) {
                   <td className="px-3 py-3 text-right text-sm tabular-nums whitespace-nowrap text-[#6b7280]">
                     {row.engagementRate != null ? fmtPct(row.engagementRate) : '—'}
                   </td>
-                  <td className="px-5 py-3 text-right whitespace-nowrap"><ScoreCell score={row.score} /></td>
+                  <td className="px-5 py-3 text-right whitespace-nowrap"><ScoreCell score={row.score} lateMeasure={row.lateMeasure} /></td>
                 </tr>
               )
             })}
