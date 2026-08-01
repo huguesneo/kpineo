@@ -1475,11 +1475,14 @@ function ScoredTable({ rows, onRowClick }) {
   )
 }
 
+const PLATFORM_TABS = ['instagram', 'facebook', 'tiktok']
+
 function PerformanceView({ accounts, accountsError, posts, onPostClick, perf }) {
   const [stats, setStats] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
   const [detail, setDetail] = useState(null)
+  const [platformTab, setPlatformTab] = useState('tous')
 
   const socialAccounts = useMemo(() => accounts.filter(a => a.platform !== 'google'), [accounts])
 
@@ -1500,6 +1503,23 @@ function PerformanceView({ accounts, accountsError, posts, onPostClick, perf }) 
     () => buildPerfRows(perf.publications, perf.scores, posts),
     [perf.publications, perf.scores, posts],
   )
+
+  const rowCountsByPlatform = useMemo(() => {
+    const counts = {}
+    for (const r of rows) counts[r.platform] = (counts[r.platform] ?? 0) + 1
+    return counts
+  }, [rows])
+
+  const filteredRows = useMemo(
+    () => (platformTab === 'tous' ? rows : rows.filter(r => r.platform === platformTab)),
+    [rows, platformTab],
+  )
+
+  const accountNameByPlatform = useMemo(() => {
+    const map = {}
+    for (const a of accounts) if (!map[a.platform]) map[a.platform] = a.name
+    return map
+  }, [accounts])
 
   const kpis = useMemo(() => {
     const snaps = perf.accountSnapshots
@@ -1624,6 +1644,33 @@ function PerformanceView({ accounts, accountsError, posts, onPostClick, perf }) 
         </Card>
       </div>
 
+      {/* Filtre par plateforme */}
+      <div className="flex items-center gap-1 bg-white rounded-xl border border-[#e5e7eb] p-1 w-fit">
+        <button
+          onClick={() => setPlatformTab('tous')}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+            platformTab === 'tous' ? 'bg-[#00bbb1] text-white' : 'text-[#6b7280] hover:text-[#1a1a1a]'
+          }`}
+        >
+          Tous <span className="opacity-70">({rows.length})</span>
+        </button>
+        {PLATFORM_TABS.map(p => {
+          const meta = PLATFORM_META[p] ?? { label: p }
+          const accountName = accountNameByPlatform[p]
+          return (
+            <button
+              key={p}
+              onClick={() => setPlatformTab(p)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                platformTab === p ? 'bg-[#00bbb1] text-white' : 'text-[#6b7280] hover:text-[#1a1a1a]'
+              }`}
+            >
+              {meta.label}{accountName ? ` (${accountName})` : ''} <span className="opacity-70">({rowCountsByPlatform[p] ?? 0})</span>
+            </button>
+          )
+        })}
+      </div>
+
       {/* Tableau scoré */}
       <Card className="p-5">
         <div className="flex items-baseline justify-between mb-3">
@@ -1637,7 +1684,7 @@ function PerformanceView({ accounts, accountsError, posts, onPostClick, perf }) 
         )}
         {perf.loading
           ? <p className="text-sm text-[#9ca3af]">Chargement des publications…</p>
-          : <ScoredTable rows={rows} onRowClick={setDetail} />}
+          : <ScoredTable rows={filteredRows} onRowClick={setDetail} />}
       </Card>
 
       {detail && (
