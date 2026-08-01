@@ -260,25 +260,42 @@ Trois contraintes appliquées à la génération :
 
 ## 6. Design visuel
 
-Repris du fichier Claude Design, adapté aux conventions du projet (Tailwind,
-composants `Card`, `Button`, `Layout`, `Header` existants).
+On reprend du design sa **mise en page** — hiérarchie, densité, rayons,
+composition des cartes, animations, structure des graphiques — mais **la palette
+et la typographie restent celles de l'application**. Aucune valeur de couleur ni
+de police n'est importée du fichier Claude Design.
 
-- Turquoise principal `#00bdb2`, fond turquoise pâle `#e6f8f7`, texte turquoise
-  foncé `#00958d`. À noter : le projet utilise aujourd'hui `#00bbb1`. On aligne
-  tout sur `#00bdb2`.
-- Fond de page `#f5f5f7`, cartes blanches, bordure `#ececf0`, rayon 18 px.
-- Texte principal `#1a1a1a`, secondaire `#6c7280`, tertiaire `#9a9aa4`.
-- Delta positif : fond `#e6f8f7`, texte `#00958d`. Négatif : `#fdecec` / `#c9463c`.
-- Seuils de hook rate : ≥ 70 % vert, ≥ 60 % ambre `#fff5e6` / `#b57d1a`,
-  en dessous rouge, absent gris `#f2f2f5` / `#9a9aa4`.
-- Couleurs de plateforme : Instagram `#E1306C`, Facebook `#1877F2`,
-  TikTok `#1a1a1a`, Google `#EA9E34`.
-- Graphiques en SVG inline, comme dans le design. Aucune librairie de charting
-  n'est ajoutée.
+Palette, telle que définie dans `tailwind.config.js` :
+
+- Turquoise principal `neo.primary` `#00bbb1`, foncé `neo.primary-dark` `#009e95`.
+- Fond de page `neo.bg` `#f5f5f7`, cartes `neo.card` `#fcfcfd`,
+  bordure `neo.border` `#e5e7eb`.
+- Texte `neo.text` `#1a1a1a`, secondaire `neo.muted` `#6b7280`.
+- Sémantique : `neo.success` `#10b981`, `neo.warning` `#f59e0b`,
+  `neo.danger` `#ef4444`.
+- Typographie : Montserrat, déjà chargée dans `index.html`. Poppins n'est pas
+  importée.
+
+Les états colorés du design sont retranscrits dans cette palette plutôt que
+copiés :
+
+- Delta positif : fond turquoise pâle, texte `neo.primary-dark`.
+  Négatif : fond rouge pâle, texte `neo.danger`.
+- Seuils de hook rate : ≥ 70 % turquoise, ≥ 60 % `neo.warning`, en dessous
+  `neo.danger`, absent gris neutre.
+- Le bandeau de recommandation garde son dégradé, en
+  `neo.primary → neo.primary-dark`.
+
+Repris tel quel du design :
+
+- Rayon des cartes 18 px, en-têtes de section, échelle typographique,
+  espacements, drawer latéral `min(560px, 94vw)` avec entrée depuis la droite.
+- Couleurs de plateforme, qui sont celles des marques : Instagram `#E1306C`,
+  Facebook `#1877F2`, TikTok `#1a1a1a`, Google `#EA9E34`.
+- Graphiques en SVG inline. Aucune librairie de charting n'est ajoutée.
 - Chiffres en `font-variant-numeric: tabular-nums`.
 
-La police Poppins du design n'est pas importée : le projet a déjà sa police, et
-l'ajouter créerait une incohérence avec les autres pages.
+Composants existants réutilisés : `Card`, `Button`, `Layout`, `Header`.
 
 ## 7. Découpage des fichiers
 
