@@ -1061,23 +1061,6 @@ function IdeasView({ onCreateFromIdea }) {
 // Vue Performances
 // ============================================================================
 
-const METRIC_LABELS = {
-  followers: 'Abonnés', followersCount: 'Abonnés', newFollowers: 'Nouveaux abonnés',
-  impressions: 'Impressions', reach: 'Portée', views: 'Vues', profileViews: 'Vues de profil',
-  likes: 'J\'aime', comments: 'Commentaires', shares: 'Partages', saves: 'Enregistrements',
-  engagement: 'Engagement', engagementRate: 'Taux d\'engagement', posts: 'Posts', clicks: 'Clics',
-}
-
-function flattenMetrics(obj, prefix = '') {
-  const out = []
-  if (!obj || typeof obj !== 'object') return out
-  for (const [k, v] of Object.entries(obj)) {
-    if (typeof v === 'number') out.push({ key: prefix ? `${prefix}.${k}` : k, label: METRIC_LABELS[k] ?? k, value: v })
-    else if (v && typeof v === 'object' && !Array.isArray(v)) out.push(...flattenMetrics(v, prefix ? `${prefix}.${k}` : k))
-  }
-  return out
-}
-
 // ---------------------------------------------------------------------------
 // Moteur d'analyse — score, index de performance, jointure publications
 // ---------------------------------------------------------------------------
@@ -1641,7 +1624,7 @@ function PerformanceView({ accounts, accountsError, posts, onPostClick, perf }) 
       <Card className="p-5">
         <div className="flex items-baseline justify-between mb-3">
           <h3 className="text-base font-bold text-[#1a1a1a]">
-            Publications mesurées <span className="text-sm font-semibold text-[#9ca3af]">({rows.length})</span>
+            Publications mesurées <span className="text-sm font-semibold text-[#9ca3af]">({filteredRows.length})</span>
           </h3>
           <p className="text-xs text-[#9ca3af]">100 = ta médiane pour ce format sur cette plateforme.</p>
         </div>
