@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import Layout from '../components/layout/Layout'
 import Header from '../components/layout/Header'
 import Card from '../components/shared/Card'
@@ -7,7 +7,7 @@ import Modal from '../components/shared/Modal'
 import {
   useSocialPosts, useSocialIdeas, useSocialHooks, useSocialAccounts, useGhlPosts,
   useSocialPerformance, useSocialSnapshots,
-  ghlCreatePost, ghlUpdatePost, ghlDeletePost, ghlGetStats, uploadSocialMedia,
+  ghlCreatePost, ghlUpdatePost, ghlDeletePost, uploadSocialMedia,
 } from '../hooks/useSocialPlanner'
 import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend } from 'recharts'
 
@@ -1478,26 +1478,16 @@ function ScoredTable({ rows, onRowClick }) {
 const PLATFORM_TABS = ['instagram', 'facebook', 'tiktok']
 
 function PerformanceView({ accounts, accountsError, posts, onPostClick, perf }) {
-  const [stats, setStats] = useState(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
   const [detail, setDetail] = useState(null)
   const [platformTab, setPlatformTab] = useState('tous')
 
   const socialAccounts = useMemo(() => accounts.filter(a => a.platform !== 'google'), [accounts])
 
-  useEffect(() => {
-    if (!socialAccounts.length) return
-    let cancelled = false
-    setLoading(true)
-    ghlGetStats(socialAccounts.map(a => a.profileId)).then(res => {
-      if (cancelled) return
-      if (!res.ok) setError(res.error)
-      else setStats(res.data)
-      setLoading(false)
-    })
-    return () => { cancelled = true }
-  }, [socialAccounts])
+  const analyticsByPlatform = useMemo(() => {
+    const map = {}
+    for (const a of perf.analyticsAccounts) map[a.platform] = a
+    return map
+  }, [perf.analyticsAccounts])
 
   const rows = useMemo(
     () => buildPerfRows(perf.publications, perf.scores, posts),
@@ -1550,18 +1540,6 @@ function PerformanceView({ accounts, accountsError, posts, onPostClick, perf }) 
     return { followerVelocity: velocity, nonFollowerShare, pendingMatch }
   }, [perf.accountSnapshots, perf.publications])
 
-  const statsByAccount = useMemo(() => {
-    if (!stats) return {}
-    const results = stats.results ?? stats
-    const map = {}
-    if (Array.isArray(results)) {
-      for (const r of results) map[r.profileId ?? r.accountId ?? r.id ?? r.platform] = r
-    } else if (typeof results === 'object') {
-      Object.assign(map, results)
-    }
-    return map
-  }, [stats])
-
   return (
     <div className="space-y-5">
       {accountsError && (
@@ -1570,19 +1548,11 @@ function PerformanceView({ accounts, accountsError, posts, onPostClick, perf }) 
           <p className="text-xs text-red-600 mt-1">Vérifie que la clé API GHL a les permissions « Social Planner » (View/Edit).</p>
         </Card>
       )}
-      {error && (
-        <Card className="p-4 border-amber-200 bg-amber-50">
-          <p className="text-sm font-semibold text-amber-700">Statistiques indisponibles : {error}</p>
-          <p className="text-xs text-amber-600 mt-1">La clé API GHL n'a peut-être pas le scope statistiques. Les comptes et la publication fonctionnent quand même.</p>
-        </Card>
-      )}
-
       {/* Cartes par compte */}
       <div className="grid grid-cols-3 gap-4">
         {socialAccounts.map(a => {
           const meta = PLATFORM_META[a.platform] ?? { label: a.platform, color: '#9ca3af' }
-          const accStats = statsByAccount[a.profileId] ?? statsByAccount[a.platform]
-          const metrics = flattenMetrics(accStats).slice(0, 6)
+          const analytics = analyticsByPlatform[a.platform]
           return (
             <Card key={a.id} className="p-5">
               <div className="flex items-center gap-3 mb-3">
@@ -1595,19 +1565,15 @@ function PerformanceView({ accounts, accountsError, posts, onPostClick, perf }) 
                 </div>
                 <span className="ml-auto w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" title="Connecté" />
               </div>
-              {loading && <p className="text-xs text-[#9ca3af]">Chargement des stats…</p>}
-              {!loading && metrics.length > 0 && (
-                <div className="grid grid-cols-2 gap-2">
-                  {metrics.map(m => (
-                    <div key={m.key} className="bg-[#f9fafb] rounded-lg px-2.5 py-1.5">
-                      <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide truncate">{m.label}</p>
-                      <p className="text-sm font-black text-[#1a1a1a]">{m.value.toLocaleString('fr-CA')}</p>
-                    </div>
-                  ))}
+              {a.platform === 'tiktok' ? (
+                <p className="text-xs text-[#9ca3af]">Pas encore connecté aux insights.</p>
+              ) : analytics?.followers_count != null ? (
+                <div className="bg-[#f9fafb] rounded-lg px-2.5 py-1.5 w-fit">
+                  <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide">Abonnés</p>
+                  <p className="text-sm font-black text-[#1a1a1a]">{analytics.followers_count.toLocaleString('fr-CA')}</p>
                 </div>
-              )}
-              {!loading && !metrics.length && !error && (
-                <p className="text-xs text-[#9ca3af]">7 derniers jours — aucune donnée retournée.</p>
+              ) : (
+                <p className="text-xs text-[#9ca3af]">En attente du premier sync.</p>
               )}
             </Card>
           )
