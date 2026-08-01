@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import Card from '../../../components/shared/Card'
-import { ScoreCell, PiBars, num } from './scoring'
+import { ScoreCell, num } from './scoring'
 import {
   fmtInt, fmtPct, fmtSeconds, fmtDate, platformMeta, publicationTitle, mediaLabel, hookTone,
 } from '../../../lib/socialFormat'
@@ -9,6 +9,8 @@ import {
 // Tableau de toutes les publications mesurées
 // ============================================================================
 
+// `value` sort la métrique de la ligne : le score vit sous row.score.score, et
+// un verdict « insuffisant » n'a pas de valeur triable même si le score existe.
 const COLUMNS = [
   { key: 'views',          label: 'Vues' },
   { key: 'reach',          label: 'Portée' },
@@ -17,6 +19,11 @@ const COLUMNS = [
   { key: 'shares',         label: 'Partages' },
   { key: 'saves',          label: 'Sauveg.' },
   { key: 'engagementRate', label: 'Eng.' },
+  {
+    key: 'score',
+    label: 'Score',
+    value: row => (row.score?.verdict === 'insuffisant' ? null : num(row.score?.score)),
+  },
 ]
 
 const MEDIA_FILTERS = [
@@ -54,9 +61,11 @@ export default function Publications({ rows, onSelect }) {
   )
 
   const sorted = useMemo(() => {
+    const column = COLUMNS.find(c => c.key === sort.key)
+    const valueOf = column?.value ?? (row => row[sort.key])
     return [...filtered].sort((a, b) => {
-      const av = a[sort.key]
-      const bv = b[sort.key]
+      const av = valueOf(a)
+      const bv = valueOf(b)
       // Une métrique non mesurée reste en bas quel que soit le sens du tri :
       // elle n'est pas « la plus petite », elle est absente.
       if (av == null && bv == null) return 0
@@ -95,19 +104,13 @@ export default function Publications({ rows, onSelect }) {
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[980px]">
+        <table className="w-full min-w-[900px]">
           <thead className="bg-[#fafafb]">
             <tr>
               <th className="px-5 py-3 text-left text-[10px] font-bold uppercase tracking-wider text-[#9ca3af]">
                 Publication
               </th>
               {COLUMNS.map(c => <Th key={c.key} column={c} sort={sort} onSort={toggleSort} />)}
-              <th className="px-3 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-[#9ca3af]">
-                Score
-              </th>
-              <th className="px-5 py-3 text-right text-[10px] font-bold uppercase tracking-wider text-[#9ca3af]">
-                Index
-              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#f0f0f2]">
@@ -136,8 +139,8 @@ export default function Publications({ rows, onSelect }) {
                       </div>
                     </div>
                   </td>
-                  <td className="px-3 py-3 text-right text-sm font-semibold tabular-nums">{fmtInt(row.views)}</td>
-                  <td className="px-3 py-3 text-right text-sm tabular-nums text-[#6b7280]">{fmtInt(row.reach)}</td>
+                  <td className="px-3 py-3 text-right text-sm font-semibold tabular-nums whitespace-nowrap">{fmtInt(row.views)}</td>
+                  <td className="px-3 py-3 text-right text-sm tabular-nums whitespace-nowrap text-[#6b7280]">{fmtInt(row.reach)}</td>
                   <td className="px-3 py-3 text-right">
                     {row.hookRate != null ? (
                       <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${tone.bg} ${tone.text}`}>
@@ -145,22 +148,21 @@ export default function Publications({ rows, onSelect }) {
                       </span>
                     ) : <span className="text-xs text-[#d1d5db]">—</span>}
                   </td>
-                  <td className="px-3 py-3 text-right text-sm tabular-nums text-[#6b7280]">
+                  <td className="px-3 py-3 text-right text-sm tabular-nums whitespace-nowrap text-[#6b7280]">
                     {row.avgWatch != null ? fmtSeconds(row.avgWatch) : '—'}
                   </td>
-                  <td className="px-3 py-3 text-right text-sm tabular-nums text-[#6b7280]">{fmtInt(row.shares)}</td>
-                  <td className="px-3 py-3 text-right text-sm tabular-nums text-[#6b7280]">{fmtInt(row.saves)}</td>
-                  <td className="px-3 py-3 text-right text-sm tabular-nums text-[#6b7280]">
+                  <td className="px-3 py-3 text-right text-sm tabular-nums whitespace-nowrap text-[#6b7280]">{fmtInt(row.shares)}</td>
+                  <td className="px-3 py-3 text-right text-sm tabular-nums whitespace-nowrap text-[#6b7280]">{fmtInt(row.saves)}</td>
+                  <td className="px-3 py-3 text-right text-sm tabular-nums whitespace-nowrap text-[#6b7280]">
                     {row.engagementRate != null ? fmtPct(row.engagementRate) : '—'}
                   </td>
-                  <td className="px-3 py-3 text-right"><ScoreCell score={row.score} /></td>
-                  <td className="px-5 py-3 text-right"><PiBars score={row.score} /></td>
+                  <td className="px-5 py-3 text-right whitespace-nowrap"><ScoreCell score={row.score} /></td>
                 </tr>
               )
             })}
             {!sorted.length && (
               <tr>
-                <td colSpan={10} className="px-5 py-8 text-center text-sm text-[#9ca3af]">
+                <td colSpan={9} className="px-5 py-8 text-center text-sm text-[#9ca3af]">
                   Aucune publication sur cette période avec ce filtre.
                 </td>
               </tr>
