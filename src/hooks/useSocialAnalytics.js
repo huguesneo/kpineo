@@ -192,6 +192,54 @@ export function useSocialAnalytics() {
   }
 }
 
+// ============================================================================
+// Lecture hebdomadaire générée par IA
+//
+// Le rapport est écrit dans social_ai_reports par la tâche de synchronisation.
+// Le front ne fait pas confiance à son contenu : toute publication citée doit
+// exister dans les données chargées, sinon le rapport est rejeté en bloc. Une
+// recommandation qui s'appuie sur une publication introuvable est soit périmée,
+// soit inventée — dans les deux cas elle ne doit pas s'afficher.
+// ============================================================================
+
+export function useSocialAiReport(rows) {
+  const [row, setRow] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    supabase
+      .from('social_ai_reports')
+      .select('*')
+      .order('week_start', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled) { setRow(data ?? null); setLoading(false) }
+      })
+    return () => { cancelled = true }
+  }, [])
+
+  const report = useMemo(() => {
+    const payload = row?.report
+    if (!payload?.headline || !payload?.why) return null
+
+    const known = new Set(rows.map(r => r.id))
+    const cited = payload.cited_publication_ids ?? []
+    if (!cited.length || cited.some(id => !known.has(id))) return null
+
+    return {
+      headline: payload.headline,
+      why: payload.why,
+      stats: (payload.stats ?? []).slice(0, 3),
+      weekStart: row.week_start,
+      citedCount: cited.length,
+    }
+  }, [row, rows])
+
+  return { report, loading }
+}
+
 // ── Filtres et agrégats, utilisés par les vues ──────────────────────────────
 
 export function filterRows(rows, { platform = 'all', days = 30 } = {}) {

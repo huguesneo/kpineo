@@ -7,7 +7,7 @@ import Audience from './Audience'
 import Croissance from './Croissance'
 import Patterns from './Patterns'
 import PublicationDrawer from './PublicationDrawer'
-import { useSocialAnalytics, filterRows } from '../../../hooks/useSocialAnalytics'
+import { useSocialAnalytics, useSocialAiReport, filterRows } from '../../../hooks/useSocialAnalytics'
 import { platformMeta, PLATFORM_ORDER } from '../../../lib/socialFormat'
 
 // ============================================================================
@@ -31,6 +31,7 @@ const PERIODS = [
 
 export default function AnalyseView({ onEditPost }) {
   const { loading, error, rows, daily, audience, accounts } = useSocialAnalytics()
+  const { report } = useSocialAiReport(rows)
   const [tab, setTab] = useState('ensemble')
   const [platform, setPlatform] = useState('all')
   const [days, setDays] = useState(30)
@@ -149,7 +150,7 @@ export default function AnalyseView({ onEditPost }) {
       {tab === 'ensemble' && (
         <VueEnsemble
           rows={filtered} allRows={rows} daily={daily} audience={audience}
-          filters={filters} report={null} onSelect={setSelectedId}
+          filters={filters} report={report} onSelect={setSelectedId}
         />
       )}
       {tab === 'pubs' && <Publications rows={filtered} onSelect={setSelectedId} />}
