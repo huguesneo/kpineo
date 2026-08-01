@@ -269,10 +269,6 @@ export function useGhlPosts() {
   return { ghlPosts, loading, error, refetch }
 }
 
-export async function ghlGetStats(profileIds, platforms) {
-  return invokePlanner({ action: 'stats', payload: { profileIds, ...(platforms ? { platforms } : {}) } })
-}
-
 // ============================================================================
 // Upload de médias vers le bucket public social-media
 // ============================================================================
