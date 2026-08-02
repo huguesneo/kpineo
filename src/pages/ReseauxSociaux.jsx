@@ -9,7 +9,7 @@ import {
   ghlCreatePost, ghlUpdatePost, ghlDeletePost, uploadSocialMedia,
 } from '../hooks/useSocialPlanner'
 import AnalyseView from '../features/social/analyse/AnalyseView'
-import { trackedLink, LINK_SUPPORT } from '../lib/socialFormat'
+import { trackedLink, SURFACES, BIO_URL } from '../lib/socialFormat'
 
 // ============================================================================
 // Constantes
@@ -184,11 +184,13 @@ function PlatformDots({ platforms }) {
 // ============================================================================
 // Traçage jusqu'au rendez-vous
 //
-// GHL enregistre les paramètres utm de la première visite d'un contact. Un lien
-// portant le code de la publication relie donc un rendez-vous au contenu qui
-// l'a déclenché. Encore faut-il que le lien soit cliquable : sous un Reel
-// Instagram il ne l'est pas, et c'est le mot-clé en commentaire qui prend le
-// relais.
+// Un UTM n'existe qu'au moment d'un clic. Sous un Reel Instagram il n'y a
+// aucun lien à cliquer : le code passe donc par la page lien en bio, le sticker
+// de Story ou le message privé. Le mot-clé de commentaire n'est pas une
+// alternative au traçage, c'est ce qui déclenche l'envoi du lien tracé.
+//
+// L'attribution retient le DERNIER lien cliqué avant la réservation — la règle
+// qui décide du boni de prise de rendez-vous.
 // ============================================================================
 
 function CopyField({ label, value, hint, muted = false }) {
@@ -242,61 +244,61 @@ function TrackingBlock({ post, keyword, onKeyword, platforms }) {
     )
   }
 
-  const selected = (platforms ?? []).filter(p => LINK_SUPPORT[p])
-  const clickable = selected.filter(p => LINK_SUPPORT[p].ok)
+  const selected = (platforms ?? []).filter(p => SURFACES[p])
   const usesInstagram = selected.includes('instagram')
 
   return (
-    <div className="rounded-xl border border-[#e5e7eb] bg-gray-50 p-4 flex flex-col gap-3">
+    <div className="rounded-xl border border-[#e5e7eb] bg-gray-50 p-4 flex flex-col gap-4">
       <div>
         <p className="text-xs font-bold text-[#6b7280] uppercase tracking-wide">
           Traçage des rendez-vous · <span className="text-[#009e95]">{code}</span>
         </p>
         <p className="text-xs text-[#9ca3af] mt-0.5">
-          Utilise ces liens plutôt que le lien de réservation habituel. C'est ce qui permet de
-          savoir quels rendez-vous viennent de ce contenu.
+          Utilise ces liens plutôt que le lien de réservation habituel. Un rendez-vous n'est
+          rattaché à ce contenu que si la personne est arrivée par l'un d'eux.
         </p>
       </div>
 
-      {clickable.map(p => (
-        <CopyField
-          key={p}
-          label={`Lien ${PLATFORM_META[p]?.label ?? p}`}
-          hint={LINK_SUPPORT[p].note}
-          value={trackedLink(code, p)}
-        />
+      {selected.map(platform => (
+        <div key={platform} className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full" style={{ backgroundColor: PLATFORM_META[platform]?.color }} />
+            <span className="text-xs font-bold text-[#1a1a1a]">{PLATFORM_META[platform]?.label ?? platform}</span>
+          </div>
+          {SURFACES[platform].map(s => (
+            <CopyField
+              key={s.key}
+              label={s.label}
+              hint={s.note}
+              value={trackedLink(code, { source: platform, medium: s.medium, base: s.base })}
+            />
+          ))}
+        </div>
       ))}
 
       {usesInstagram && (
-        <div className="flex flex-col gap-2 pt-1 border-t border-[#e5e7eb]">
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-semibold text-[#1a1a1a]">
-              Mot-clé de commentaire <span className="font-normal text-[#9ca3af]">— Instagram</span>
-            </label>
-            <input
-              value={keyword ?? ''}
-              onChange={e => onKeyword(e.target.value)}
-              placeholder="CORTISOL, PÉRIMÉNOPAUSE, DÉJEUNER…"
-              className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg bg-white uppercase focus:outline-none focus:ring-2 focus:ring-[#00bbb1] focus:border-transparent"
-            />
-            <p className="text-[11px] text-[#9ca3af]">
-              Instagram n'autorise aucun lien sous un Reel. Un mot-clé <b>différent par
-              publication</b> — pas « MÉTABOLISME » à chaque fois — et l'automatisation GHL
-              répond avec le lien ci-dessous.
-            </p>
-          </div>
-          <CopyField
-            label="Lien à envoyer en message privé"
-            value={trackedLink(code, 'instagram')}
-            muted={!keyword}
-            hint={keyword ? null : 'choisis d\'abord un mot-clé'}
+        <div className="flex flex-col gap-1 pt-3 border-t border-[#e5e7eb]">
+          <label className="text-xs font-semibold text-[#1a1a1a]">
+            Mot-clé de commentaire <span className="font-normal text-[#9ca3af]">— optionnel</span>
+          </label>
+          <input
+            value={keyword ?? ''}
+            onChange={e => onKeyword(e.target.value)}
+            placeholder="CORTISOL, PÉRIMÉNOPAUSE, DÉJEUNER…"
+            className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg bg-white uppercase focus:outline-none focus:ring-2 focus:ring-[#00bbb1] focus:border-transparent"
           />
+          <p className="text-[11px] text-[#9ca3af]">
+            Sers-t'en quand tu veux déclencher une conversation. La réponse automatique doit
+            envoyer le lien « message privé » ci-dessus — c'est lui qui porte le code, pas le
+            mot-clé.
+          </p>
         </div>
       )}
 
-      {!clickable.length && !usesInstagram && (
-        <p className="text-xs text-[#9ca3af]">Choisis au moins une plateforme pour obtenir les liens.</p>
-      )}
+      <p className="text-[11px] text-[#9ca3af] pt-2 border-t border-[#e5e7eb]">
+        Page lien en bio : <a href={BIO_URL} target="_blank" rel="noreferrer" className="text-[#009e95] hover:underline">{BIO_URL}</a>
+        {' · '}L'attribution retient le <b>dernier</b> lien cliqué avant la réservation.
+      </p>
     </div>
   )
 }

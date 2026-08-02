@@ -47,9 +47,17 @@ async function fetchAndUpsertContacts(
     const contacts = (data?.contacts ?? []) as Record<string, unknown>[]
 
     const rows = contacts.map(c => {
-      // Attribution first-touch (le clic d'ad Meta qui a amené le lead)
+      // Deux attributions, pas une. Le premier contact dit ce qui a fait
+      // connaître NEO, le dernier ce qui a déclenché l'action — et c'est le
+      // dernier qui décide à quelle publication un rendez-vous revient.
+      // Sur 90 jours, un contact sur quatre a deux sources différentes.
       const attributions = (c.attributions ?? []) as Record<string, unknown>[]
       const firstTouch = attributions.find(a => a.isFirst) ?? attributions[0] ?? {}
+      // isLast n'est pas toujours posé : repli sur le dernier élément, GHL
+      // renvoyant le tableau dans l'ordre chronologique.
+      const lastTouch = attributions.find(a => a.isLast)
+        ?? attributions[attributions.length - 1] ?? {}
+      const str = (v: unknown) => (v === null || v === undefined ? null : String(v) || null)
       return {
         ghl_id:         String(c.id ?? ''),
         location_id:    locationId,
@@ -62,6 +70,14 @@ async function fetchAndUpsertContacts(
         utm_campaign:   String(firstTouch.utmCampaign ?? ''),
         utm_content:    String(firstTouch.utmContent ?? ''),
         utm_source:     String(firstTouch.utmSource ?? ''),
+        utm_campaign_last: str(lastTouch.utmCampaign),
+        utm_content_last:  str(lastTouch.utmContent),
+        utm_source_last:   str(lastTouch.utmSource),
+        utm_medium_last:   str(lastTouch.utmMedium),
+        first_page_url:    str(firstTouch.url),
+        last_page_url:     str(lastTouch.url),
+        first_referrer:    str(firstTouch.referrer),
+        touch_count:       attributions.length,
         created_at_ghl: c.dateAdded ? new Date(c.dateAdded as string).toISOString() : null,
         raw:            c,
         synced_at:      new Date().toISOString(),

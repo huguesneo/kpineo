@@ -1,19 +1,19 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import Card from '../../../components/shared/Card'
+import ParcoursDrawer from './ParcoursDrawer'
 import { fmtInt, fmtPct, fmtDate, platformMeta } from '../../../lib/socialFormat'
 
 // ============================================================================
 // Rendez-vous — ce que le contenu a rapporté
 //
-// Le rapprochement se fait par code : ghl_contacts.utm_content porte le
-// tracking_code du contenu. Deux choses à ne jamais oublier en lisant cette
-// vue, et elles sont écrites à l'écran plutôt que reléguées dans une doc :
+// Le rapprochement se fait par code : ghl_contacts.utm_content_last porte le
+// tracking_code du contenu. La règle est le DERNIER lien cliqué avant la
+// réservation — c'est elle qui décide du boni, donc elle est écrite à l'écran
+// et chaque ligne s'ouvre sur le parcours détaillé du contact.
 //
-// 1. GHL retient la PREMIÈRE attribution d'un contact. Une personne déjà
-//    connue qui clique ton lien ne sera pas recréditée à cette publication.
-// 2. Le chiffre est un plancher, jamais la vérité. Quelqu'un qui voit ton
-//    Reel, y repense trois semaines plus tard et cherche « NEO » sur Google
-//    sera attribué à Google.
+// Le chiffre reste un plancher. Quelqu'un qui voit un Reel, y repense trois
+// semaines plus tard et cherche « NEO » sur Google sera attribué à Google : le
+// contenu aura fait le travail sans en recevoir le crédit.
 // ============================================================================
 
 function Kpi({ label, value, sub, accent = false }) {
@@ -29,6 +29,9 @@ function Kpi({ label, value, sub, accent = false }) {
 }
 
 export default function RendezVous({ posts, attribution, loading, onPostClick }) {
+  // Ouvrir le parcours plutôt que le formulaire : sur cet écran, on cherche à
+  // vérifier d'où viennent les rendez-vous, pas à retoucher le contenu.
+  const [parcours, setParcours] = useState(null)
   const rows = useMemo(() => {
     const byPost = new Map(attribution.map(a => [a.post_id, a]))
     return posts
@@ -61,13 +64,13 @@ export default function RendezVous({ posts, attribution, loading, onPostClick })
     <div className="flex flex-col gap-5">
       <Card className="p-4">
         <p className="text-sm text-[#1a1a1a]">
-          Un rendez-vous n'est rattaché à un contenu que si la personne est arrivée par un
-          <b> lien portant son code</b>, et qu'elle était inconnue de GHL jusque-là.
+          Un rendez-vous revient au contenu dont le lien a été cliqué en <b>dernier</b> avant la
+          réservation. Clique une ligne pour voir le parcours de chaque personne et vérifier.
         </p>
         <p className="text-xs text-[#9ca3af] mt-1">
-          Ces chiffres sont donc un plancher. Quelqu'un qui voit ta vidéo aujourd'hui et réserve
-          dans trois semaines après une recherche Google sera attribué à Google — ton contenu aura
-          fait le travail sans en recevoir le crédit.
+          Ces chiffres restent un plancher. Quelqu'un qui voit ta vidéo aujourd'hui et réserve dans
+          trois semaines après une recherche Google sera attribué à Google — ton contenu aura fait
+          le travail sans en recevoir le crédit.
         </p>
       </Card>
 
@@ -115,7 +118,7 @@ export default function RendezVous({ posts, attribution, loading, onPostClick })
                 return (
                   <tr
                     key={post.id}
-                    onClick={() => onPostClick(post)}
+                    onClick={() => (vide ? onPostClick(post) : setParcours(post))}
                     className="cursor-pointer hover:bg-[#fafafb] transition-colors"
                   >
                     <td className="px-5 py-3">
@@ -166,6 +169,8 @@ export default function RendezVous({ posts, attribution, loading, onPostClick })
           </table>
         </div>
       </Card>
+
+      {parcours && <ParcoursDrawer post={parcours} onClose={() => setParcours(null)} />}
     </div>
   )
 }

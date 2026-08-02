@@ -118,22 +118,47 @@ export const GENDER_LABELS = { F: 'Femmes', M: 'Hommes', U: 'Non déclaré' }
 // rendez-vous au contenu qui l'a déclenché — à condition que le lien soit
 // cliquable, ce qui exclut le fil et les Reels Instagram.
 
-export const BOOKING_URL = 'https://go.neoperformance.ca/rendezvousneo'
+export const BOOKING_URL = 'https://www.neoperformance.ca/consultation'
+export const BIO_URL = 'https://www.neoperformance.ca/lien'
 
-export function trackedLink(code, platform, base = BOOKING_URL) {
+export function trackedLink(code, { source, medium, base = BOOKING_URL } = {}) {
   if (!code) return ''
   const url = new URL(base)
-  url.searchParams.set('utm_source', platform)
-  url.searchParams.set('utm_medium', 'organique')
+  url.searchParams.set('utm_source', source)
+  url.searchParams.set('utm_medium', medium)
   url.searchParams.set('utm_campaign', 'social')
   url.searchParams.set('utm_content', code)
   return url.toString()
 }
 
-// Là où un lien est réellement cliquable, et là où il ne l'est pas.
-export const LINK_SUPPORT = {
-  facebook:  { ok: true,  note: 'lien cliquable dans la publication' },
-  tiktok:    { ok: true,  note: 'à mettre en bio, ou dans la description' },
-  google:    { ok: true,  note: 'bouton de la fiche' },
-  instagram: { ok: false, note: 'aucun lien sous un Reel — passe par le mot-clé en commentaire' },
+// Les surfaces réellement cliquables, par plateforme. `utm_medium` les
+// distingue : au bout de quelques semaines on saura laquelle convertit.
+// Instagram n'apparaît pas avec un lien direct — la plateforme n'en autorise
+// aucun sous un Reel, et c'est la bio, la Story ou le message privé qui
+// portent le code.
+export const SURFACES = {
+  instagram: [
+    { key: 'bio',   label: 'Bouton page lien en bio', medium: 'bio',
+      base: BOOKING_URL, note: 'à ajouter sur neoperformance.ca/lien' },
+    { key: 'dm',    label: 'Lien à envoyer en message privé', medium: 'dm',
+      base: BOOKING_URL, note: 'réponse automatique au mot-clé' },
+    { key: 'story', label: 'Sticker lien en Story', medium: 'story',
+      base: BOOKING_URL, note: 'le jour de la publication' },
+  ],
+  facebook: [
+    { key: 'post',  label: 'Lien dans la publication', medium: 'post',
+      base: BOOKING_URL, note: 'cliquable directement' },
+    { key: 'dm',    label: 'Lien en message privé', medium: 'dm',
+      base: BOOKING_URL, note: 'réponse automatique' },
+  ],
+  tiktok: [
+    { key: 'bio',   label: 'Lien en bio', medium: 'bio',
+      base: BOOKING_URL, note: 'à faire pointer vers la page lien' },
+    { key: 'dm',    label: 'Lien en message privé', medium: 'dm',
+      base: BOOKING_URL, note: 'réponse automatique' },
+  ],
+  google: [
+    { key: 'fiche', label: 'Bouton de la fiche', medium: 'fiche',
+      base: BOOKING_URL, note: 'bouton Réserver' },
+  ],
 }
