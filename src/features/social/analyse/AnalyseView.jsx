@@ -6,8 +6,9 @@ import RetentionHook from './RetentionHook'
 import Audience from './Audience'
 import Croissance from './Croissance'
 import Patterns from './Patterns'
+import RendezVous from './RendezVous'
 import PublicationDrawer from './PublicationDrawer'
-import { useSocialAnalytics, useSocialAiReport, filterRows } from '../../../hooks/useSocialAnalytics'
+import { useSocialAnalytics, useSocialAiReport, useSocialAttribution, filterRows } from '../../../hooks/useSocialAnalytics'
 import { platformMeta, PLATFORM_ORDER } from '../../../lib/socialFormat'
 
 // ============================================================================
@@ -20,6 +21,7 @@ const TABS = [
   { key: 'retention', label: 'Rétention & hook' },
   { key: 'audience',  label: 'Audience' },
   { key: 'croissance', label: 'Croissance' },
+  { key: 'rdv',       label: 'Rendez-vous' },
   { key: 'patterns',  label: 'Patterns' },
 ]
 
@@ -30,8 +32,9 @@ const PERIODS = [
 ]
 
 export default function AnalyseView({ onEditPost }) {
-  const { loading, error, rows, daily, audience, accounts } = useSocialAnalytics()
+  const { loading, error, rows, daily, audience, accounts, posts } = useSocialAnalytics()
   const { report } = useSocialAiReport(rows)
+  const { attribution, loading: attrLoading } = useSocialAttribution()
   const [tab, setTab] = useState('ensemble')
   const [platform, setPlatform] = useState('all')
   const [days, setDays] = useState(30)
@@ -157,6 +160,12 @@ export default function AnalyseView({ onEditPost }) {
       {tab === 'retention' && <RetentionHook rows={filtered} onSelect={setSelectedId} />}
       {tab === 'audience' && <Audience rows={filtered} audience={audience} />}
       {tab === 'croissance' && <Croissance daily={daily} filters={filters} />}
+      {tab === 'rdv' && (
+        <RendezVous
+          posts={posts} attribution={attribution} loading={attrLoading}
+          onPostClick={onEditPost ?? (() => {})}
+        />
+      )}
       {tab === 'patterns' && <Patterns rows={filtered} />}
 
       {lastSync && (

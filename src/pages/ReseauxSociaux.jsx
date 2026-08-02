@@ -9,6 +9,7 @@ import {
   ghlCreatePost, ghlUpdatePost, ghlDeletePost, uploadSocialMedia,
 } from '../hooks/useSocialPlanner'
 import AnalyseView from '../features/social/analyse/AnalyseView'
+import { trackedLink, LINK_SUPPORT } from '../lib/socialFormat'
 
 // ============================================================================
 // Constantes
@@ -181,6 +182,126 @@ function PlatformDots({ platforms }) {
 }
 
 // ============================================================================
+// Traçage jusqu'au rendez-vous
+//
+// GHL enregistre les paramètres utm de la première visite d'un contact. Un lien
+// portant le code de la publication relie donc un rendez-vous au contenu qui
+// l'a déclenché. Encore faut-il que le lien soit cliquable : sous un Reel
+// Instagram il ne l'est pas, et c'est le mot-clé en commentaire qui prend le
+// relais.
+// ============================================================================
+
+function CopyField({ label, value, hint, muted = false }) {
+  const [copied, setCopied] = useState(false)
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1600)
+    } catch {
+      setCopied(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-xs font-semibold text-[#1a1a1a]">{label}</span>
+        {hint && <span className="text-[11px] text-[#9ca3af]">{hint}</span>}
+      </div>
+      <div className="flex items-center gap-2">
+        <code className={`flex-1 min-w-0 px-2.5 py-1.5 text-[11px] rounded-lg border border-[#e5e7eb] truncate
+          ${muted ? 'bg-gray-50 text-[#9ca3af]' : 'bg-white text-[#4b5563]'}`}>
+          {value}
+        </code>
+        <button
+          type="button"
+          onClick={copy}
+          className="px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-[#e5e7eb] text-[#6b7280] hover:text-[#1a1a1a] hover:bg-gray-50 shrink-0"
+        >
+          {copied ? 'Copié' : 'Copier'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function TrackingBlock({ post, keyword, onKeyword, platforms }) {
+  const code = post?.tracking_code
+
+  if (!code) {
+    return (
+      <div className="rounded-xl border border-[#e5e7eb] bg-gray-50 p-4">
+        <p className="text-xs font-bold text-[#6b7280] uppercase tracking-wide">Traçage des rendez-vous</p>
+        <p className="text-xs text-[#9ca3af] mt-1.5">
+          Le code de suivi est attribué à l'enregistrement. Enregistre une première fois,
+          rouvre le contenu, et les liens apparaîtront ici.
+        </p>
+      </div>
+    )
+  }
+
+  const selected = (platforms ?? []).filter(p => LINK_SUPPORT[p])
+  const clickable = selected.filter(p => LINK_SUPPORT[p].ok)
+  const usesInstagram = selected.includes('instagram')
+
+  return (
+    <div className="rounded-xl border border-[#e5e7eb] bg-gray-50 p-4 flex flex-col gap-3">
+      <div>
+        <p className="text-xs font-bold text-[#6b7280] uppercase tracking-wide">
+          Traçage des rendez-vous · <span className="text-[#009e95]">{code}</span>
+        </p>
+        <p className="text-xs text-[#9ca3af] mt-0.5">
+          Utilise ces liens plutôt que le lien de réservation habituel. C'est ce qui permet de
+          savoir quels rendez-vous viennent de ce contenu.
+        </p>
+      </div>
+
+      {clickable.map(p => (
+        <CopyField
+          key={p}
+          label={`Lien ${PLATFORM_META[p]?.label ?? p}`}
+          hint={LINK_SUPPORT[p].note}
+          value={trackedLink(code, p)}
+        />
+      ))}
+
+      {usesInstagram && (
+        <div className="flex flex-col gap-2 pt-1 border-t border-[#e5e7eb]">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs font-semibold text-[#1a1a1a]">
+              Mot-clé de commentaire <span className="font-normal text-[#9ca3af]">— Instagram</span>
+            </label>
+            <input
+              value={keyword ?? ''}
+              onChange={e => onKeyword(e.target.value)}
+              placeholder="CORTISOL, PÉRIMÉNOPAUSE, DÉJEUNER…"
+              className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg bg-white uppercase focus:outline-none focus:ring-2 focus:ring-[#00bbb1] focus:border-transparent"
+            />
+            <p className="text-[11px] text-[#9ca3af]">
+              Instagram n'autorise aucun lien sous un Reel. Un mot-clé <b>différent par
+              publication</b> — pas « MÉTABOLISME » à chaque fois — et l'automatisation GHL
+              répond avec le lien ci-dessous.
+            </p>
+          </div>
+          <CopyField
+            label="Lien à envoyer en message privé"
+            value={trackedLink(code, 'instagram')}
+            muted={!keyword}
+            hint={keyword ? null : 'choisis d\'abord un mot-clé'}
+          />
+        </div>
+      )}
+
+      {!clickable.length && !usesInstagram && (
+        <p className="text-xs text-[#9ca3af]">Choisis au moins une plateforme pour obtenir les liens.</p>
+      )}
+    </div>
+  )
+}
+
+// ============================================================================
 // Modal création / édition de post
 // ============================================================================
 
@@ -205,6 +326,7 @@ function PostModal({ post, defaultDate, accounts, hooksBank, onSave, onDelete, o
     proof_method: post?.proof_method ?? '',
     seo_keyword: post?.seo_keyword ?? '',
     is_trial: post?.is_trial ?? false,
+    dm_keyword: post?.dm_keyword ?? '',
   }))
   const [saving, setSaving] = useState(false)
   const [publishing, setPublishing] = useState(false)
@@ -264,6 +386,7 @@ function PostModal({ post, defaultDate, accounts, hooksBank, onSave, onDelete, o
       proof_method: f.proof_method || null,
       seo_keyword: f.seo_keyword || null,
       is_trial: f.is_trial,
+      dm_keyword: f.dm_keyword ? f.dm_keyword.trim().toUpperCase() : null,
       ...extra,
     }
   }
@@ -435,6 +558,13 @@ function PostModal({ post, defaultDate, accounts, hooksBank, onSave, onDelete, o
             <span className="text-sm text-[#1a1a1a]">Trial Reel <span className="text-[#9ca3af]">(testé sur audience froide)</span></span>
           </label>
         </div>
+
+        <TrackingBlock
+          post={post}
+          keyword={f.dm_keyword}
+          onKeyword={v => set('dm_keyword', v)}
+          platforms={f.platforms}
+        />
 
         {/* Date + script */}
         <div className="grid grid-cols-2 gap-3">

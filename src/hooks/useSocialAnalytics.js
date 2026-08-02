@@ -248,6 +248,33 @@ export function useSocialAiReport(rows) {
   return { report, loading }
 }
 
+// ============================================================================
+// Attribution des rendez-vous
+//
+// Passe par une fonction SECURITY DEFINER : les tables ghl_* ne sont pas
+// ouvertes au module Réseaux sociaux, et la fonction ne renvoie que des
+// totaux — jamais un contact nominatif.
+// ============================================================================
+
+export function useSocialAttribution() {
+  const [attribution, setAttribution] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    supabase.rpc('social_attribution').then(({ data, error: err }) => {
+      if (cancelled) return
+      if (err) setError(err.message)
+      else setAttribution(data ?? [])
+      setLoading(false)
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  return { attribution, loading, error }
+}
+
 // ── Filtres et agrégats, utilisés par les vues ──────────────────────────────
 
 export function filterRows(rows, { platform = 'all', days = 30 } = {}) {

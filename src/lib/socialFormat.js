@@ -111,3 +111,29 @@ export function countryName(code) {
 }
 
 export const GENDER_LABELS = { F: 'Femmes', M: 'Hommes', U: 'Non déclaré' }
+
+// ── Attribution ─────────────────────────────────────────────────────────────
+// GHL enregistre les paramètres utm de la PREMIÈRE attribution d'un contact.
+// Un lien qui porte le code de la publication permet donc de relier un
+// rendez-vous au contenu qui l'a déclenché — à condition que le lien soit
+// cliquable, ce qui exclut le fil et les Reels Instagram.
+
+export const BOOKING_URL = 'https://go.neoperformance.ca/rendezvousneo'
+
+export function trackedLink(code, platform, base = BOOKING_URL) {
+  if (!code) return ''
+  const url = new URL(base)
+  url.searchParams.set('utm_source', platform)
+  url.searchParams.set('utm_medium', 'organique')
+  url.searchParams.set('utm_campaign', 'social')
+  url.searchParams.set('utm_content', code)
+  return url.toString()
+}
+
+// Là où un lien est réellement cliquable, et là où il ne l'est pas.
+export const LINK_SUPPORT = {
+  facebook:  { ok: true,  note: 'lien cliquable dans la publication' },
+  tiktok:    { ok: true,  note: 'à mettre en bio, ou dans la description' },
+  google:    { ok: true,  note: 'bouton de la fiche' },
+  instagram: { ok: false, note: 'aucun lien sous un Reel — passe par le mot-clé en commentaire' },
+}
