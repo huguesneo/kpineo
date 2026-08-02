@@ -53,6 +53,7 @@ type WindowTag = typeof WINDOWS[number]
 type Snapshot = {
   publication_id: string
   reach: number | null
+  views: number | null
   total_interactions: number | null
   saves: number | null
   shares: number | null
@@ -68,9 +69,12 @@ type Publication = {
   published_at: string
 }
 
+type Denominator = 'reach' | 'views'
+
 type Row = {
   publicationId: string
   bucket: string
+  denominator: Denominator
   publishedMs: number
   ratios: Record<RatioKey, number | null>
 }
@@ -78,7 +82,8 @@ type Row = {
 type WindowStats = {
   snapshots: number
   buckets: number
-  skipped_no_reach: number
+  skipped_no_denominator: number
+  by_denominator: Record<Denominator, number>
   scored: number
   verdicts: Record<string, number>
 }
@@ -89,10 +94,11 @@ function num(v: unknown): number | null {
   return Number.isFinite(n) ? n : null
 }
 
-/** Ratio normalisé sur la portée. NULL si le numérateur n'est pas mesuré —
- *  absence de mesure n'est pas la même chose qu'une valeur nulle. */
-function ratio(numerator: number | null, reach: number): number | null {
-  return numerator === null ? null : numerator / reach
+/** Ratio normalisé sur le dénominateur du bucket — portée, ou vues en repli.
+ *  NULL si le numérateur n'est pas mesuré : absence de mesure n'est pas la
+ *  même chose qu'une valeur nulle. */
+function ratio(numerator: number | null, denominator: number): number | null {
+  return numerator === null ? null : numerator / denominator
 }
 
 function median(values: number[]): number | null {
@@ -137,7 +143,8 @@ async function computeWindow(
   const stats: WindowStats = {
     snapshots: 0,
     buckets: 0,
-    skipped_no_reach: 0,
+    skipped_no_denominator: 0,
+    by_denominator: { reach: 0, views: 0 },
     scored: 0,
     verdicts: { surperforme: 0, normal: 0, sous_performe: 0, insuffisant: 0 },
   }
@@ -147,7 +154,7 @@ async function computeWindow(
   const snapshots = await fetchAll<Snapshot>((from, to) =>
     supabase
       .from('social_metric_snapshots')
-      .select('publication_id, reach, total_interactions, saves, shares, follows, profile_visits, full_watch_rate')
+      .select('publication_id, reach, views, total_interactions, saves, shares, follows, profile_visits, full_watch_rate')
       .eq('window_tag', windowTag)
       .range(from, to))
   stats.snapshots = snapshots.length
@@ -172,25 +179,35 @@ async function computeWindow(
     const snap = byPublication.get(String(pub.id))
     if (!snap) continue
 
-    // Garde-fou : sans portée, aucun ratio n'a de sens — on n'insère rien
-    // plutôt que de diviser par zéro.
+    // Dénominateur : la portée quand la plateforme la donne, les vues sinon.
+    // Meta n'expose pas la portée des Reels Facebook et l'API TikTok pas du
+    // tout — sans repli, ces deux univers resteraient à jamais non scorés.
+    // Le repli ne dégrade pas la comparaison : le dénominateur entre dans la
+    // clé de bucket, donc un bucket ne mélange jamais les deux bases.
     const reach = num(snap.reach)
-    if (reach === null || reach === 0) { stats.skipped_no_reach++; continue }
+    const views = num(snap.views)
+    const useReach = reach !== null && reach > 0
+    const denominator: Denominator = useReach ? 'reach' : 'views'
+    const base = useReach ? (reach as number) : (views ?? 0)
+    if (base === 0) { stats.skipped_no_denominator++; continue }
+    stats.by_denominator[denominator]++
 
     const isVideo = VIDEO_TYPES.has(String(pub.media_type ?? '').toUpperCase())
 
     rows.push({
       publicationId: String(pub.id),
-      // La fenêtre fait partie de la clé de bucket : même si cette passe ne
-      // voit qu'un seul tag, l'invariant reste explicite dans la donnée.
-      bucket: `${pub.platform}|${pub.media_type ?? 'inconnu'}|${windowTag}`,
+      // La fenêtre et le dénominateur font partie de la clé de bucket : même
+      // si cette passe ne voit qu'un seul tag, l'invariant reste explicite
+      // dans la donnée.
+      bucket: `${pub.platform}|${pub.media_type ?? 'inconnu'}|${windowTag}|${denominator}`,
+      denominator,
       publishedMs: new Date(String(pub.published_at)).getTime(),
       ratios: {
-        er_reach:      ratio(num(snap.total_interactions), reach),
-        save_rate:     ratio(num(snap.saves), reach),
-        share_rate:    ratio(num(snap.shares), reach),
-        follow_rate:   ratio(num(snap.follows), reach),
-        profile_ctr:   ratio(num(snap.profile_visits), reach),
+        er_reach:      ratio(num(snap.total_interactions), base),
+        save_rate:     ratio(num(snap.saves), base),
+        share_rate:    ratio(num(snap.shares), base),
+        follow_rate:   ratio(num(snap.follows), base),
+        profile_ctr:   ratio(num(snap.profile_visits), base),
         // Pas de watch_through hors format vidéo : NULL, pas 1.
         watch_through: isVideo ? num(snap.full_watch_rate) : null,
       },
@@ -254,6 +271,7 @@ async function computeWindow(
     payload.push({
       publication_id: r.publicationId,
       window_tag:    windowTag,
+      denominator:   r.denominator,
       er_reach:      r.ratios.er_reach,
       save_rate:     r.ratios.save_rate,
       share_rate:    r.ratios.share_rate,
