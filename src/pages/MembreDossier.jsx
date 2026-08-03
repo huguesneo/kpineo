@@ -1818,7 +1818,12 @@ export default function MembreDossier() {
       )}
 
       {/* Vue Dashboard Closer (rôle secondaire) */}
-      {viewMode === 'closer' && <CloserAdminDashboard member={member} />}
+      {viewMode === 'closer' && (
+        <>
+          <CloserAdminDashboard member={member} />
+          {isAdmin && <div className="mt-6"><CloserSettingsTab member={member} onSaved={refetchMember} /></div>}
+        </>
+      )}
 
       {/* Vue Dashboard Setter (rôle secondaire) */}
       {viewMode === 'setter' && <SetterAdminTab member={member} />}
