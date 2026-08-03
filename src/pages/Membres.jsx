@@ -8,9 +8,11 @@ import Button from '../components/shared/Button'
 import Modal from '../components/shared/Modal'
 import Input from '../components/shared/Input'
 import { SkeletonTable } from '../components/shared/Skeleton'
-import { useMembers, updateMember } from '../hooks/useMembers'
+import { useMembers, updateMember, deleteMember } from '../hooks/useMembers'
 import { useAuth } from '../context/AuthContext'
 import { supabase, supabaseAdmin } from '../lib/supabase'
+
+const HUGUES_EMAIL = 'hugues@neoperformance.ca'
 
 const ROLE_LABELS = {
   naturopathe:    'Naturopathe',
@@ -72,7 +74,9 @@ const SECONDARY_ROLE_OPTIONS = [
   { value: 'setter', label: 'Setter' },
 ]
 
-function EditMemberModal({ isOpen, onClose, member, onSaved }) {
+function EditMemberModal({ isOpen, onClose, member, onSaved, onDeleted }) {
+  const { user } = useAuth()
+  const isHugues = user?.email === HUGUES_EMAIL
   const [form, setForm] = useState({
     full_name:       member?.full_name || '',
     role:            member?.role || 'naturopathe',
@@ -82,6 +86,7 @@ function EditMemberModal({ isOpen, onClose, member, onSaved }) {
   })
   const [loading, setLoading] = useState(false)
   const [error, setError]     = useState('')
+  const [deleting, setDeleting] = useState(false)
 
   function handleChange(e) {
     const val = e.target.type === 'checkbox' ? e.target.checked : e.target.value
@@ -118,6 +123,15 @@ function EditMemberModal({ isOpen, onClose, member, onSaved }) {
     }
     setLoading(false)
     onSaved?.(); onClose()
+  }
+
+  async function handleDelete() {
+    if (!window.confirm(`Supprimer définitivement ${member.full_name} (${member.email}) ?\n\nCette action est irréversible.`)) return
+    setDeleting(true); setError('')
+    const { error: delErr } = await deleteMember(member.id)
+    setDeleting(false)
+    if (delErr) { setError(delErr.message); return }
+    onDeleted?.(); onClose()
   }
 
   const availableSecondary = SECONDARY_ROLE_OPTIONS.filter(o => o.value !== form.role)
@@ -171,9 +185,14 @@ function EditMemberModal({ isOpen, onClose, member, onSaved }) {
         </label>
         <Input label="Nouveau mot de passe (optionnel)" name="new_password" type="password" value={form.new_password} onChange={handleChange} placeholder="Laisser vide pour ne pas changer" />
         {error && <p className="text-sm text-red-500">{error}</p>}
-        <div className="flex justify-end gap-3 pt-2">
-          <Button type="button" variant="secondary" onClick={onClose}>Annuler</Button>
-          <Button type="submit" loading={loading}>Enregistrer</Button>
+        <div className="flex justify-between items-center gap-3 pt-2">
+          {isHugues ? (
+            <Button type="button" variant="danger" loading={deleting} onClick={handleDelete}>Supprimer</Button>
+          ) : <span />}
+          <div className="flex gap-3">
+            <Button type="button" variant="secondary" onClick={onClose}>Annuler</Button>
+            <Button type="submit" loading={loading}>Enregistrer</Button>
+          </div>
         </div>
       </form>
     </Modal>
@@ -257,7 +276,13 @@ function AdminMembresView() {
 
       <AddMemberModal isOpen={addOpen} onClose={() => setAddOpen(false)} onCreated={refetch} />
       {editMember && (
-        <EditMemberModal isOpen={!!editMember} onClose={() => setEditMember(null)} member={editMember} onSaved={() => { refetch(); setEditMember(null) }} />
+        <EditMemberModal
+          isOpen={!!editMember}
+          onClose={() => setEditMember(null)}
+          member={editMember}
+          onSaved={() => { refetch(); setEditMember(null) }}
+          onDeleted={() => { refetch(); setEditMember(null) }}
+        />
       )}
     </>
   )

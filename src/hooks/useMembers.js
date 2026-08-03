@@ -67,3 +67,16 @@ export async function updateMember(id, updates) {
     .single()
   return { data, error }
 }
+
+export async function deleteMember(id) {
+  const { data, error } = await supabase.functions.invoke('delete-member', {
+    body: { memberId: id },
+  })
+  if (error) {
+    // supabase-js n'expose pas le corps JSON d'une réponse d'erreur HTTP par défaut
+    const message = await error.context?.json?.().then(b => b?.error).catch(() => null)
+    return { error: { message: message || error.message } }
+  }
+  if (data?.error) return { error: { message: data.error } }
+  return { data }
+}
