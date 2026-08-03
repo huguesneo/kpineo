@@ -5,3 +5,21 @@ dist
 .DS_Store
 .claude/worktrees/
 supabase/.temp/
+
+# Doublons de synchronisation iCloud : le repo vit dans un dossier synchronisé,
+# et iCloud duplique un fichier en suffixant « 2 » quand il détecte une écriture
+# concurrente (ex. « RendezVous 2.jsx »). Ce sont des copies conformes, jamais
+# importées — mais dans supabase/migrations/ elles font douter de la migration
+# qui fait foi.
+#
+# Volontairement limité aux extensions de code : un fichier de code ne porte
+# jamais d'espace dans son nom, donc aucun faux positif possible. Un motif
+# général « * [0-9].* » ignorerait aussi « Étape 1.md », et une note écrite de
+# bonne foi disparaîtrait de git status sans prévenir.
+* [0-9].js
+* [0-9].jsx
+* [0-9].ts
+* [0-9].tsx
+* [0-9].sql
+* [0-9].css
+* [0-9].json
