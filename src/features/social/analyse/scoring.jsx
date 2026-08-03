@@ -52,7 +52,7 @@ export function LateMeasureBadge() {
   return (
     <span
       className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 text-amber-700"
-      title="Relevé pris plus de 30 jours après la publication : la valeur est cumulée depuis, donc plus haute qu'une mesure faite dans la fenêtre. Le score est un ordre de grandeur."
+      title="Relevé pris après la fenêtre qu'il documente : la valeur est cumulée depuis la publication, donc plus haute qu'une mesure faite dans la fenêtre. Le score est un ordre de grandeur."
     >
       tardif
     </span>

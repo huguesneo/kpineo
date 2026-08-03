@@ -32,11 +32,22 @@ function mergeSnapshots(snapshots) {
   return merged
 }
 
-// Le score canonique reste celui de J+7 quand il existe : c'est la fenêtre sur
-// laquelle la baseline a été construite. J+28 est un repli, pas un équivalent.
+// Le score canonique reste celui de J+7 : c'est la fenêtre sur laquelle la
+// baseline a été construite. J+28 est un repli, pas un équivalent.
+//
+// Mais un d7 « insuffisant » ne tranche rien — il dit seulement que sa baseline
+// est trop maigre. Le préférer à un d28 conclusif reviendrait à masquer la
+// seule information disponible. On garde donc l'ordre de préférence des
+// fenêtres, à conclusivité égale.
+const conclusive = r => r && r.verdict !== 'insuffisant' && r.score != null
+
 function pickScore(rows) {
   if (!rows?.length) return null
-  return rows.find(r => r.window_tag === 'd7') ?? rows.find(r => r.window_tag === 'd28') ?? rows[0]
+  const d7 = rows.find(r => r.window_tag === 'd7')
+  const d28 = rows.find(r => r.window_tag === 'd28')
+  if (conclusive(d7)) return d7
+  if (conclusive(d28)) return d28
+  return d7 ?? d28 ?? rows[0]
 }
 
 export function useSocialAnalytics() {

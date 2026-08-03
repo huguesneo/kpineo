@@ -37,7 +37,11 @@ export default function AnalyseView({ onEditPost }) {
   const { attribution, loading: attrLoading } = useSocialAttribution()
   const [tab, setTab] = useState('ensemble')
   const [platform, setPlatform] = useState('all')
-  const [days, setDays] = useState(30)
+  // 90 j par défaut, pas 30 : une publication n'est scorable qu'à partir de sa
+  // fenêtre J+7, et le rattrapage J+28 pousse certaines encore plus loin. Une
+  // fenêtre de 30 jours n'affiche donc presque que des publications non encore
+  // scorées, ce qui donne l'impression d'un module vide.
+  const [days, setDays] = useState(90)
   const [selectedId, setSelectedId] = useState(null)
 
   const filters = { platform, days }

@@ -47,12 +47,27 @@ function metricsFor(media: Media): string[] {
   return isReel ? [...BASE_METRICS, ...REELS_METRICS] : [...BASE_METRICS]
 }
 
-function windowTag(ageHours: number): string | null {
-  if (ageHours >= 648) return 'd28'
-  if (ageHours >= 156 && ageHours <= 180) return 'd7'
-  if (ageHours >= 60 && ageHours <= 84) return 'd3'
-  if (ageHours < 30) return 'd1'
-  return null
+/** Fenêtre documentée par un relevé, et si ce relevé est tardif.
+ *
+ *  Les bornes hautes existent parce qu'un relevé pris à J+20 ne mesure pas la
+ *  même chose qu'un relevé pris à J+7 : la valeur a continué de grimper. On
+ *  garde donc la distinction plutôt que de la perdre.
+ *
+ *  Rattrapage : passé J+7,5 sans aucun relevé d7, le premier relevé qui passe
+ *  en tient lieu. Sans ça une publication tombe dans un trou de vingt jours —
+ *  trop vieille pour d7, trop jeune pour d28 — et reste non scorable. C'est
+ *  exactement ce qui est arrivé aux publications du 9 au 24 juillet : le sync
+ *  a démarré le 31, elles avaient déjà dépassé 180 h. */
+function windowFor(
+  ageHours: number,
+  taken: Set<string>,
+): { tag: string | null; late: boolean } {
+  if (ageHours >= 648) return { tag: 'd28', late: ageHours > 720 }
+  if (ageHours >= 156 && ageHours <= 180) return { tag: 'd7', late: false }
+  if (ageHours >= 60 && ageHours <= 84) return { tag: 'd3', late: false }
+  if (ageHours < 30) return { tag: 'd1', late: false }
+  if (ageHours > 180 && !taken.has('d7')) return { tag: 'd7', late: true }
+  return { tag: null, late: false }
 }
 
 function num(v: unknown): number | null {
@@ -371,6 +386,25 @@ Deno.serve(async (req) => {
       }
     }
 
+    // 3 bis. Fenêtres déjà capturées, par publication ----------------------
+    // Le rattrapage d7 a besoin de savoir ce qui existe déjà : sans ça il
+    // réétiquetterait un d7 à chaque passage et se ferait rejeter par l'index
+    // unique partiel (publication_id, window_tag).
+    const { data: tagRows, error: tagErr } = await supabase
+      .from('social_metric_snapshots')
+      .select('publication_id, window_tag')
+      .in('publication_id', [...byPlatformId.values()])
+      .not('window_tag', 'is', null)
+    if (tagErr) throw new Error(`social_metric_snapshots tags: ${tagErr.message}`)
+
+    const takenByPublication = new Map<string, Set<string>>()
+    for (const row of tagRows ?? []) {
+      const key = String(row.publication_id)
+      const set = takenByPublication.get(key) ?? new Set<string>()
+      set.add(String(row.window_tag))
+      takenByPublication.set(key, set)
+    }
+
     const usedMetricool = new Set<string>()
     const now = Date.now()
 
@@ -472,10 +506,16 @@ Deno.serve(async (req) => {
         const avgWatchMs = mm['ig_reels_avg_watch_time']
         const totalWatchMs = mm['ig_reels_video_view_total_time']
 
+        const window = windowFor(
+          ageHours,
+          takenByPublication.get(publicationId) ?? new Set<string>(),
+        )
+
         const { error: snapErr } = await supabase.from('social_metric_snapshots').insert({
           publication_id:     publicationId,
           age_hours:          Number(ageHours.toFixed(4)),
-          window_tag:         windowTag(ageHours),
+          window_tag:         window.tag,
+          is_late_measure:    window.late,
           reach:              mm['reach'],
           views:              mm['views'],
           likes:              mm['likes'],
