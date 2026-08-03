@@ -6,6 +6,7 @@ import RetentionHook from './RetentionHook'
 import Audience from './Audience'
 import Croissance from './Croissance'
 import Patterns from './Patterns'
+import Competiteurs from './Competiteurs'
 import RendezVous from './RendezVous'
 import PublicationDrawer from './PublicationDrawer'
 import { useSocialAnalytics, useSocialAiReport, useSocialAttribution, filterRows } from '../../../hooks/useSocialAnalytics'
@@ -23,6 +24,7 @@ const TABS = [
   { key: 'croissance', label: 'Croissance' },
   { key: 'rdv',       label: 'Rendez-vous' },
   { key: 'patterns',  label: 'Patterns' },
+  { key: 'competiteurs', label: 'Compétiteurs' },
 ]
 
 const PERIODS = [
@@ -171,6 +173,7 @@ export default function AnalyseView({ onEditPost }) {
         />
       )}
       {tab === 'patterns' && <Patterns rows={filtered} />}
+      {tab === 'competiteurs' && <Competiteurs filters={filters} />}
 
       {lastSync && (
         <p className="text-[11px] text-[#9ca3af] text-right">
