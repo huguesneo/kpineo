@@ -8,7 +8,8 @@ Ajouter une sous-vue « Compétiteurs » dans l'onglet Analyse de
 `/reseaux-sociaux`, alimentée par le suivi de compétiteurs déjà disponible
 dans Metricool. Sert deux buts :
 
-1. Veille visuelle directe (fil des publications récentes de 3 compétiteurs).
+1. Veille visuelle directe (fil des publications récentes de 5 compétiteurs,
+   suivis à la fois sur Instagram et sur Facebook).
 2. Repérage de ce qui performe chez eux (tri par engagement), pour nourrir
    plus tard le moteur de suggestion IA (spec séparée).
 
@@ -17,14 +18,17 @@ seulement les publications et leur performance.
 
 ## 2. Préalable côté Metricool (hors code)
 
-Les 3 comptes compétiteurs doivent être ajoutés manuellement dans l'app
-Metricool (section Compétiteurs du brand « Neo Performance - Naturopathe »,
-id `6648608`) avant le premier sync. L'API Metricool ne permet pas d'ajouter
-un compétiteur, seulement de lire ceux déjà configurés. Seuls Instagram,
+Les 5 compétiteurs doivent être ajoutés manuellement dans l'app Metricool
+(section Compétiteurs du brand « Neo Performance - Naturopathe », id
+`6648608`) avant le premier sync. L'API Metricool ne permet pas d'ajouter un
+compétiteur, seulement de lire ceux déjà configurés. Seuls Instagram,
 Facebook, Twitch, YouTube, Twitter et Bluesky supportent le suivi de
 compétiteurs côté Metricool — TikTok n'est pas couvert.
 
-Identité des 3 compétiteurs : à déterminer par Hugues avant l'implémentation.
+**Fait le 2026-08-03** : les 5 compétiteurs sont ajoutés à la fois côté
+Instagram et côté Facebook (10 fiches de suivi au total dans Metricool pour
+5 entreprises). Le sync couvre donc les deux réseaux, pas seulement
+Instagram.
 
 ## 3. Modèle de données
 
@@ -69,12 +73,18 @@ Nouvelle edge function `social-competitors-sync`, déployée avec
 directement l'API Metricool (pas via MCP, qui est un outil côté agent, pas
 accessible depuis une tâche serveur) :
 
-- **Connecteur `competitors`** (réseau Instagram, et Facebook si les
-  compétiteurs y sont aussi suivis) → upsert une ligne par compétiteur dans
-  `social_competitors` avec la date du jour.
-- **Connecteur `competitor posts`** → upsert dans `social_competitor_posts`
-  sur une fenêtre glissante de 90 jours, clé d'unicité `(network,
-  platform_post_id)` déjà en place donc les ré-exécutions sont idempotentes.
+- **Connecteur `competitors`**, réseaux Instagram **et** Facebook → upsert
+  une ligne par compétiteur et par réseau dans `social_competitors` avec la
+  date du jour (10 lignes/jour : 5 compétiteurs × 2 réseaux).
+- **Connecteur `competitor posts`**, réseaux Instagram **et** Facebook →
+  upsert dans `social_competitor_posts` sur une fenêtre glissante de 90
+  jours, clé d'unicité `(network, platform_post_id)` déjà en place donc les
+  ré-exécutions sont idempotentes.
+
+Sur Facebook, `interactions` n'existe pas comme champ direct (contrairement à
+Instagram) : on le calcule comme `reactions + comments + shares`
+(`FBCP07 + FBCP08 + FBCP09`). `engagement_rate` vient directement de
+`FBCP10`/`IGCP10` dans les deux cas.
 
 Le token d'API Metricool (`METRICOOL_API_TOKEN`, `METRICOOL_USER_ID`) est
 stocké en secret Supabase — aucun secret en dur dans le code, à la
