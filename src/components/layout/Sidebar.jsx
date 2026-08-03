@@ -83,9 +83,9 @@ export default function Sidebar() {
   const { count: boutiqueCount } = usePendingRedemptionsCount(isAdmin ? null : profile?.id)
   const baseTachesBadge = isAdminOrRespVente ? (approvalCount > 0 ? approvalCount : count) : count
   const eodMissed = useCloserEODMissedBadge(
-    !isAdminOrRespVente && hasCloserRole ? profile?.id : null,
-    !isAdminOrRespVente && hasCloserRole ? profile?.ghl_user_id : null,
-    !isAdminOrRespVente && hasCloserRole ? profile?.full_name : null,
+    hasCloserRole ? profile?.id : null,
+    hasCloserRole ? profile?.ghl_user_id : null,
+    hasCloserRole ? profile?.full_name : null,
   )
   const tachesBadge = baseTachesBadge + eodMissed
 
@@ -233,8 +233,8 @@ export default function Sidebar() {
             }
           />
         )}
-        {/* Closer — rôle secondaire seulement */}
-        {!isAdmin && (profile?.secondary_roles ?? []).includes('closer') && (
+        {/* Closer — rôle secondaire seulement (admin inclus s'il close) */}
+        {(profile?.secondary_roles ?? []).includes('closer') && (
           <NavItem
             to="/closer"
             label="Closer"
@@ -245,8 +245,8 @@ export default function Sidebar() {
             }
           />
         )}
-        {/* Setter — rôle secondaire seulement */}
-        {!isAdmin && (profile?.secondary_roles ?? []).includes('setter') && (
+        {/* Setter — rôle secondaire seulement (admin inclus s'il set) */}
+        {(profile?.secondary_roles ?? []).includes('setter') && (
           <NavItem
             to="/setter"
             label="Setter"
@@ -258,7 +258,7 @@ export default function Sidebar() {
           />
         )}
         {/* Calendrier — closer (primaire ou secondaire) */}
-        {!isAdmin && hasCloserRole && (
+        {hasCloserRole && (
           <NavItem
             to="/calendrier"
             label="Calendrier"
@@ -270,7 +270,7 @@ export default function Sidebar() {
           />
         )}
         {/* Centre de Vente — closer, setter et resp_vente */}
-        {!isAdmin && (hasCloserRole || hasSetterRole || isRespVente) && (
+        {(hasCloserRole || hasSetterRole || isRespVente) && (
           <NavItem
             to="/centre-vente"
             label="Centre de vente"

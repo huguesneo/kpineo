@@ -319,7 +319,8 @@ export default function Taches() {
   const isAdmin = profile?.role === 'admin'
   const isRespVente = profile?.role === 'resp_vente'
   const isAdminOrRespVente = isAdmin || isRespVente
-  const isCloserMember = hasCloserRole && !isAdmin
+  // Tout profil qui close (admin inclus) a droit au rapport EOD
+  const isCloserMember = hasCloserRole
 
   // Setter board visible to: setter role, admin, resp_vente
   // Excludes: naturopathe, service_client, gestion, pure closers
