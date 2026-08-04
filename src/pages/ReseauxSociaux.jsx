@@ -484,7 +484,10 @@ function PostModal({ post, defaultDate, accounts, hooksBank, onSave, onDelete, o
     onClose()
   }
 
-  const connectedPlatforms = [...new Set(accounts.map(a => a.platform))].filter(p => p !== 'google')
+  const connectedPlatforms = [...new Set(accounts.map(a => a.platform))]
+
+  // Google Business Profile ne publie pas de reels : on prévient plutôt que de laisser échouer.
+  const googleReel = f.platforms.includes('google') && f.media_urls.some(isVideoUrl)
 
   // Rappel non bloquant : un post programmé ou publié sans tagging ne pourra pas être analysé
   const taggingIncomplete = (f.status === 'programme' || f.status === 'publie')
@@ -635,6 +638,13 @@ function PostModal({ post, defaultDate, accounts, hooksBank, onSave, onDelete, o
               <p className="text-xs text-[#9ca3af]">Comptes GHL en cours de chargement…</p>
             )}
           </div>
+
+          {googleReel && (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              Google (fiche d'établissement) ne publie pas de reels. La publication risque d'échouer
+              pour Google — les autres plateformes ne sont pas affectées.
+            </p>
+          )}
 
           {/* Légende */}
           <div className="flex flex-col gap-1">
