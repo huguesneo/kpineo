@@ -121,9 +121,22 @@ Le projet n'a pas de suite de tests. Vérification en trois temps :
 1. `npm run lint` (le projet exige `--max-warnings 0`)
 2. `npm run build`
 3. Test réel de bout en bout : créer un reel avec une couverture, l'envoyer à GHL
-   en **draft**, puis relire le post via l'API GHL et confirmer que
-   `media[0].thumbnail` contient l'URL téléversée. Le draft n'est pas publié
+   en **draft**, puis relire le post via l'API GHL. Le draft n'est pas publié
    publiquement, donc le test est sans conséquence.
+
+### Résultat du test (2026-08-04)
+
+Deux drafts créés avec la **même vidéo** mais deux images de couverture
+différentes. Dans les deux cas, le champ **post-level** `thumbnail` du post GHL
+correspond exactement à l'image envoyée dans `media[].thumbnail`.
+
+GHL accepte donc la couverture via `media[].thumbnail`, la remonte au niveau du
+post, et renvoie `media[].thumbnail: ""` en lecture. C'est une normalisation de
+stockage, pas un rejet — l'implémentation reste celle décrite plus haut.
+
+Non vérifié : qu'Instagram utilise effectivement cette image comme couverture du
+reel au moment de la publication. Le confirmer exigerait de publier un reel
+public ; ça se validera au premier vrai reel publié avec une couverture.
 
 ## Hors périmètre
 

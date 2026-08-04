@@ -9,7 +9,7 @@ import {
   ghlCreatePost, ghlUpdatePost, ghlDeletePost, uploadSocialMedia,
 } from '../hooks/useSocialPlanner'
 import AnalyseView from '../features/social/analyse/AnalyseView'
-import { trackedLink, SURFACES, BIO_URL } from '../lib/socialFormat'
+import { trackedLink, SURFACES, BIO_URL, isVideoUrl } from '../lib/socialFormat'
 
 // ============================================================================
 // Constantes
@@ -321,6 +321,7 @@ function PostModal({ post, defaultDate, accounts, hooksBank, onSave, onDelete, o
     caption: post?.caption ?? '',
     platforms: post?.platforms ?? ['instagram', 'facebook'],
     media_urls: post?.media_urls ?? [],
+    thumbnail_url: post?.thumbnail_url ?? '',
     script_url: post?.script_url ?? '',
     notes: post?.notes ?? '',
     hook_type: post?.hook_type ?? '',
@@ -333,6 +334,7 @@ function PostModal({ post, defaultDate, accounts, hooksBank, onSave, onDelete, o
   const [saving, setSaving] = useState(false)
   const [publishing, setPublishing] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [uploadingThumb, setUploadingThumb] = useState(false)
   const [error, setError] = useState(null)
   const [okMsg, setOkMsg] = useState(null)
   const [dragMediaIdx, setDragMediaIdx] = useState(null)
@@ -368,6 +370,19 @@ function PostModal({ post, defaultDate, accounts, hooksBank, onSave, onDelete, o
     e.target.value = ''
   }
 
+  // Couverture du reel : une seule image, envoyée à GHL comme media[].thumbnail
+  async function handleThumbnailUpload(e) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setUploadingThumb(true)
+    setError(null)
+    const res = await uploadSocialMedia(file)
+    if (res.error) setError(`Upload de la couverture : ${res.error}`)
+    else set('thumbnail_url', res.url)
+    setUploadingThumb(false)
+  }
+
   function buildFields(extra = {}) {
     return {
       title: f.title.trim(),
@@ -381,6 +396,7 @@ function PostModal({ post, defaultDate, accounts, hooksBank, onSave, onDelete, o
       caption: f.caption || null,
       platforms: f.platforms,
       media_urls: f.media_urls,
+      thumbnail_url: f.thumbnail_url || null,
       script_url: f.script_url || null,
       notes: f.notes || null,
       hook_type: f.hook_type || null,
@@ -425,7 +441,10 @@ function PostModal({ post, defaultDate, accounts, hooksBank, onSave, onDelete, o
     const payload = {
       accountIds,
       summary: f.caption,
-      media: f.media_urls.map(url => ({ url })),
+      // La couverture ne s'applique qu'aux vidéos (et TikTok l'ignore côté GHL)
+      media: f.media_urls.map(url =>
+        f.thumbnail_url && isVideoUrl(url) ? { url, thumbnail: f.thumbnail_url } : { url },
+      ),
       status: mode === 'now' ? 'published' : 'scheduled',
       ...(mode === 'schedule' ? { scheduleDate: new Date(f.scheduled_at).toISOString() } : {}),
       type: isReel ? 'reel' : 'post',
@@ -647,7 +666,7 @@ function PostModal({ post, defaultDate, accounts, hooksBank, onSave, onDelete, o
                   className="relative group cursor-grab active:cursor-grabbing"
                   title="Glisse pour changer l'ordre"
                 >
-                  {/\.(mp4|mov|webm)($|\?)/i.test(url)
+                  {isVideoUrl(url)
                     ? <video src={url} className="w-16 h-16 object-cover rounded-lg border border-[#e5e7eb] pointer-events-none" />
                     : <img src={url} alt={`média ${i + 1}`} className="w-16 h-16 object-cover rounded-lg border border-[#e5e7eb] pointer-events-none" />}
                   {/* Numéro d'ordre (= ordre du carrousel) */}
@@ -696,6 +715,48 @@ function PostModal({ post, defaultDate, accounts, hooksBank, onSave, onDelete, o
               </p>
             )}
           </div>
+
+          {/* Couverture du reel — visible seulement s'il y a une vidéo */}
+          {f.media_urls.some(isVideoUrl) && (
+            <div className="flex flex-col gap-2">
+              <label className="text-sm font-semibold text-[#1a1a1a]">Couverture du reel (thumbnail)</label>
+              <div className="flex items-start gap-3">
+                {f.thumbnail_url ? (
+                  <div className="relative group">
+                    <img
+                      src={f.thumbnail_url}
+                      alt="couverture du reel"
+                      className="w-[54px] h-24 object-cover rounded-lg border border-[#e5e7eb]"
+                    />
+                    <button
+                      onClick={() => set('thumbnail_url', '')}
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full text-xs leading-none opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="Retirer la couverture"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ) : (
+                  <label className="w-[54px] h-24 flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-[#d1d5db] text-[#9ca3af] hover:border-[#00bbb1] hover:text-[#00bbb1] cursor-pointer transition-colors">
+                    {uploadingThumb
+                      ? <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                      : <><span className="text-xl leading-none">+</span><span className="text-[9px] font-semibold">Ajouter</span></>}
+                    <input type="file" accept="image/*" className="hidden" onChange={handleThumbnailUpload} disabled={uploadingThumb} />
+                  </label>
+                )}
+                <div className="flex flex-col gap-1 pt-1">
+                  <p className="text-xs text-[#6b7280]">
+                    Optionnel — sinon la plateforme choisit une image de la vidéo. Format 9:16 recommandé.
+                  </p>
+                  {f.platforms.includes('tiktok') && (
+                    <p className="text-xs text-[#9ca3af]">
+                      TikTok n'accepte pas de vignette personnalisée — la couverture s'appliquera à Instagram et Facebook.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {post?.ghl_post_id && (
             <p className="text-xs text-[#6b7280]">
@@ -1220,6 +1281,7 @@ export default function ReseauxSociaux() {
       published_at: g.status === 'published' ? when : null,
       platforms: platforms.length ? platforms : ['instagram'],
       media_urls: media,
+      thumbnail_url: (g.media ?? []).find(m => m?.thumbnail)?.thumbnail ?? null,
       ghl_post_id: g._id ?? g.id ?? null,
     })
   }

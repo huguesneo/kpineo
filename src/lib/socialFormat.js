@@ -14,6 +14,9 @@ export function platformMeta(platform) {
 
 export const PLATFORM_ORDER = ['instagram', 'facebook', 'tiktok', 'google']
 
+// Un média est une vidéo (donc éligible à une couverture personnalisée).
+export const isVideoUrl = (url) => /\.(mp4|mov|webm)($|\?)/i.test(url ?? '')
+
 // L'espace insécable étroit de fr-CA ne se voit pas toujours selon la police ;
 // on le remplace par une espace insécable classique, plus fiable.
 const nf = new Intl.NumberFormat('fr-CA')
