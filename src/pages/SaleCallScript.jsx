@@ -206,6 +206,22 @@ function QuizRow({ label, value }) {
   )
 }
 
+// ─── Passage automatique en « show » ──────────────────────────
+// Un show déclenche la commission du setter : on ne le met tout seul que si
+// le closeur a vraiment travaillé l'appel, et jamais par-dessus un statut déjà
+// choisi (no-show, annulé, show).
+const AUTO_SHOW_CHAMPS   = 6          // champs de qualification remplis
+const AUTO_SHOW_AVANT_MS = 5 * 60_000 // tolérance avant l'heure de début
+const AUTO_SHOW_APRES_MS = 8 * 3_600_000 // au-delà, on ne devine plus
+
+export function peutPasserEnShowAuto({ champsRemplis, statut, debut, maintenant = Date.now() }) {
+  if (champsRemplis < AUTO_SHOW_CHAMPS) return false
+  if (statut && statut !== 'confirmed' && statut !== 'new' && statut !== 'pending') return false
+  const t = debut ? new Date(debut).getTime() : NaN
+  if (isNaN(t)) return false
+  return maintenant >= t - AUTO_SHOW_AVANT_MS && maintenant <= t + AUTO_SHOW_APRES_MS
+}
+
 // ─── Main page ────────────────────────────────────────────────
 export default function SaleCallScript() {
   const { appointmentGhlId } = useParams()
@@ -261,6 +277,8 @@ export default function SaleCallScript() {
   const [objSaving,  setObjSaving]      = useState(false)
   const [objSaved,   setObjSaved]       = useState(false)
   const [objError,   setObjError]       = useState(null)
+  const [autoShow,   setAutoShow]       = useState(false)  // show mis automatiquement
+  const autoShowFait = useRef(false)
 
   // Progress
   const filledCount = QUAL_FIELDS.filter(f => qual[f.key]?.trim()).length
@@ -321,6 +339,32 @@ export default function SaleCallScript() {
     })
     setAutoSaved(true)
     setTimeout(() => setAutoSaved(false), 2000)
+
+    await tenterShowAuto()
+  }
+
+  // Passe le rendez-vous en « show » quand la qualification est vraiment
+  // remplie, pendant la fenêtre de l'appel, et jamais par-dessus un statut
+  // déjà choisi. Une seule fois par ouverture de l'écran.
+  async function tenterShowAuto() {
+    if (autoShowFait.current || !appt?.ghl_id) return
+    const champsRemplis = QUAL_FIELDS.filter(f => qual[f.key]?.trim()).length
+    if (!peutPasserEnShowAuto({ champsRemplis, statut: apptStatus, debut: appt.start_time })) return
+
+    autoShowFait.current = true
+    const { error } = await supabase.functions.invoke('ghl-update-appointment', {
+      body: {
+        appointmentId: appt.ghl_id,
+        contactId:     appt.contact_id ?? undefined,
+        status:        'show',
+        note:          formatNoteForGHL(),
+      },
+    })
+    if (error) { autoShowFait.current = false; return }
+
+    setApptStatus('showed')
+    setAutoShow(true)
+    await saveRowChangesToEOD(profile?.id, appt, { status: 'show' })
   }
 
   // ── Save notes ──
@@ -527,6 +571,11 @@ export default function SaleCallScript() {
             <span className="text-xs font-bold flex-shrink-0" style={{ color: filledCount === totalCount ? '#10b981' : '#00bbb1' }}>
               {filledCount}/{totalCount}
             </span>
+            {autoShow && (
+              <span className="text-[10px] font-semibold text-[#10b981] flex-shrink-0">
+                Show marqué automatiquement
+              </span>
+            )}
             {autoSaved && (
               <span className="text-[10px] font-semibold text-[#10b981] flex-shrink-0 flex items-center gap-1">
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
