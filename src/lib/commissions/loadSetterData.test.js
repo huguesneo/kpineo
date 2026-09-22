@@ -31,6 +31,8 @@ function fakeSupabase() {
         in(col, vs) { rows = rows.filter(r => vs.includes(r[col])); return q; },
         single() { return Promise.resolve({ data: rows[0] ?? null, error: null }); },
         range(a, b) { return Promise.resolve({ data: rows.slice(a, b + 1), error: null }); },
+        // Requête attendue directement (sans .single() ni .range())
+        then(resolve, reject) { return Promise.resolve({ data: rows, error: null }).then(resolve, reject); },
       };
       return q;
     },

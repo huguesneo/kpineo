@@ -1,8 +1,8 @@
 // Chargement des données brutes du moteur de commissions setters.
 // Une seule lecture Supabase partagée par tous les écrans (cache de 60 s) :
-// le classement du Dashboard, SetterAdmin et « Ma Paie » ne relisent plus
-// chacun les ~4 000 cartes du pipeline Setting.
-import { PIPELINE_SETTING_ID, CONSULTATION_CALENDAR_IDS } from './setterCommissions.js';
+// le classement du Dashboard, SetterAdmin, « Ma Paie » et le rapport d'anomalies
+// ne relisent plus chacun les ~4 000 cartes des pipelines setters.
+import { SETTER_PIPELINE_IDS, CONSULTATION_CALENDAR_IDS } from './setterCommissions.js';
 
 const BATCH = 1000;
 const TTL_MS = 60_000;
@@ -19,21 +19,24 @@ async function fetchAll(buildQuery) {
 }
 
 async function fetchSetterData(supabase) {
+  // Les deux pipelines setters (ancien Setting + nouveau pipeline setting)
   const [pipelineRes, opps, appts] = await Promise.all([
-    supabase.from('ghl_pipelines').select('stages').eq('ghl_id', PIPELINE_SETTING_ID).single(),
+    supabase.from('ghl_pipelines').select('ghl_id, stages').in('ghl_id', SETTER_PIPELINE_IDS),
     fetchAll(() => supabase
       .from('ghl_opportunities')
       .select('*')
-      .eq('pipeline_id', PIPELINE_SETTING_ID)
+      .in('pipeline_id', SETTER_PIPELINE_IDS)
       .order('id')),
     fetchAll(() => supabase
       .from('ghl_appointments')
-      .select('contact_id, start_time, calendar_id')
+      .select('contact_id, start_time, calendar_id, status')
       .in('calendar_id', CONSULTATION_CALENDAR_IDS)
       .order('id')),
   ]);
   if (pipelineRes.error) throw pipelineRes.error;
-  return { stages: pipelineRes.data?.stages ?? [], opps, appts };
+  // Les IDs d'étape sont uniques d'un pipeline à l'autre : une seule liste suffit.
+  const stages = (pipelineRes.data ?? []).flatMap(p => p.stages ?? []);
+  return { stages, opps, appts };
 }
 
 // force = true : ignore le cache (bouton « Actualiser »)
