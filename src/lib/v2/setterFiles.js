@@ -159,3 +159,40 @@ export function computeSetterFiles({ opps = [], appts = [], now = Date.now(), us
 
   return { aRebooker, aConfirmer, aAppeler, chaudARelancer }
 }
+
+// Jour calendaire à Montréal d'un instant ('AAAA-MM-JJ')
+export function jourMontreal(date) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Toronto', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(date)
+}
+
+// RDV découverte créés aujourd'hui (raw.dateAdded) dont la carte du pipeline
+// setting porte ce setter dans le champ « setter » (nom complet du profil).
+// appts : [{ contact_id, calendar_id, date_added }]
+export function rdvBookesAujourdhui({ appts = [], opps = [], setterName, now = Date.now() }) {
+  const nom = String(setterName ?? '').trim().toLowerCase()
+  if (!nom) return 0
+  const jour = jourMontreal(new Date(now))
+  const decouverte = new Set(CALENDARS_DECOUVERTE)
+  const contactsDuSetter = new Set(
+    opps
+      .filter(o => o.pipeline_id === PIPELINE_SETTING.id)
+      .filter(o => String(champ(o.raw, FIELDS.setterNom) ?? '').trim().toLowerCase() === nom)
+      .map(o => o.contact_id),
+  )
+  const vus = new Set()
+  for (const a of appts) {
+    if (!decouverte.has(a.calendar_id) || !a.date_added || !contactsDuSetter.has(a.contact_id)) continue
+    const d = new Date(a.date_added)
+    if (Number.isNaN(d.getTime()) || jourMontreal(d) !== jour) continue
+    vus.add(a.ghl_id ?? `${a.contact_id}:${a.date_added}`)
+  }
+  return vus.size
+}
+
+// Total des éléments en attente dans les files (compteur du commutateur)
+export function totalFiles(files) {
+  return (files?.aRebooker?.length ?? 0) + (files?.aConfirmer?.length ?? 0)
+    + (files?.aAppeler?.length ?? 0) + (files?.chaudARelancer?.length ?? 0)
+}

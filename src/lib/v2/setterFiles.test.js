@@ -89,3 +89,23 @@ describe('helpers', () => {
     expect(tentativeDeLEtape(S.contactEtabli)).toBe(null)
   })
 })
+
+describe('rdvBookesAujourdhui', () => {
+  it('compte les RDV découverte créés aujourd’hui (Montréal) pour les cartes du setter', async () => {
+    const { rdvBookesAujourdhui } = await import('./setterFiles')
+    const setterField = nom => ({ customFields: [{ id: FIELDS.setterNom, fieldValueString: nom }] })
+    const opps = [
+      oppSetting('a', S.rencontreBook, { raw: setterField('Kassy NEO') }),
+      oppSetting('b', S.rencontreBook, { raw: setterField('Maude NEO') }),
+      oppSetting('c', S.rencontreBook, { raw: setterField('kassy neo ') }),
+    ]
+    const appts = [
+      appt('x1', 'a', h(20), 'confirmed', CALENDARS.decouvertePublic, { date_added: h(-1) }),
+      appt('x2', 'b', h(20), 'confirmed', CALENDARS.decouvertePublic, { date_added: h(-1) }),  // autre setter
+      appt('x3', 'c', h(20), 'confirmed', CALENDARS.decouvertePublic, { date_added: h(-30) }), // hier
+      appt('x4', 'c', h(5), 'new', CALENDARS.decision, { date_added: h(-1) }),                // pas découverte
+    ]
+    expect(rdvBookesAujourdhui({ appts, opps, setterName: 'Kassy NEO', now: NOW })).toBe(1)
+    expect(rdvBookesAujourdhui({ appts, opps, setterName: '', now: NOW })).toBe(0)
+  })
+})
