@@ -18,6 +18,7 @@ import {
   QUIZ_FIELDS,
 } from '../hooks/useQuizResponse'
 import { useSaleCallNote } from '../hooks/useSaleCallNotes'
+import { EOD_OBJECTIONS, saveRowChangesToEOD } from '../hooks/useCloserEOD'
 
 // ─── Helpers ──────────────────────────────────────────────────
 function fmtTime(iso) {
@@ -66,16 +67,26 @@ const QUAL_FIELDS = [
   { key: 'note',         label: 'Note supplémentaire',                               type: 'textarea', optional: true },
 ]
 
-// ─── Evaluation booking modal ─────────────────────────────────
+// ─── Prise de rendez-vous (évaluation ou rencontre de décision) ──
 const EVAL_TABS = [
   { key: 'clinique',  label: 'Évaluation en clinique', src: 'https://api.leadconnectorhq.com/widget/booking/nF4GjzBPg0JJu7aSdi4d' },
   { key: 'ligne',     label: 'Évaluation en ligne',     src: 'https://api.leadconnectorhq.com/widget/booking/EN1rRFnOcotGonaMAV3N' },
   { key: 'ouverture', label: 'Ouverture de dossier',    src: 'https://api.leadconnectorhq.com/widget/booking/7BpembfPxvDHewFh51EN' },
 ]
 
-function EvalBookingModal({ onClose }) {
-  const [tab, setTab] = useState('clinique')
-  const current = EVAL_TABS.find(t => t.key === tab)
+// Calendrier « Rencontre de décision » (GHL_CALENDAR_DECISION)
+const DECISION_TABS = [
+  { key: 'decision', label: 'Rencontre de décision', src: 'https://api.leadconnectorhq.com/widget/booking/BQK4NoyrVNuJA3e1VHDH' },
+]
+
+const BOOKINGS = {
+  eval:     { titre: "Prendre rencontre d'évaluation", tabs: EVAL_TABS },
+  decision: { titre: 'Prendre rencontre de décision',  tabs: DECISION_TABS },
+}
+
+function BookingModal({ titre, tabs, onClose }) {
+  const [tab, setTab] = useState(tabs[0].key)
+  const current = tabs.find(t => t.key === tab)
   return (
     <>
       {/* Overlay */}
@@ -90,10 +101,10 @@ function EvalBookingModal({ onClose }) {
           {/* Header compact : titre + onglets + fermer sur une ligne */}
           <div className="flex items-center gap-3 px-5 border-b border-[#e5e7eb] flex-shrink-0" style={{ minHeight: 52 }}>
             <span className="text-sm font-bold text-[#1a1a1a] flex-shrink-0 whitespace-nowrap">
-              Prendre rencontre d'évaluation
+              {titre}
             </span>
             <div className="flex flex-1 overflow-x-auto">
-              {EVAL_TABS.map(t => (
+              {tabs.length > 1 && tabs.map(t => (
                 <button
                   key={t.key}
                   onClick={() => setTab(t.key)}
@@ -243,7 +254,13 @@ export default function SaleCallScript() {
   const [statusSaving, setStatusSaving] = useState(false)
   const [noteSaved, setNoteSaved]       = useState(false)
   const [autoSaved,  setAutoSaved]      = useState(false)
-  const [evalOpen,   setEvalOpen]       = useState(false)
+  const [booking,    setBooking]        = useState(null)   // null | 'eval' | 'decision'
+  const [objOpen,    setObjOpen]        = useState(false)  // panneau « Non closé »
+  const [objection,  setObjection]      = useState('')
+  const [objPrecision, setObjPrecision] = useState('')
+  const [objSaving,  setObjSaving]      = useState(false)
+  const [objSaved,   setObjSaved]       = useState(false)
+  const [objError,   setObjError]       = useState(null)
 
   // Progress
   const filledCount = QUAL_FIELDS.filter(f => qual[f.key]?.trim()).length
@@ -323,6 +340,36 @@ export default function SaleCallScript() {
       setNoteSaved(true)
       setTimeout(() => setNoteSaved(false), 3000)
     }
+  }
+
+  // ── Non closé : objection principale ──────────────────────
+  // Écrite sur la carte du pipeline Vente (ghl-update-opportunity) et dans
+  // la ligne du rapport de fin de journée, pour les statistiques.
+  async function handleObjection() {
+    const contactIdForOpp = contact?.ghl_id ?? appt?.contact_id
+    if (!objection || !contactIdForOpp || objSaving) return
+    setObjSaving(true)
+    setObjError(null)
+
+    const { data, error } = await supabase.functions.invoke('ghl-update-opportunity', {
+      body: { contactId: contactIdForOpp, objectionPrincipale: objection },
+    })
+
+    if (appt) {
+      await saveRowChangesToEOD(profile?.id, appt, {
+        is_closed: false,
+        objection_principale: objection,
+        objection_reason: objection === 'Autre' ? objPrecision : '',
+      })
+    }
+
+    setObjSaving(false)
+    if (error || data?.error) {
+      setObjError(data?.error ?? error.message)
+      return
+    }
+    setObjSaved(true)
+    setTimeout(() => { setObjSaved(false); setObjOpen(false) }, 2000)
   }
 
   // ── Update appointment status ──
@@ -569,7 +616,7 @@ export default function SaleCallScript() {
           <div className="p-5 space-y-2.5">
             {/* Préparer évaluation */}
             <button
-              onClick={() => setEvalOpen(true)}
+              onClick={() => setBooking('eval')}
               className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold border-2 border-[#00bbb1] text-[#00bbb1] hover:bg-[#00bbb1]/5 transition-all active:scale-[0.99]"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -577,6 +624,75 @@ export default function SaleCallScript() {
               </svg>
               Prendre rencontre d'évaluation
             </button>
+
+            {/* Rencontre de décision */}
+            <button
+              onClick={() => setBooking('decision')}
+              className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold border-2 border-[#6366f1] text-[#6366f1] hover:bg-[#6366f1]/5 transition-all active:scale-[0.99]"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+              </svg>
+              Prendre rencontre de décision
+            </button>
+
+            {/* Non closé → objection principale */}
+            <button
+              onClick={() => setObjOpen(o => !o)}
+              className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold border-2 transition-all active:scale-[0.99] ${
+                objOpen ? 'border-[#ef4444] bg-[#ef4444]/5 text-[#ef4444]' : 'border-[#ef4444] text-[#ef4444] hover:bg-[#ef4444]/5'
+              }`}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+              </svg>
+              Non closé — objection
+            </button>
+
+            {objOpen && (
+              <div className="rounded-xl border border-[#e5e7eb] p-3 space-y-2 bg-[#fafafa]">
+                <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide">Objection principale</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {EOD_OBJECTIONS.map(o => (
+                    <button
+                      key={o.value}
+                      onClick={() => setObjection(o.value)}
+                      className={`py-2 rounded-lg text-xs font-bold border-2 transition-all ${
+                        objection === o.value
+                          ? 'border-transparent bg-[#ef4444] text-white'
+                          : 'border-[#e5e7eb] bg-white text-[#6b7280] hover:border-[#ef4444]/60 hover:text-[#ef4444]'
+                      }`}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+
+                {objection === 'Autre' && (
+                  <input
+                    type="text"
+                    value={objPrecision}
+                    onChange={e => setObjPrecision(e.target.value)}
+                    placeholder="Préciser (facultatif)"
+                    className="w-full px-2 py-1.5 text-xs border border-[#e5e7eb] rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-[#00bbb1]"
+                  />
+                )}
+
+                {objError && <p className="text-[11px] text-[#ef4444]">{objError}</p>}
+
+                <button
+                  onClick={handleObjection}
+                  disabled={!objection || objSaving}
+                  className="w-full py-2 rounded-lg text-xs font-bold text-white disabled:opacity-40 transition-all"
+                  style={{ background: objSaved ? '#10b981' : '#ef4444' }}
+                >
+                  {objSaving ? 'Enregistrement…' : objSaved ? 'Objection enregistrée' : "Enregistrer l'objection"}
+                </button>
+                <p className="text-[10px] text-[#9ca3af] leading-snug">
+                  Écrite sur la carte du pipeline Vente et dans ton rapport de fin de journée.
+                </p>
+              </div>
+            )}
 
             {/* Statut RDV */}
             <p className="text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide mb-3">Statut du rendez-vous</p>
@@ -656,7 +772,13 @@ export default function SaleCallScript() {
         <div className="h-8" />
       </div>
 
-      {evalOpen && <EvalBookingModal onClose={() => setEvalOpen(false)} />}
+      {booking && (
+        <BookingModal
+          titre={BOOKINGS[booking].titre}
+          tabs={BOOKINGS[booking].tabs}
+          onClose={() => setBooking(null)}
+        />
+      )}
     </Layout>
   )
 }

@@ -61,6 +61,12 @@ export function rowFromAppointment(appt) {
 
 // ─── Sauvegarder un statut dans le rapport EOD (upsert) ─────────────────────
 export async function saveStatusToEOD(userId, appt, status) {
+  return saveRowChangesToEOD(userId, appt, { status })
+}
+
+// ─── Mettre à jour une ligne du rapport EOD (upsert) ────────────────────────
+// changes : champs de la ligne à écrire (status, is_closed, objection_principale…)
+export async function saveRowChangesToEOD(userId, appt, changes) {
   if (!userId) return
   const apptDate = appt.start_time
     ? format(new Date(appt.start_time), 'yyyy-MM-dd')
@@ -78,8 +84,8 @@ export async function saveStatusToEOD(userId, appt, status) {
   const rows    = eodDoc?.rows ?? []
   const idx     = rows.findIndex(r => r.ghl_appointment_id === appt.ghl_id)
   const newRows = idx >= 0
-    ? rows.map((r, i) => i === idx ? { ...r, status } : r)
-    : [...rows, { ...rowFromAppointment(appt), status }]
+    ? rows.map((r, i) => i === idx ? { ...r, ...changes } : r)
+    : [...rows, { ...rowFromAppointment(appt), ...changes }]
         .sort((a, b) => new Date(a.start_time) - new Date(b.start_time))
 
   const data = { ...(eodDoc ?? {}), rows: newRows }
