@@ -558,41 +558,6 @@ function MemberQBRevenueSection({ revenue, loading, refreshing, onRefetch, isCur
   )
 }
 
-// ─── GHL Setter helpers (partagés AdminDashboard + MemberDashboard) ───────────
-const GHL_PIPELINE_SETTING = '3C5ggTxPoWBmiFAPlCKn'
-const GHL_STAGE_BOOKED  = 'Lead rencontre book'
-const GHL_STAGE_SHOWUP  = 'Show-up Confirmé.'
-const GHL_STAGE_BONUS   = 'bonus vente'
-const GHL_ALL_STAGES    = [GHL_STAGE_BOOKED, GHL_STAGE_SHOWUP, GHL_STAGE_BONUS]
-const GHL_SHOWUP_STAGES = [GHL_STAGE_SHOWUP, GHL_STAGE_BONUS]
-
-function ghlField(rawObj, key) {
-  return (rawObj?.customFields ?? []).find(f => f.key === key)?.value ?? null
-}
-function parseGHLDate(v) {
-  if (!v) return null
-  const n = Number(v)
-  if (!isNaN(n) && n > 0) { const d = new Date(n > 9_999_999_999 ? n : n * 1000); return isNaN(d.getTime()) ? null : d }
-  const d = new Date(v); return isNaN(d.getTime()) ? null : d
-}
-function inGHLMonth(v, month, year) {
-  const d = parseGHLDate(v)
-  return d ? d.getMonth() + 1 === month && d.getFullYear() === year : false
-}
-function computeSetterMonthStats(ghlOpps, memberFullName, month, year) {
-  const nl = memberFullName.trim().toLowerCase()
-  const opps = ghlOpps.filter(o =>
-    GHL_ALL_STAGES.includes(o.stage_name) &&
-    (ghlField(o.raw ?? {}, 'setter__nom') ?? '').trim().toLowerCase() === nl
-  )
-  const booked  = opps.filter(o => inGHLMonth(o.created_at_ghl, month, year))
-  const showups = opps.filter(o => GHL_SHOWUP_STAGES.includes(o.stage_name) && inGHLMonth(o.created_at_ghl, month, year))
-  const won     = opps.filter(o => o.stage_name === GHL_STAGE_BONUS && inGHLMonth(ghlField(o.raw ?? {}, 'date_de_close'), month, year))
-  const totalShowups = showups.reduce((s, o) => s + (Number(ghlField(o.raw ?? {}, 'setter__commission_showup')) || 0), 0)
-  const totalBonus   = won.reduce((s, o) => s + (Number(ghlField(o.raw ?? {}, 'setter__bonus_vente')) || 0), 0)
-  return { bookedCount: booked.length, showupCount: showups.length, wonCount: won.length, totalShowups, totalBonus, totalPay: totalShowups + totalBonus }
-}
-
 // ─── Admin Dashboard ──────────────────────────────────────────
 // AJOUTE LE COMPOSANT ICI
 function SetterDashboardRow({ member, idx, accent }) {
@@ -794,7 +759,7 @@ function AdminDashboard({ isSalesManager = false }) {
 
     const profilesQuery = supabase.from('profiles').select('*').eq('is_active', true).neq('role', 'admin')
 
-    const [profilesRes, eodRes, kpiRes, objRes, qbCacheRes, qObjRes, ghlOppsRes] = await Promise.all([
+    const [profilesRes, eodRes, kpiRes, objRes, qbCacheRes, qObjRes] = await Promise.all([
       profilesQuery,
       supabase.from('end_of_day_reports').select('user_id, role, profiles(id, full_name, role)').eq('report_date', today),
       supabase.from('kpi_entries').select('user_id, kpi_type, value').eq('scope', 'individual').gte('entry_date', monthStart).lte('entry_date', monthEnd),
@@ -803,8 +768,6 @@ function AdminDashboard({ isSalesManager = false }) {
       // Objectifs trimestriels revenus pour les naturopathes
       supabase.from('objectives').select('*').eq('scope', 'individual').eq('type', 'quarterly_revenue')
         .lte('period_start', quarterEnd).gte('period_end', quarterStart),
-      // Opportunités GHL pipeline Setting (pour les setters)
-      supabase.from('ghl_opportunities').select('stage_name, created_at_ghl, raw').eq('pipeline_id', GHL_PIPELINE_SETTING),
     ])
 
     const profiles = profilesRes.data || []
@@ -813,10 +776,6 @@ function AdminDashboard({ isSalesManager = false }) {
     const objectives = objRes.data || []
     const qbCache = qbCacheRes.data || []
     const quarterlyObjectives = qObjRes.data || []
-    const ghlOpps = ghlOppsRes.data || []
-    const nowForGHL = new Date()
-    const ghlMonth = nowForGHL.getMonth() + 1
-    const ghlYear = nowForGHL.getFullYear()
 
     const QB_MONTHLY = { naturopathe: 'therapist_monthly', closer: 'closer_monthly', setter: 'setter_monthly' }
 
@@ -860,9 +819,6 @@ function AdminDashboard({ isSalesManager = false }) {
       })
 
       const hasSetterRole = profile.role === 'setter' || (profile.secondary_roles ?? []).includes('setter')
-      const setterStats = hasSetterRole
-        ? computeSetterMonthStats(ghlOpps, profile.full_name, ghlMonth, ghlYear)
-        : null
       const setterCommTarget = hasSetterRole
         ? (userObjectives.find(o => o.type === 'setter_commission_target')?.target_value ?? null)
         : null
@@ -874,7 +830,6 @@ function AdminDashboard({ isSalesManager = false }) {
         qbQuarterly,
         monthlyTarget,
         quarterlyTarget,
-        setterStats,
         setterCommTarget,
       }
     })
@@ -1119,8 +1074,7 @@ function AdminDashboard({ isSalesManager = false }) {
                         return <CloserDashboardRow key={m.id} member={m} idx={idx} accent={group.accent} />
                       }
 
-                      // LOGIQUE EXISTANTE pour Naturopathes et Closers
-                      const isMemberSetter = false; // <-- Évite le crash "isMemberSetter is not defined"
+                      // Naturopathes (setters et closers ont leur propre ligne ci-dessus)
                       const revenue = isNaturo ? m.qbQuarterly : m.qbMonthly
                       const target  = isNaturo ? m.quarterlyTarget : m.monthlyTarget
                       const qPct = (revenue !== null && target != null && target > 0)
@@ -1145,11 +1099,6 @@ function AdminDashboard({ isSalesManager = false }) {
                             <p className="font-semibold text-sm text-[#1a1a1a] truncate">
                               {m.full_name.split(' ')[0]}
                             </p>
-                            {isMemberSetter && m.setterStats && (
-                              <p className="text-[10px] text-[#9ca3af] truncate">
-                                {m.setterStats.bookedCount} bookés · {m.setterStats.showupCount} shows · {m.setterStats.wonCount} ventes
-                              </p>
-                            )}
                           </div>
                           {/* Barre + montants */}
                           <div className="flex-1 min-w-0">

@@ -10,20 +10,8 @@ import { useMembers } from '../hooks/useMembers'
 import { usePayPeriodConfig, getCurrentPayPeriod } from '../hooks/usePayPeriod'
 import { supabase } from '../lib/supabase'
 
-const PIPELINE_SETTING_ID = '3C5ggTxPoWBmiFAPlCKn'
-const FIELD_SETTER_NOM    = 'II5NrZGZrIScYItkxCi8'
-const FIELD_TYPE_BOOKING  = 'YbAB98KAINZM7vzebAKh'
-const FIELD_DATE_CLOSE    = 'UPqvJX8MkZ4thsPX2tjV'
-const FLAT_MANUEL  = 40
-const FLAT_CONFIRM = 20
-const FLAT_REBOOK  = 20
-
-function getFieldById(rawObj, fieldId) {
-  if (!rawObj?.customFields || fieldId === 'ID_A_REMPLIR') return null
-  const field = rawObj.customFields.find(f => f.id === fieldId)
-  if (!field) return null
-  return field.fieldValueNumber ?? field.fieldValueString ?? field.fieldValueDate ?? null
-}
+import { computeSetterCommissions } from '../lib/commissions/setterCommissions'
+import { loadSetterCommissionData } from '../lib/commissions/loadSetterData'
 
 function fmtCAD(n) {
   return Number(n ?? 0).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })
@@ -35,6 +23,7 @@ function initials(name) {
 
 // ─── Stats de tous les setters ────────────────────────────────
 
+// Même moteur que « Ma Paie » : les montants de ce tableau sont ceux de la paie.
 function useAllSetterStats(setters, startDate, endDate) {
   const [rows, setRows]       = useState([])
   const [loading, setLoading] = useState(false)
@@ -42,84 +31,29 @@ function useAllSetterStats(setters, startDate, endDate) {
   const load = useCallback(async () => {
     if (!setters.length || !startDate || !endDate) return
     setLoading(true)
-
-    const start = new Date(startDate + 'T00:00:00')
-    const end   = new Date(endDate   + 'T23:59:59')
-
-    const [{ data: pipelineData }, { data: oppsData }] = await Promise.all([
-      supabase.from('ghl_pipelines').select('stages').eq('ghl_id', PIPELINE_SETTING_ID).single(),
-      supabase.from('ghl_opportunities').select('*').eq('pipeline_id', PIPELINE_SETTING_ID),
-    ])
-
-    const stagesMap = {}
-    ;(pipelineData?.stages ?? []).forEach(s => { if (s.id) stagesMap[s.id] = s.name })
-    const opps = oppsData ?? []
-
-    const statsRows = setters.map(setter => {
-      const nameLower = (setter.full_name ?? '').toLowerCase()
-      let bookedCount = 0, showupCount = 0
-      let manuelCount = 0, autoCount = 0, rebookingCount = 0, wonCount = 0
-      let totalShowups = 0
-
-      opps.forEach(opp => {
-        const raw = opp.raw
-        const setterName = getFieldById(raw, FIELD_SETTER_NOM)
-        if (!setterName || String(setterName).toLowerCase() !== nameLower) return
-
-        const stageName     = (stagesMap[opp.pipeline_stage_id] || opp.stage_name || '').toLowerCase()
-        const isShowupStage = stageName.includes('show-up confirm') || stageName.includes('bonus vente')
-        const isWonStage    = stageName.includes('bonus vente')
-        const typeDeBooking = String(getFieldById(raw, FIELD_TYPE_BOOKING) || '').toLowerCase()
-
-        if (opp.created_at_ghl) {
-          const createdDate = new Date(opp.created_at_ghl)
-          if (createdDate >= start && createdDate <= end) {
-            bookedCount++
-            if (isShowupStage) {
-              showupCount++
-              if (typeDeBooking === 'manuel') {
-                manuelCount++
-                totalShowups += FLAT_MANUEL
-              } else if (typeDeBooking === 'automatique') {
-                autoCount++
-                totalShowups += FLAT_CONFIRM
-              } else if (typeDeBooking === 'rebooking') {
-                rebookingCount++
-                totalShowups += FLAT_REBOOK
-              }
-            }
-          }
+    try {
+      const raw = await loadSetterCommissionData(supabase)
+      setRows(setters.map(setter => {
+        const r = computeSetterCommissions({ ...raw, setterName: setter.full_name, start: startDate, end: endDate })
+        return {
+          id: setter.id,
+          name: setter.full_name,
+          bookedCount: r.bookedCount,
+          showupCount: r.showupCount,
+          showupRate: r.bookedCount > 0 ? Math.round((r.showupCount / r.bookedCount) * 100) : null,
+          manuelCount: r.manuelCount,
+          autoCount: r.autoCount,
+          rebookingCount: r.rebookingCount,
+          wonCount: r.wonCount,
+          totalPay: r.totalPay,
         }
-
-        if (isWonStage) {
-          const closeDateRaw = getFieldById(raw, FIELD_DATE_CLOSE)
-          if (closeDateRaw) {
-            const closeDate = new Date(Number(closeDateRaw))
-            if (!isNaN(closeDate.getTime()) && closeDate >= start && closeDate <= end) {
-              wonCount++
-            }
-          }
-        }
-      })
-
-      const showupRate = bookedCount > 0 ? Math.round((showupCount / bookedCount) * 100) : null
-
-      return {
-        id: setter.id,
-        name: setter.full_name,
-        bookedCount,
-        showupCount,
-        showupRate,
-        manuelCount,
-        autoCount,
-        rebookingCount,
-        wonCount,
-        totalPay: totalShowups,
-      }
-    })
-
-    setRows(statsRows)
-    setLoading(false)
+      }))
+    } catch (err) {
+      console.error('Erreur comparaison setters:', err)
+      setRows([])
+    } finally {
+      setLoading(false)
+    }
   }, [setters, startDate, endDate])
 
   useEffect(() => { load() }, [load])
