@@ -11,12 +11,12 @@ const GHL_BASE                = 'https://services.leadconnectorhq.com'
 const GHL_VERSION             = '2021-07-28'
 const GHL_STAGE_EN_DECISION_NAME = '🤔 En décision'
 
-// Depuis la bascule (22 sept. 2026, voir src/lib/commissions/config.js),
-// les closeurs travaillent dans « 🎯 Vente ». On déplace la carte Vente du
-// contact ; à défaut (contact d'avant la bascule), sa carte de l'ancien
-// pipeline « Rencontre découverte », comme avant.
+// Dans les deux nouveaux pipelines (« 📞 pipeline setting » et « 🎯 Vente »),
+// c'est un workflow GHL qui déplace la carte : l'app n'y touche pas, sinon
+// le déplacement se ferait deux fois.
+// Il ne reste donc que l'ancien pipeline « Rencontre découverte », pour les
+// contacts d'avant la bascule. Sans carte là, la fonction ne fait rien.
 const CIBLES = [
-  { pipelineId: 'pc4eWgm1TOfZgMgqh6Gv', stageId: '513ec2f0-bdf5-4a92-a4a2-e0dfbc778a16', label: 'Vente' },
   { pipelineId: 'YPTruORTl0LOSdS2vWJS', stageId: '31037861-7e3a-4051-b64d-467e90cadc8b', label: 'Rencontre découverte' },
 ]
 
@@ -64,8 +64,8 @@ Deno.serve(async (req) => {
 
     const cible = CIBLES.find(c => (opps ?? []).some((o: { pipeline_id: string }) => o.pipeline_id === c.pipelineId))
     if (!cible) {
-      console.warn(`[ghl-move-stage] Aucune opportunité pour contact ${contactId} (Vente ni Rencontre découverte)`)
-      return json({ error: 'Opportunité introuvable', skipped: true })
+      console.log(`[ghl-move-stage] Contact ${contactId} : aucune carte « Rencontre découverte » — rien à faire (workflow GHL côté nouveaux pipelines)`)
+      return json({ ok: true, skipped: true, reason: 'aucune carte dans l\'ancien pipeline' })
     }
     const candidates = (opps ?? []).filter((o: { pipeline_id: string }) => o.pipeline_id === cible.pipelineId)
 
