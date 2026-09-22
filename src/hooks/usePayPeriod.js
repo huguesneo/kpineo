@@ -49,6 +49,9 @@ export function getCurrentPayPeriod(referencePayDate, periodLengthDays = 14) {
   }
 }
 
+// Liste des périodes de paie (courante puis passées) : voir src/lib/payPeriods.js
+export { listPayPeriods } from '../lib/payPeriods'
+
 export async function updatePayPeriodConfig(id, referencePayDate, updatedBy) {
   return supabase
     .from('pay_period_config')

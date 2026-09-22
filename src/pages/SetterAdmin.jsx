@@ -6,6 +6,7 @@ import Header from '../components/layout/Header'
 import Card from '../components/shared/Card'
 import { SkeletonCard } from '../components/shared/Skeleton'
 import SetterDashboardView from '../components/closer/SetterDashboardView'
+import SetterAnomaliesReport from '../components/setters/SetterAnomaliesReport'
 import { useMembers } from '../hooks/useMembers'
 import { usePayPeriodConfig, getCurrentPayPeriod } from '../hooks/usePayPeriod'
 import { supabase } from '../lib/supabase'
@@ -172,7 +173,7 @@ function ComparisonTable({ setters, startDate, endDate }) {
 
 // ─── Page principale ──────────────────────────────────────────
 
-const ADMIN_TABS = ['Tableau de bord', 'Comparaison']
+const ADMIN_TABS = ['Tableau de bord', 'Comparaison', 'Anomalies']
 
 export default function SetterAdmin() {
   const { config: payConfig } = usePayPeriodConfig()
@@ -231,7 +232,7 @@ export default function SetterAdmin() {
       {/* ── Sélecteur de setter ── */}
       {membersLoading ? (
         <div className="h-12 bg-gray-100 rounded-xl animate-pulse mb-6" />
-      ) : setters.length > 0 && (
+      ) : setters.length > 0 && activeTab !== 2 && (
         <div className="mb-6 relative">
           <button
             onClick={() => setDropdownOpen(o => !o)}
@@ -355,6 +356,9 @@ export default function SetterAdmin() {
           </Card>
         </div>
       )}
+
+      {/* ── Onglet 2 : Anomalies ── */}
+      {activeTab === 2 && <SetterAnomaliesReport setters={setters} />}
     </Layout>
   )
 }
