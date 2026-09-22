@@ -318,7 +318,8 @@ function evaluateUncached({ opps, appts, stages, startDate, endDate, timeZone, c
     date_rdv: c.appt?.iso ?? (c.dateField ? c.dateField.toISOString() : null),
     statut_rdv: c.appt?.status ?? null,
     date_de_close: c.closeDate ? c.closeDate.toISOString() : null,
-    montant_retenu: c.montantShowup + c.bonus,
+    // Ce qui sera réellement payé (0 si personne à payer)
+    montant_retenu: c.setter.trim() && !c.isTest ? c.montantShowup + c.bonus : 0,
   })));
 
   return { cards, anomalies };
