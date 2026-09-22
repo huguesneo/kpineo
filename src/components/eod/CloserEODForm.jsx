@@ -363,17 +363,8 @@ export default function CloserEODForm({ userId, ghlUserId = null, closerName = n
       rowsWithStatus.map(r => updateGHL(r, targetDate))
     )
 
-    // Déplacer vers "🤔 En décision" si : show + non closé + pas de RDV décision
-    const rowsToMove = finalRows.filter(r =>
-      r.status === 'show' && r.is_closed === false && r.rdv_decision === false && r.contact_id
-    )
-    const moveResults = await Promise.allSettled(
-      rowsToMove.map(r =>
-        supabase.functions.invoke('ghl-move-stage', {
-          body: { contactId: r.contact_id },
-        })
-      )
-    )
+    // Le passage en « 🤔 En décision » est fait par un workflow GHL :
+    // l'app ne déplace plus aucune carte.
 
     // Objection principale → carte du pipeline Vente (jamais la carte Setting)
     const rowsObjection = finalRows.filter(r => r.is_closed === false && r.objection_principale && r.contact_id)
@@ -387,8 +378,7 @@ export default function CloserEODForm({ userId, ghlUserId = null, closerName = n
 
     const failedObjection = objectionResults.filter(r => r.status === 'rejected')
     const failedGHL   = ghlResults.filter(r => r.status === 'rejected')
-    const failedMove  = moveResults.filter(r => r.status === 'rejected')
-    const totalFailed = failedGHL.length + failedMove.length + failedObjection.length
+    const totalFailed = failedGHL.length + failedObjection.length
     if (totalFailed > 0) {
       setGhlError(`${totalFailed} mise(s) à jour GHL échouée(s) — les données ont quand même été sauvegardées.`)
     }
