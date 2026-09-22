@@ -3,8 +3,11 @@ import { Link } from 'react-router-dom'
 import Layout from '../../components/layout/Layout'
 import SegmentMode from '../../components/v2/SegmentMode'
 import SetterJournee from './SetterJournee'
+import CloseurAgenda from './CloseurAgenda'
+import AppointmentStatusPopup from '../../components/closer/AppointmentStatusPopup'
 import { useAuth } from '../../context/AuthContext'
 import { useSetterFiles } from '../../hooks/v2/useSetterFiles'
+import { useCloserAgenda } from '../../hooks/v2/useCloserAgenda'
 import { totalFiles } from '../../lib/v2/setterFiles'
 
 const CLE_MODE = 'neo.espace.mode'
@@ -31,6 +34,7 @@ export default function MonEspace() {
   const { profile } = useAuth()
   const modes = modesDuProfil(profile)
   const peutSetter = modes.includes('sette')
+  const peutCloser = modes.includes('close')
 
   const [modeChoisi, setModeChoisi] = useState(() => lireMode())
   const mode = modes.includes(modeChoisi) ? modeChoisi : modes[0] ?? null
@@ -39,7 +43,13 @@ export default function MonEspace() {
   // Files setter chargées ici : elles alimentent l'écran et le compteur du commutateur
   const setterFiles = useSetterFiles({ enabled: peutSetter })
   const [compteurSetter, setCompteurSetter] = useState(null)
-  const compteurs = { sette: compteurSetter ?? totalFiles(setterFiles.files) }
+  // Agenda closeur chargé ici aussi : compteur « à statuer » du commutateur
+  const agenda = useCloserAgenda(profile, { enabled: peutCloser })
+  const compteurs = {
+    // En mode setter, l'écran tient compte des actions en cours (Pas de réponse, Booké)
+    sette: (mode === 'sette' ? compteurSetter : null) ?? totalFiles(setterFiles.files),
+    close: agenda.aStatuerCount,
+  }
 
   if (!profile) return null
 
@@ -53,6 +63,17 @@ export default function MonEspace() {
     <Layout>
       {mode === 'sette' && (
         <SetterJournee profile={profile} droite={segment} setterFiles={setterFiles} onCompteur={setCompteurSetter} />
+      )}
+      {mode === 'close' && (
+        <CloseurAgenda profile={profile} droite={segment} agenda={agenda} />
+      )}
+      {/* Pop-up de statut existant : reste monté en mode closeur */}
+      {mode === 'close' && profile.id && (
+        <AppointmentStatusPopup
+          userId={profile.id}
+          ghlUserId={profile.ghl_user_id ?? null}
+          closerName={profile.full_name ?? null}
+        />
       )}
       {mode == null && (
         <div className="bg-white border border-[#e5e7eb] rounded-xl p-6 text-sm text-[#6b7280]">
