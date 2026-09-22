@@ -23,3 +23,7 @@ supabase/.temp/
 * [0-9].sql
 * [0-9].css
 * [0-9].json
+
+# Sorties des scripts d'audit commissions (contiennent des noms de clients)
+scripts/audit/
+scripts/baseline/
