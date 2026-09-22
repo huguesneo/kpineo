@@ -2,7 +2,7 @@
 
 Une ligne par décision : contexte → choix (alternative écartée).
 
-1. Maquettes Claude Design inaccessibles (`/design-login` ne peut pas tourner dans une session non interactive) → écrans construits à partir de la description du prompt et du style existant (Tailwind, `shared/Card`, `Button`, `Badge`) ; à ajuster une fois les maquettes relues (alternative : s'arrêter et attendre, exclu par la règle 7).
+1. Maquettes Claude Design : d'abord inaccessibles, puis importées après `/design-login` (6 fichiers lus : écrans 01 à 05 et `Sidebar NEO`) → écrans construits d'après elles ; en cas d'écart avec un composant existant, le composant existant gagne (`SetterDashboardView`, `CloserDashboardView`, `WeekView`…).
 2. `npm run lint` échouait sur `main` (aucune config ESLint) → ajout de `.eslintrc.cjs` : règles complètes sur `src/**/v2/**`, seulement les règles des hooks sur l'existant, `MetaAds.jsx` exclu (alternative : corriger les 227 remarques des fichiers existants, interdit par la règle 4).
 3. Les tests ont besoin de `.env` et de `scripts/baseline/` (non versionnés) → copiés depuis le dépôt principal et un autre worktree, non commités.
 4. « Appels faits aujourd'hui » : les notes GHL ne sont pas conservées dans Supabase → nouvelle table `v2_call_attempts` alimentée par le bouton « Appelé, pas de réponse » (alternative : `kpi_entries.daily_calls`, qui mélangerait saisie manuelle et automatique).
@@ -15,3 +15,15 @@ Une ligne par décision : contexte → choix (alternative écartée).
 11. File « À confirmer » : RDV à venir sur les calendriers découverte, statut `new` ou `confirmed`, dont la carte Vente est en `rdvBooke` ; si la carte n'est pas encore synchronisée, le RDV est gardé (alternative : l'écarter, au risque de rater des confirmations).
 12. Source chaude : source contenant « VS », « VSL » ou « quiz » (insensible à la casse) ; les sources réelles sont « Optin VS » et « Site web - Guide… ».
 13. Accès au scoreboard : ajout des rôles secondaires (un naturopathe qui close y a accès) en plus de `admin`, `resp_vente`, `closer`, `setter`.
+14. **Déjà en production (Supabase `cbqwrmyctsfdqmenczhm`)** : tables `lead_locks` et `v2_call_attempts` (RLS), Realtime sur `ghl_opportunities`, `ghl_appointments` et `lead_locks` (migration `20260922_v2_lead_locks.sql` appliquée le 22 sept. 2026), fonction `ghl-add-contact-tag` déployée, `ghl-webhook` redéployée (version 9). Tout est additif, mais ce n'est plus seulement dans la branche (alternative : attendre la fusion, qui aurait empêché de tester avec les vraies données).
+15. « Pas de réponse » : l'envoi à GHL (note + tag + journal) part après 8 secondes, pour que « Annuler » soit réel ; le compteur d'appels monte tout de suite (alternative : envoyer tout de suite, et « Annuler » n'aurait rien annulé).
+16. Verrou de 15 min : posé en ouvrant la fiche GHL, en cliquant « Booké » ou « Pas de réponse » ; levé après l'envoi ou « Annuler » (alternative : un bouton « Prendre », absent de la maquette).
+17. File « Lead à appeler » (~80 leads) : 10 lignes sur grand écran, 3 sur mobile, puis « Voir les N autres » (la maquette mobile montre ce principe).
+18. « Noté, relance demain 10 h » (maquette) devient « Tentative envoyée à GHL » : l'heure de relance dépend du workflow GHL, que l'app ne connaît pas.
+19. « Relancé » (décisions closeur) : note GHL ; l'état « Relancé aujourd'hui » est gardé dans le navigateur (localStorage), l'âge de la carte ne change pas, car il suit `lastStageChangeAt`.
+20. Show-ups du scoreboard : moteur de commissions (`computeSetterCommissions`), comme la paie, plutôt qu'un simple comptage de l'étape `showupConfirme` (alternative : compter l'étape, qui divergerait de ce qui est payé).
+21. Ventes du scoreboard : les deux pipelines closeurs avec `isSaleInScope` (bascule du 22 sept.), pour que septembre compte aussi les ventes d'avant la bascule.
+22. Scoreboard dans le menu : seulement pour admin et resp_vente ; setters et closeurs y vont par un lien en bas de « Mon espace » (le menu « après » de la maquette 05 a 5 entrées).
+23. Mode télé : les bannières « il te manque » de tous les membres tournent toutes les 15 s (maquette 04) ; hors télé, seulement celle de la personne connectée.
+24. La synchro GHL en production tourne toutes les 30 min (`ghl-incremental-sync`), pas 5 : sans les workflows GHL, les écrans peuvent avoir jusqu'à 30 min de retard.
+25. `.claude/launch.json` : ajout d'une entrée `espace-vente-v2` sur le port 5181, l'entrée existante (5180) est intacte.
