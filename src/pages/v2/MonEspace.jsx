@@ -81,7 +81,8 @@ export default function MonEspace() {
         </div>
       )}
 
-      <p className="mt-10 text-center text-xs text-[#9ca3af]">
+      <p className="mt-10 text-center text-xs text-[#9ca3af] flex items-center justify-center gap-4">
+        <Link to="/scoreboard" className="text-[#9ca3af] hover:text-[#6b7280] underline underline-offset-2">Scoreboard d'équipe</Link>
         <Link to={ancienneVue} className="text-[#9ca3af] hover:text-[#6b7280] underline underline-offset-2">Ancienne vue</Link>
       </p>
     </Layout>

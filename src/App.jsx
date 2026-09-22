@@ -30,6 +30,7 @@ import { hasSocialAccess } from './lib/socialAccess'
 // Espace de vente v2 (derrière VITE_ESPACE_VENTE_V2)
 import { ESPACE_VENTE_V2 } from './lib/v2/featureFlag'
 import MonEspaceV2 from './pages/v2/MonEspace'
+import ScoreboardV2 from './pages/v2/Scoreboard'
 
 const HUGUES_EMAIL = 'hugues@neoperformance.ca'
 
@@ -126,6 +127,9 @@ function AppRoutes() {
       {/* Espace de vente v2 : routes présentes seulement si le drapeau est actif */}
       {ESPACE_VENTE_V2 && (
         <Route path="/mon-espace-v2" element={<PrivateRoute><MonEspaceV2 /></PrivateRoute>} />
+      )}
+      {ESPACE_VENTE_V2 && (
+        <Route path="/scoreboard" element={<PrivateRoute><ScoreboardV2 /></PrivateRoute>} />
       )}
 
       {/* Admin + resp_vente — équipe de vente & naturopathe */}
