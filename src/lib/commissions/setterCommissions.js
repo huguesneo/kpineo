@@ -55,6 +55,8 @@ export const ANOMALIES = {
   rdv_pas_showed:          'RDV retenu pas « showed »',
   doublon_contact_rdv:     'Deux cartes sur le même contact + jour de RDV',
   doublon_contact_close:   'Deux bonus sur le même contact + jour de close',
+  bonus_rapproches:        'Deux bonus du même contact à moins de 30 jours',
+  legacy_bonus_apres_bascule: 'Bonus de l\'ancien pipeline avec une close après la bascule (0 $)',
   legacy_rdv_apres_bascule: 'Carte de l\'ancien pipeline avec un RDV après la bascule',
   contact_test:            'Contact test (exclu)',
 };
@@ -124,6 +126,17 @@ export function closeDateOf(raw, basculeDate = BASCULE_DATE, timeZone = TIMEZONE
   return d;
 }
 
+// Jour « métier » de la date de close : GHL enregistre ce champ date à minuit
+// UTC, donc la date UTC est la bonne (la lire à Montréal reculerait d'un jour).
+export function closeCalendarDay(raw, timeZone = TIMEZONE) {
+  const v = getField(raw, FIELD_DATE_CLOSE);
+  const d = parseGHLDate(v);
+  if (!d) return null;
+  const atUtcMidnight = d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0;
+  if (!isNaN(Number(v)) && atUtcMidnight) return d.toISOString().slice(0, 10);
+  return zonedDay(d, timeZone);
+}
+
 const TYPES_PAYES = { manuel: FLAT_MANUEL, automatique: FLAT_CONFIRM, rebooking: FLAT_REBOOK };
 
 function stageKinds(pipeline, opp, stageLabel) {
@@ -166,6 +179,10 @@ export function evaluateSetterPeriod({ opps, appts, stages, start: startDate, en
     hit.results.set(`${startDate}|${endDate}|${timeZone}`, result);
   }
   return result;
+}
+
+function inPeriodDate(d, start, end) {
+  return !!d && d >= start && d <= end;
 }
 
 function evaluateUncached({ opps, appts, stages, startDate, endDate, timeZone, config }) {
@@ -242,6 +259,13 @@ function evaluateUncached({ opps, appts, stages, startDate, endDate, timeZone, c
     const closeDate = closeDateOf(raw, config.basculeDate, timeZone);
 
     // Show-up : RDV dans la période ET dans la bonne tranche de la bascule
+    // Bonus vente : payé par le nouveau pipeline ; l'ancien ne paie plus que
+    // les ventes fermées avant la bascule (historique).
+    const closeDay = closeCalendarDay(raw, timeZone);
+    const bonusDansPeriode = k.bonus && inPeriod(closeDate);
+    const bonusPaye = bonusDansPeriode && (pipeline.role === 'nouveau' || (closeDay && closeDay < config.basculeDate));
+    const legacyBonusAfterC = bonusDansPeriode && !bonusPaye;
+
     const showupStage = k.showup || k.bonus;
     const rdvInPeriod = showupStage && inPeriod(dateField);
     const afterC = !!dateField && dateField >= bascule;
@@ -258,9 +282,11 @@ function evaluateUncached({ opps, appts, stages, startDate, endDate, timeZone, c
       noshow: k.noshow && isTypedBooking && inPeriod(dateField ?? createdDate),
       showupEligible: rdvInPeriod && belongs,
       montantShowup: rdvInPeriod && belongs ? (TYPES_PAYES[typeDeBooking] ?? 0) : 0,
-      won: k.bonus && inPeriod(closeDate),
-      bonus: k.bonus && inPeriod(closeDate) ? BONUS_VENTE : 0,
+      won: bonusPaye,
+      bonus: bonusPaye ? BONUS_VENTE : 0,
+      closeDay,
       legacyAfterC,
+      legacyBonusAfterC,
       anomalies: [],
     });
   });
@@ -290,6 +316,22 @@ function evaluateUncached({ opps, appts, stages, startDate, endDate, timeZone, c
   dedupe(cards.filter(c => c.bonus > 0), c => c.opp.contact_id && `${c.opp.contact_id}|${zonedDay(c.closeDate, timeZone)}`,
     'doublon_contact_close', c => { c.won = false; c.bonus = 0; });
 
+  // Deux bonus du même contact à moins de 30 jours, même avec des dates de
+  // close différentes : une seule vente a sans doute été comptée deux fois.
+  const bonusParContact = {};
+  cards.forEach(c => {
+    if (!c.k.bonus || !c.closeDate || c.isTest || !c.opp.contact_id) return;
+    (bonusParContact[c.opp.contact_id] ??= []).push(c);
+  });
+  const TRENTE_JOURS = 30 * 24 * 60 * 60 * 1000;
+  Object.values(bonusParContact).forEach(list => {
+    list.forEach(c => {
+      if (!c.bonus && !inPeriodDate(c.closeDate, start, end)) return;
+      const proche = list.some(o => o !== c && Math.abs(o.closeDate - c.closeDate) <= TRENTE_JOURS);
+      if (proche && !c.anomalies.includes('bonus_rapproches')) c.anomalies.push('bonus_rapproches');
+    });
+  });
+
   // Contrôles sur les show-ups retenus
   cards.forEach(c => {
     if (c.showupEligible) {
@@ -301,6 +343,7 @@ function evaluateUncached({ opps, appts, stages, startDate, endDate, timeZone, c
       if (!c.isTypedBooking) c.anomalies.push('type_inconnu');
     }
     if (c.legacyAfterC && !c.isTest) c.anomalies.push('legacy_rdv_apres_bascule');
+    if (c.legacyBonusAfterC && !c.isTest) c.anomalies.push('legacy_bonus_apres_bascule');
     if (!c.setter.trim() && !c.isTest && (c.showupEligible || c.bonus > 0)) c.anomalies.push('sans_setter');
   });
 

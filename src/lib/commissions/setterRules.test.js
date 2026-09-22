@@ -69,6 +69,31 @@ describe('bonus vente', () => {
     expect([r.totalShowups, r.totalBonus]).toEqual([0, 10]);
   });
 
+  it('ancien pipeline : bonus payé si la close est avant la bascule', () => {
+    const o = card({ stage: 'L-bonus', stageName: '💰 bonus vente', created: '2026-09-01T12:00:00Z', close: utcMidnight('2026-09-21') });
+    expect(run([o], [], '2026-09-13', '2026-09-26').totalBonus).toBe(10);
+  });
+
+  it('ancien pipeline : plus de bonus à partir de la bascule, et anomalie', () => {
+    const o = card({ stage: 'L-bonus', stageName: '💰 bonus vente', created: '2026-09-01T12:00:00Z', close: utcMidnight('2026-09-23') });
+    expect(run([o], [], '2026-09-13', '2026-09-26').totalBonus).toBe(0);
+    expect(anomalies([o], [], '2026-09-13', '2026-09-26')).toContain('legacy_bonus_apres_bascule');
+  });
+
+  it('deux bonus du même contact à moins de 30 jours : signalés', () => {
+    const contact = 'cR';
+    const a = card({ contact, pipeline: NOUVEAU, stage: S.nouveau.bonus, created: '2026-09-01T12:00:00Z', close: utcMidnight('2026-09-24') });
+    const b = card({ contact, pipeline: NOUVEAU, stage: S.nouveau.bonus, created: '2026-10-01T12:00:00Z', close: utcMidnight('2026-10-10') });
+    expect(anomalies([a, b], [], '2026-09-13', '2026-09-26')).toContain('bonus_rapproches');
+  });
+
+  it('deux bonus du même contact à plus de 30 jours : rien à signaler', () => {
+    const contact = 'cS';
+    const a = card({ contact, pipeline: NOUVEAU, stage: S.nouveau.bonus, created: '2026-09-01T12:00:00Z', close: utcMidnight('2026-09-24') });
+    const b = card({ contact, pipeline: NOUVEAU, stage: S.nouveau.bonus, created: '2026-11-01T12:00:00Z', close: utcMidnight('2026-11-20') });
+    expect(anomalies([a, b], [], '2026-09-13', '2026-09-26')).not.toContain('bonus_rapproches');
+  });
+
   it('show-up avant C, vente fermée après C sur le nouveau pipeline : bonus payé une fois', () => {
     const contact = 'cX';
     const legacy = card({ contact, stage: 'L-show', stageName: '📆  Show-up Confirmé.', created: '2026-09-10T12:00:00Z' });
@@ -81,7 +106,7 @@ describe('bonus vente', () => {
 
   it('deux cartes en bonus vente, même contact et même jour de close : un seul bonus', () => {
     const contact = 'cB';
-    const a = card({ contact, stage: 'L-bonus', stageName: '💰 bonus vente', created: '2026-09-01T12:00:00Z', close: utcMidnight('2026-09-24') });
+    const a = card({ contact, pipeline: NOUVEAU, stage: S.nouveau.bonus, created: '2026-09-01T12:00:00Z', close: utcMidnight('2026-09-24') });
     const b = card({ contact, pipeline: NOUVEAU, stage: S.nouveau.bonus, created: '2026-09-02T12:00:00Z', close: utcMidnight('2026-09-24') });
     const r = run([a, b], [], '2026-09-13', '2026-09-26');
     expect(r.totalBonus).toBe(10);
