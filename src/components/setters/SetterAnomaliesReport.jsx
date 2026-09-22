@@ -60,7 +60,10 @@ export default function SetterAnomaliesReport({ setters }) {
       .map(code => ({ code, libelle: ANOMALIES[code], rows: anomalies.filter(a => a.code === code) }))
       .filter(g => g.rows.length > 0)
     const bloquantes = anomalies.filter(a => !INFO_SEULEMENT.has(a.code)).length
-    return { totals, groups, bloquantes, total: anomalies.length }
+    // Montant « perdu » : ce que paieraient les cartes sans setter si elles en avaient un.
+    const sansSetter = anomalies.filter(a => a.code === 'sans_setter')
+    const perdu = sansSetter.reduce((s, a) => s + (a.montant_potentiel ?? 0), 0)
+    return { totals, groups, bloquantes, total: anomalies.length, perdu, perduCartes: sansSetter.length }
   }, [data, period, setters])
 
   return (
@@ -103,6 +106,12 @@ export default function SetterAnomaliesReport({ setters }) {
             <p className="text-xs text-[#6b7280] mt-1">
               Règle de paie : on ne paie une période que si ce rapport est vide ou si chaque ligne est expliquée.
             </p>
+            {report.perdu > 0 && (
+              <p className="text-sm font-bold text-[#f59e0b] mt-2">
+                {fmtCAD(report.perdu)} non payés faute de setter
+                <span className="font-normal text-[#6b7280]"> · {report.perduCartes} carte{report.perduCartes > 1 ? 's' : ''} payable{report.perduCartes > 1 ? 's' : ''} sans setter__nom</span>
+              </p>
+            )}
             {report.totals.length > 0 && (
               <p className="text-xs text-[#6b7280] mt-2">
                 Totaux calculés : {report.totals.map(t => `${t.name} ${fmtCAD(t.total)}`).join(' · ')}
@@ -129,6 +138,7 @@ export default function SetterAnomaliesReport({ setters }) {
                       <th className="px-3 py-2">Statut RDV</th>
                       <th className="px-3 py-2">Close</th>
                       <th className="px-3 py-2 text-right">Payé</th>
+                      {g.code === 'sans_setter' && <th className="px-3 py-2 text-right">Perdu</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -143,6 +153,7 @@ export default function SetterAnomaliesReport({ setters }) {
                         <td className="px-3 py-2">{a.statut_rdv ?? '—'}</td>
                         <td className="px-3 py-2 whitespace-nowrap">{fmtDate(a.date_de_close)}</td>
                         <td className="px-3 py-2 text-right font-semibold">{fmtCAD(a.montant_retenu)}</td>
+                        {g.code === 'sans_setter' && <td className="px-3 py-2 text-right font-semibold text-[#f59e0b]">{fmtCAD(a.montant_potentiel)}</td>}
                       </tr>
                     ))}
                   </tbody>

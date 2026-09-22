@@ -363,6 +363,8 @@ function evaluateUncached({ opps, appts, stages, startDate, endDate, timeZone, c
     date_de_close: c.closeDate ? c.closeDate.toISOString() : null,
     // Ce qui sera réellement payé (0 si personne à payer)
     montant_retenu: c.setter.trim() && !c.isTest ? c.montantShowup + c.bonus : 0,
+    // Ce que la carte paierait si elle avait un setter (montant « perdu »)
+    montant_potentiel: c.montantShowup + c.bonus,
   })));
 
   return { cards, anomalies };
