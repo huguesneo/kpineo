@@ -27,3 +27,5 @@ Une ligne par décision : contexte → choix (alternative écartée).
 23. Mode télé : les bannières « il te manque » de tous les membres tournent toutes les 15 s (maquette 04) ; hors télé, seulement celle de la personne connectée.
 24. La synchro GHL en production tourne toutes les 30 min (`ghl-incremental-sync`), pas 5 : sans les workflows GHL, les écrans peuvent avoir jusqu'à 30 min de retard.
 25. `.claude/launch.json` : ajout d'une entrée `espace-vente-v2` sur le port 5181, l'entrée existante (5180) est intacte.
+26. Admin et resp_vente ont les deux modes dans « Mon espace » (supervision), même sans rôle setter ou closeur ; « Mon espace » apparaît donc aussi dans leur menu quand le drapeau est actif (alternative : réserver le mode aux rôles exacts, et l'admin ne verrait jamais les files setter).
+27. Contacts test (`TEST_CONTACT_IDS` du moteur de commissions) exclus des files setter et des décisions ; ventes sans closeur exclues du classement du scoreboard.

@@ -92,7 +92,7 @@ export default function Sidebar() {
 
   // Espace de vente v2 : « Mon espace » remplace Closer, Setter et Calendrier
   // dans le menu (ces pages restent routables et joignables par « Ancienne vue »).
-  const v2Actif = ESPACE_VENTE_V2 && (hasCloserRole || hasSetterRole)
+  const v2Actif = ESPACE_VENTE_V2 && (hasCloserRole || hasSetterRole || isAdminOrRespVente)
 
   // Badge "Équipe de vente" : ventes sans closer pour le mois courant (admin only)
   const _now = new Date()

@@ -1,5 +1,5 @@
 // Logique pure de l'écran closeur « Mon agenda et mes deals ».
-import { PIPELINE_VENTE, PIPELINE_SETTING, DELAIS, FIELDS, CALENDARS } from './salesConfig'
+import { PIPELINE_VENTE, PIPELINE_SETTING, DELAIS, FIELDS, CALENDARS, CONTACTS_TEST } from './salesConfig'
 import { closerFieldMatches } from '../ghlHelpers'
 
 const HEURE = 3_600_000
@@ -67,7 +67,7 @@ export function mesDecisions(opps, closerName, now = Date.now()) {
   const S = PIPELINE_VENTE.stages
   const etapes = { [S.rdvDecisionBooke]: 'RDV décision bookée', [S.enDecision]: 'En décision' }
   return (opps ?? [])
-    .filter(o => o.pipeline_id === PIPELINE_VENTE.id && etapes[o.pipeline_stage_id])
+    .filter(o => o.pipeline_id === PIPELINE_VENTE.id && etapes[o.pipeline_stage_id] && !CONTACTS_TEST.has(o.contact_id))
     .filter(o => closerFieldMatches(String(champ(o.raw, FIELDS.closer) ?? '').trim(), closerName))
     .map(o => {
       const depuis = o.raw?.lastStageChangeAt ?? o.created_at_ghl

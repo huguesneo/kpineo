@@ -23,7 +23,9 @@ export function ventesParCloseur(opps, start, end) {
   const compte = new Map()
   for (const o of opps ?? []) {
     if (!isWonStage(o) || !isSaleInScope(o) || !isCloseInPeriod(o, start, end)) continue
-    const nom = prenomCloseur(getCloserField(o)) || 'Sans closeur'
+    // Une vente sans closeur ne va dans aucun classement (hygiène : DataHygienePanel)
+    const nom = prenomCloseur(getCloserField(o))
+    if (!nom) continue
     compte.set(nom, (compte.get(nom) ?? 0) + 1)
   }
   return classement([...compte].map(([nom, valeur]) => ({ nom, valeur })))

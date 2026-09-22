@@ -3,7 +3,7 @@
 // Jamais setter_shared_tasks : les files se déduisent de GHL.
 import {
   PIPELINE_SETTING, PIPELINE_VENTE, CALENDARS_DECOUVERTE, DELAIS, FIELDS,
-  TENTATIVE_PAR_ETAPE, SOURCES_CHAUDES,
+  TENTATIVE_PAR_ETAPE, SOURCES_CHAUDES, CONTACTS_TEST,
 } from './salesConfig'
 
 const HEURE = 3_600_000
@@ -89,7 +89,10 @@ export function carteLead({ contactId, nom, source, creeLe, stageId = null, opp 
 // opps  : cartes des pipelines setting et Vente
 // appts : RDV (au moins les 72 dernières heures et les 24 prochaines)
 // userNames : { ghl_user_id: 'Prénom' } pour nommer le closeur d'un RDV
-export function computeSetterFiles({ opps = [], appts = [], now = Date.now(), userNames = {} } = {}) {
+export function computeSetterFiles({ opps: toutesOpps = [], appts: tousAppts = [], now = Date.now(), userNames = {} } = {}) {
+  // Les contacts test ne sont jamais à appeler (même liste que le moteur de commissions)
+  const opps = toutesOpps.filter(o => !CONTACTS_TEST.has(o.contact_id))
+  const appts = tousAppts.filter(a => !CONTACTS_TEST.has(a.contact_id))
   const idx = indexer(opps, appts, now)
   const ctx = { ...idx, now, userNames }
   const S = PIPELINE_SETTING.stages

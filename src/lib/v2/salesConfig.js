@@ -4,10 +4,13 @@
 // (src/lib/commissions/config.js) : on les réexporte, on ne les recopie pas.
 import {
   BASCULE_DATE, PIPELINE_SETTING_LEGACY, PIPELINE_SETTING_NOUVEAU,
-  PIPELINE_CLOSER_LEGACY, PIPELINE_CLOSER_VENTE, STAGE_VENTE_EN_DECISION,
+  PIPELINE_CLOSER_LEGACY, PIPELINE_CLOSER_VENTE, STAGE_VENTE_EN_DECISION, TEST_CONTACT_IDS,
 } from '../commissions/config'
 
 export { BASCULE_DATE as DATE_BASCULE, PIPELINE_SETTING_LEGACY, PIPELINE_CLOSER_LEGACY }
+
+// Contacts test (« Hugues Pugliese ») : jamais dans les files ni les décisions
+export const CONTACTS_TEST = new Set(TEST_CONTACT_IDS)
 
 export const GHL_LOCATION_ID = 'YG2spvWJqnD75L3V95UJ'
 

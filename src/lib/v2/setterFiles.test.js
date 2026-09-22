@@ -109,3 +109,17 @@ describe('rdvBookesAujourdhui', () => {
     expect(rdvBookesAujourdhui({ appts, opps, setterName: '', now: NOW })).toBe(0)
   })
 })
+
+describe('contacts test', () => {
+  it('ne sont jamais dans les files', async () => {
+    const { TEST_CONTACT_IDS } = await import('../commissions/config')
+    const test = TEST_CONTACT_IDS[0]
+    const { aRebooker, aAppeler } = computeSetterFiles({
+      opps: [oppSetting(test, S.nouveau), oppSetting('z', S.nouveau)],
+      appts: [appt('t1', test, h(-2), 'noshow')],
+      now: NOW,
+    })
+    expect(aAppeler.map(l => l.contactId)).toEqual(['z'])
+    expect(aRebooker).toEqual([])
+  })
+})

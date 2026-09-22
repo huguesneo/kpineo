@@ -19,12 +19,14 @@ function ecrireMode(m) {
   try { localStorage.setItem(CLE_MODE, m) } catch { /* navigation privée */ }
 }
 
-// Modes accessibles selon le rôle principal et les rôles secondaires
+// Modes accessibles selon le rôle principal et les rôles secondaires.
+// Admin et resp_vente supervisent l'équipe : ils ont les deux modes.
 export function modesDuProfil(profile) {
   const roles = [profile?.role, ...(profile?.secondary_roles ?? [])]
+  const superviseur = roles.includes('admin') || roles.includes('resp_vente')
   const modes = []
-  if (roles.includes('setter')) modes.push('sette')
-  if (roles.includes('closer')) modes.push('close')
+  if (superviseur || roles.includes('setter')) modes.push('sette')
+  if (superviseur || roles.includes('closer')) modes.push('close')
   return modes
 }
 

@@ -22,6 +22,7 @@ describe('scoreboard', () => {
       vente('Brice NEO', '2026-09-23'), vente('brice', '2026-09-25'), vente('Vicky NEO', '2026-09-24'),
       vente('Vicky NEO', '2026-10-02'), vente('Vicky NEO', '2026-09-24', '🤔 En décision'),
       vente('Pascal NEO', '2026-09-10'), // pipeline Vente avant la bascule : hors périmètre
+      vente('', '2026-09-24'),           // sans closeur : hors classement
     ], '2026-09-01', '2026-09-30')
     expect(r.map(x => [x.nom, x.valeur, x.rang, x.largeur])).toEqual([['Brice', 2, 1, 100], ['Vicky', 1, 2, 50]])
   })
