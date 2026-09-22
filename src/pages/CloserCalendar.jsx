@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { format, startOfWeek, endOfWeek, addDays, addWeeks, subWeeks, isToday } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { supabase } from '../lib/supabase'
+import { fetchCloserOpps } from '../lib/ghlHelpers'
 import { useAuth } from '../context/AuthContext'
 import Layout from '../components/layout/Layout'
 import Header from '../components/layout/Header'
@@ -28,10 +29,8 @@ async function fetchAppts({ ghlUserId, closerName, weekStart, weekEnd }) {
   }
 
   if (closerName) {
-    const { data: opps } = await supabase
-      .from('ghl_opportunities')
-      .select('contact_id, raw')
-      .eq('pipeline_id', 'YPTruORTl0LOSdS2vWJS')
+    // Les deux pipelines closeurs, paginés (l'ancienne requête plafonnait à 1000)
+    const opps = await fetchCloserOpps('contact_id, raw')
 
     const nl        = closerName.trim().toLowerCase()
     const firstName = nl.split(' ')[0]

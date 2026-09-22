@@ -13,6 +13,8 @@ import {
   closeDateForDisplay,
   isCloseInPeriod,
   isWonStage,
+  isSaleInScope,
+  fetchCloserOpps,
   closerFieldMatches,
   getCloserField,
 } from '../lib/ghlHelpers'
@@ -49,16 +51,11 @@ export const APPT_STATUS_COLORS = {
   pending:    { bg: '#6b728018', text: '#6b7280' },
 }
 
-// ─── Chargement paginé des opportunités du pipeline closer ────
-// Une seule source pour toutes les requêtes → jamais de cap à 1000.
+// ─── Chargement paginé des opportunités closeurs ──────────────
+// Les deux pipelines (ancien « Rencontre découverte » + « 🎯 Vente »),
+// jamais de cap à 1000. Les ventes se filtrent avec isSaleInScope.
 async function loadCloserOpps(columns = 'contact_id, contact_name, stage_name, raw, closed_at, monetary_value, ghl_id') {
-  return fetchAllRows((from, to) =>
-    supabase
-      .from('ghl_opportunities')
-      .select(columns)
-      .eq('pipeline_id', GHL_PIPELINE_CLOSER)
-      .range(from, to)
-  )
+  return fetchCloserOpps(columns)
 }
 
 // ─── useCloserAppointments ────────────────────────────────────
@@ -142,7 +139,7 @@ export function useCloserSales(closerName, startDate, endDate, ghlUserId = null)
 
     const won = opps.filter(o => {
       if (!closerFieldMatches(getCloserField(o), closerName)) return false
-      if (!isWonStage(o)) return false
+      if (!isWonStage(o) || !isSaleInScope(o)) return false
       return isCloseInPeriod(o, startDate, endDate)
     }).map(o => ({
       contactId:      o.contact_id ?? null,
@@ -231,7 +228,7 @@ export function useCloserMonthStats(closerName, startDate, endDate, ghlUserId = 
     ).length
 
     // Ventes (stage Gagné + date de close dans la période)
-    const salesCount = myOpps.filter(o => isWonStage(o) && isCloseInPeriod(o, startDate, endDate)).length
+    const salesCount = myOpps.filter(o => isWonStage(o) && isSaleInScope(o) && isCloseInPeriod(o, startDate, endDate)).length
 
     const closeRate = hotCount > 0 ? Math.round((salesCount / hotCount) * 100) : null
 
@@ -259,7 +256,7 @@ export function useUnassignedSales(startDate, endDate) {
 
     const unassigned = opps.filter(o => {
       if (getCloserField(o)) return false          // a déjà un closer
-      if (!isWonStage(o)) return false
+      if (!isWonStage(o) || !isSaleInScope(o)) return false
       return isCloseInPeriod(o, startDate, endDate)
     }).map(o => ({
       ghlId:       o.ghl_id,

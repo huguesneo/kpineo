@@ -5,9 +5,10 @@ import Card from '../shared/Card'
 import { SkeletonCard } from '../shared/Skeleton'
 import { supabase } from '../../lib/supabase'
 import {
-  GHL_PIPELINE_CLOSER,
   fetchAllRows,
+  fetchCloserOpps,
   isWonStage,
+  isSaleInScope,
   getCloserField,
   ghlCloseCalendarDate,
   closeDateForDisplay,
@@ -40,12 +41,8 @@ function useDataHygiene() {
     const unstatused = appts.filter(a => !FINAL_STATUSES.has(String(a.status ?? '')))
 
     // Opportunités gagnées : sans closer / sans date de close
-    const opps = await fetchAllRows((from, to) => supabase
-      .from('ghl_opportunities')
-      .select('ghl_id, contact_name, stage_name, raw, closed_at')
-      .eq('pipeline_id', GHL_PIPELINE_CLOSER)
-      .range(from, to))
-    const won = opps.filter(isWonStage)
+    const opps = await fetchCloserOpps('ghl_id, contact_name, stage_name, raw, closed_at')
+    const won = opps.filter(o => isWonStage(o) && isSaleInScope(o))
 
     const noCloser = won
       .filter(o => !getCloserField(o))

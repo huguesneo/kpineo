@@ -7,7 +7,9 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-const GHL_PIPELINE_CLOSER  = 'YPTruORTl0LOSdS2vWJS'
+// Ancien « Rencontre découverte » + « 🎯 Vente » (bascule du 22 sept. 2026).
+// Le dédoublonnage par (closer, client) plus bas évite tout double comptage.
+const GHL_PIPELINES_CLOSER = ['YPTruORTl0LOSdS2vWJS', 'pc4eWgm1TOfZgMgqh6Gv']
 const GHL_FIELD_CLOSER     = 'JSltN3nE7nm4cUjuGxTs'
 const GHL_FIELD_DATE_CLOSE = 'UPqvJX8MkZ4thsPX2tjV'
 
@@ -55,16 +57,23 @@ Deno.serve(async (req) => {
     const dryRun = body.dryRun === true
 
     // Lire toutes les opportunités Gagné du pipeline closer
-    const { data: ghlOpps, error: oppsErr } = await supabase
-      .from('ghl_opportunities')
-      .select('contact_name, raw, closed_at, stage_name')
-      .eq('pipeline_id', GHL_PIPELINE_CLOSER)
-
-    if (oppsErr) return json({ error: oppsErr.message }, 500)
+    // Paginé : la requête unique plafonnait à 1000 lignes
+    const ghlOpps: unknown[] = []
+    for (let from = 0; ; from += 1000) {
+      const { data, error: oppsErr } = await supabase
+        .from('ghl_opportunities')
+        .select('contact_name, raw, closed_at, stage_name')
+        .in('pipeline_id', GHL_PIPELINES_CLOSER)
+        .order('id')
+        .range(from, from + 999)
+      if (oppsErr) return json({ error: oppsErr.message }, 500)
+      ghlOpps.push(...(data ?? []))
+      if ((data?.length ?? 0) < 1000) break
+    }
 
     type GHLOpp = { contact_name: string | null; raw: Record<string, unknown> | null; closed_at: string | null; stage_name: string | null }
     const opps = (ghlOpps as GHLOpp[]) ?? []
-    console.log(`[Backfill] ${opps.length} opportunités dans le pipeline closer`)
+    console.log(`[Backfill] ${opps.length} opportunités dans les pipelines closeurs`)
 
     const rows: { closer_name: string; client_name: string; client_name_lower: string; first_close_date: string | null }[] = []
     const skipped: string[] = []

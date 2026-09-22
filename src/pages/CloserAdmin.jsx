@@ -15,9 +15,10 @@ import {
   useCloserCashCollected,
 } from '../hooks/useCloserData'
 import {
-  GHL_PIPELINE_CLOSER,
   fetchAllRows,
+  fetchCloserOpps,
   isWonStage,
+  isSaleInScope,
   isCloseInPeriod,
   closerFieldMatches,
   getCloserField,
@@ -72,11 +73,8 @@ function useAllCloserStats(closers, startDate, endDate) {
     setLoading(true)
 
     // Charger toutes les opportunités du pipeline (paginé → jamais capé à 1000)
-    const opps = await fetchAllRows((from, to) => supabase
-      .from('ghl_opportunities')
-      .select('contact_id, stage_name, raw, closed_at, contact_name')
-      .eq('pipeline_id', GHL_PIPELINE_CLOSER)
-      .range(from, to))
+    // Les deux pipelines closeurs (ancien + « 🎯 Vente »)
+    const opps = await fetchCloserOpps('contact_id, stage_name, raw, closed_at, contact_name')
 
     // Tous les RDV de la période, en une passe paginée
     const allAppts = await fetchAllRows((from, to) => supabase
@@ -121,7 +119,7 @@ function useAllCloserStats(closers, startDate, endDate) {
       const showUpPct  = rdvCount > 0 ? Math.round((shows / rdvCount) * 100) : null
       const noShowPct  = rdvCount > 0 ? Math.round((noShows / rdvCount) * 100) : null
 
-      const wonSales = myOpps.filter(o => isWonStage(o) && isCloseInPeriod(o, startDate, endDate))
+      const wonSales = myOpps.filter(o => isWonStage(o) && isSaleInScope(o) && isCloseInPeriod(o, startDate, endDate))
 
       const ventesCount  = wonSales.length
       const closeRate    = shows > 0 ? Math.round((ventesCount / shows) * 100) : null

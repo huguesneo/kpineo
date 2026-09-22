@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
+import { fetchCloserOpps } from '../lib/ghlHelpers'
 import { format, subDays } from 'date-fns'
 
-const GHL_PIPELINE_CLOSER = 'YPTruORTl0LOSdS2vWJS'
 const GHL_FIELD_CLOSER    = 'JSltN3nE7nm4cUjuGxTs'
 
 function ghlToEodStatus(ghlStatus) {
@@ -106,10 +106,8 @@ async function fetchAppointmentsForDate(date, ghlUserId, closerName) {
   }
 
   if (closerName) {
-    const { data: opps } = await supabase
-      .from('ghl_opportunities')
-      .select('contact_id, raw')
-      .eq('pipeline_id', GHL_PIPELINE_CLOSER)
+    // Les deux pipelines closeurs, paginés (l'ancienne requête plafonnait à 1000)
+    const opps = await fetchCloserOpps('contact_id, raw')
 
     const nl        = closerName.trim().toLowerCase()
     const firstName = nl.split(' ')[0]

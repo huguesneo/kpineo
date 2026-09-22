@@ -4,9 +4,14 @@
 // Une seule source de vérité = plus de divergence entre les écrans.
 
 import { supabase } from './supabase'
+import { BASCULE_DATE, CLOSER_PIPELINES, PIPELINE_CLOSER_LEGACY, PIPELINE_CLOSER_VENTE } from './commissions/config'
 
 // ─── Constantes ───────────────────────────────────────────────
-export const GHL_PIPELINE_CLOSER   = 'YPTruORTl0LOSdS2vWJS'
+// Ancien pipeline « Rencontre découverte ». Depuis la bascule (BASCULE_DATE),
+// les closeurs travaillent dans « 🎯 Vente » : lire GHL_PIPELINES_CLOSER.
+export const GHL_PIPELINE_CLOSER   = PIPELINE_CLOSER_LEGACY
+export const GHL_PIPELINE_VENTE    = PIPELINE_CLOSER_VENTE
+export const GHL_PIPELINES_CLOSER  = CLOSER_PIPELINES
 export const GHL_CALENDAR_DECISION  = 'BQK4NoyrVNuJA3e1VHDH'
 export const GHL_STAGE_GAGNE        = '🏆 Gagné'
 export const GHL_FIELD_CLOSER       = 'JSltN3nE7nm4cUjuGxTs'
@@ -133,6 +138,28 @@ export function isCloseInPeriod(opp, startDate, endDate) {
 export function isWonStage(opp) {
   const stageName = String(opp?.stage_name ?? opp?.raw?.pipelineStage?.name ?? '')
   return stageName.includes('Gagné') || stageName.toLowerCase().includes('gagne')
+}
+
+// ─── Deux pipelines closeurs (bascule) ────────────────────────
+// Une vente fermée avant la bascule se lit dans l'ancien pipeline, à partir
+// de la bascule dans « 🎯 Vente » : une même vente n'est jamais comptée deux
+// fois. Sans date de close, la carte reste visible (contrôle d'hygiène).
+// Nécessite pipeline_id dans le select.
+export function isSaleInScope(opp) {
+  const day = closeCalendarDate(opp)
+  if (opp?.pipeline_id === PIPELINE_CLOSER_VENTE) return !day || day >= BASCULE_DATE
+  return !day || day < BASCULE_DATE
+}
+
+// Toutes les opportunités closeurs (les deux pipelines), paginées.
+export function fetchCloserOpps(columns) {
+  const cols = columns.includes('pipeline_id') ? columns : `${columns}, pipeline_id`
+  return fetchAllRows((from, to) => supabase
+    .from('ghl_opportunities')
+    .select(cols)
+    .in('pipeline_id', GHL_PIPELINES_CLOSER)
+    .order('id')
+    .range(from, to))
 }
 
 // ─── Matching closer ──────────────────────────────────────────
