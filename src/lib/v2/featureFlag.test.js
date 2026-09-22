@@ -8,6 +8,6 @@ describe('drapeau VITE_ESPACE_VENTE_V2', () => {
     expect(isEspaceVenteV2({ VITE_ESPACE_VENTE_V2: 'false' })).toBe(false)
     expect(isEspaceVenteV2({ VITE_ESPACE_VENTE_V2: '1' })).toBe(false)
     expect(isEspaceVenteV2({})).toBe(false)
-    expect(isEspaceVenteV2(undefined)).toBe(false)
+    expect(isEspaceVenteV2(null)).toBe(false)
   })
 })
