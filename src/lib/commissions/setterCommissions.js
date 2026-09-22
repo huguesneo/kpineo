@@ -68,7 +68,8 @@ export function getField(rawObj, idOrKey) {
     cf => cf.id === idOrKey || cf.key === idOrKey || cf.fieldKey === idOrKey
   );
   if (!f) return null;
-  return f.fieldValueNumber ?? f.fieldValueString ?? f.fieldValueDate ?? f.value ?? null;
+  // fieldValue : format renvoyé par GET /opportunities/{id} (resync des edge functions)
+  return f.fieldValueNumber ?? f.fieldValueString ?? f.fieldValueDate ?? f.fieldValue ?? f.value ?? null;
 }
 
 // Parse une date GHL (timestamp Unix ms ou string ISO)

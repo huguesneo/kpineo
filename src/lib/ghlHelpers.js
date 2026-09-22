@@ -63,7 +63,8 @@ export function getGHLField(raw, fieldId) {
   const fields = raw?.customFields ?? []
   const f = fields.find(f => f.id === fieldId || f.key === fieldId || f.fieldKey === fieldId)
   if (!f) return null
-  return f.fieldValueNumber ?? f.fieldValueString ?? f.fieldValueDate ?? f.value ?? null
+  // fieldValue : format renvoyé par GET /opportunities/{id} (resync des edge functions)
+  return f.fieldValueNumber ?? f.fieldValueString ?? f.fieldValueDate ?? f.fieldValue ?? f.value ?? null
 }
 
 // ─── Parser une date GHL (Unix ts ou ISO) → Date ──────────────

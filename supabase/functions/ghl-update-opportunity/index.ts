@@ -13,6 +13,12 @@ const GHL_VERSION = '2021-07-28'
 const GHL_FIELD_CLOSER     = 'JSltN3nE7nm4cUjuGxTs'
 const GHL_FIELD_DATE_CLOSE = 'UPqvJX8MkZ4thsPX2tjV'
 const GHL_PIPELINE_CLOSER  = 'YPTruORTl0LOSdS2vWJS'
+// opportunity.objection_principale (liste : Prix, Temps, Conjoint, Autre)
+const GHL_FIELD_OBJECTION  = 'zrl9xl1YyMLfdjMGlOAB'
+// L'objection s'écrit UNIQUEMENT sur la carte du pipeline Vente, jamais sur
+// la carte Setting du même contact.
+const GHL_PIPELINE_VENTE   = 'pc4eWgm1TOfZgMgqh6Gv'
+const OBJECTIONS = ['Prix', 'Temps', 'Conjoint', 'Autre']
 
 // Clé du champ custom contact {{ contact.closer_neo }}
 const GHL_CONTACT_FIELD_CLOSER_NEO = 'closer_neo'
@@ -43,29 +49,56 @@ Deno.serve(async (req) => {
     )
 
     const body = await req.json() as {
-      ghlOpportunityId?: string
-      closerName?:       string
-      closeDate?:        string   // ISO date string: "YYYY-MM-DD"
+      ghlOpportunityId?:   string
+      closerName?:         string
+      closeDate?:          string   // ISO date string: "YYYY-MM-DD"
+      contactId?:          string   // pour objectionPrincipale sans id d'opportunité
+      objectionPrincipale?: string  // Prix | Temps | Conjoint | Autre
     }
 
-    const { ghlOpportunityId, closerName, closeDate } = body
+    const { closerName, closeDate, objectionPrincipale } = body
+    let { ghlOpportunityId } = body
 
-    if (!ghlOpportunityId) return json({ error: 'ghlOpportunityId requis' }, 400)
-    if (!closerName) return json({ error: 'closerName requis' }, 400)
+    if (objectionPrincipale && !OBJECTIONS.includes(objectionPrincipale)) {
+      return json({ error: `objectionPrincipale invalide (attendu : ${OBJECTIONS.join(', ')})` }, 400)
+    }
+    if (!closerName && !objectionPrincipale) return json({ error: 'closerName ou objectionPrincipale requis' }, 400)
+
+    // Sans id d'opportunité : on prend la carte du pipeline Vente du contact.
+    if (!ghlOpportunityId && body.contactId) {
+      const { data: venteOpps } = await supabase
+        .from('ghl_opportunities')
+        .select('ghl_id, status')
+        .eq('contact_id', body.contactId)
+        .eq('pipeline_id', GHL_PIPELINE_VENTE)
+      const opp = (venteOpps ?? []).find((o: { status: string }) => o.status === 'open') ?? (venteOpps ?? [])[0]
+      if (!opp) {
+        console.warn(`[ghl-update-opportunity] Aucune carte Vente pour le contact ${body.contactId}`)
+        return json({ error: 'Aucune carte du pipeline Vente pour ce contact', skipped: true })
+      }
+      ghlOpportunityId = opp.ghl_id
+    }
+
+    if (!ghlOpportunityId) return json({ error: 'ghlOpportunityId ou contactId requis' }, 400)
 
     // ── Récupérer le contact_id depuis Supabase ───────────────
     const { data: existing } = await supabase
       .from('ghl_opportunities')
-      .select('contact_id, stage_name, location_id')
+      .select('contact_id, stage_name, location_id, pipeline_id')
       .eq('ghl_id', ghlOpportunityId)
       .maybeSingle()
 
-    const contactId = existing?.contact_id ?? null
+    const contactId = existing?.contact_id ?? body.contactId ?? null
+
+    // Garde-fou : ne jamais écrire l'objection ailleurs que sur une carte Vente
+    if (objectionPrincipale && existing && existing.pipeline_id !== GHL_PIPELINE_VENTE) {
+      return json({ error: 'L\'objection ne s\'écrit que sur une carte du pipeline Vente' }, 400)
+    }
 
     // ── 1. Mettre à jour l'opportunité GHL ────────────────────
-    const oppCustomFields: { id: string; field_value: string }[] = [
-      { id: GHL_FIELD_CLOSER, field_value: closerName.trim() },
-    ]
+    const oppCustomFields: { id: string; field_value: string }[] = []
+    if (closerName) oppCustomFields.push({ id: GHL_FIELD_CLOSER, field_value: closerName.trim() })
+    if (objectionPrincipale) oppCustomFields.push({ id: GHL_FIELD_OBJECTION, field_value: objectionPrincipale })
 
     const ghlRes = await fetch(`${GHL_BASE}/opportunities/${ghlOpportunityId}`, {
       method: 'PUT',
@@ -81,7 +114,7 @@ Deno.serve(async (req) => {
 
     const ghlData = await ghlRes.json() as Record<string, unknown>
     const updatedOpp = (ghlData?.opportunity ?? ghlData) as Record<string, unknown>
-    console.log(`[GHL] Opportunité ${ghlOpportunityId} mise à jour — closer: "${closerName}" closeDate: "${closeDate}"`)
+    console.log(`[GHL] Opportunité ${ghlOpportunityId} mise à jour — closer: "${closerName ?? '—'}" objection: "${objectionPrincipale ?? '—'}" closeDate: "${closeDate}"`)
 
     // ── 2. Mettre à jour le champ contact.closer_neo ──────────
     if (closerName && contactId) {
@@ -146,16 +179,17 @@ Deno.serve(async (req) => {
       if (current?.raw) {
         const raw = current.raw as Record<string, unknown>
         const fields = ((raw.customFields ?? []) as Record<string, unknown>[]).filter(
-          (f) => f.id !== GHL_FIELD_CLOSER && f.id !== GHL_FIELD_DATE_CLOSE
+          (f) => f.id !== GHL_FIELD_CLOSER && f.id !== GHL_FIELD_DATE_CLOSE && f.id !== GHL_FIELD_OBJECTION
         )
-        fields.push({ id: GHL_FIELD_CLOSER, fieldValueString: closerName.trim(), value: closerName.trim() })
+        if (closerName) fields.push({ id: GHL_FIELD_CLOSER, fieldValueString: closerName.trim(), value: closerName.trim() })
+        if (objectionPrincipale) fields.push({ id: GHL_FIELD_OBJECTION, fieldValueString: objectionPrincipale, value: objectionPrincipale })
         await supabase.from('ghl_opportunities')
           .update({ raw: { ...raw, customFields: fields }, synced_at: new Date().toISOString() })
           .eq('ghl_id', ghlOpportunityId)
       }
     }
 
-    return json({ ok: true, opportunity: updatedOpp })
+    return json({ ok: true, opportunityId: ghlOpportunityId, opportunity: updatedOpp })
 
   } catch (err) {
     console.error('ghl-update-opportunity error:', err)

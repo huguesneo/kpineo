@@ -26,6 +26,14 @@ export const EOD_STATUSES = [
   { value: 'annule', label: 'Annulé' },
 ]
 
+// Objections : même liste que le champ GHL opportunity.objection_principale
+export const EOD_OBJECTIONS = [
+  { value: 'Prix',     label: 'Prix' },
+  { value: 'Temps',    label: 'Temps' },
+  { value: 'Conjoint', label: 'Conjoint' },
+  { value: 'Autre',    label: 'Autre' },
+]
+
 export const EOD_FEEDBACK_OPTIONS = [
   { value: 'A+', label: 'A+ — Très bien préparé' },
   { value: 'A',  label: 'A — Bien préparé' },
@@ -46,7 +54,8 @@ export function rowFromAppointment(appt) {
     rdv_decision:       null,   // null | true | false — affiché seulement si is_closed === false
     feedback:           '',     // '' | 'A+' | 'A' | 'B' | 'C' | 'D'
     action_plan:        '',
-    objection_reason:   '',
+    objection_principale: '', // '' | 'Prix' | 'Temps' | 'Conjoint' | 'Autre' — obligatoire si is_closed === false
+    objection_reason:   '',   // précision libre, demandée seulement si « Autre »
   }
 }
 

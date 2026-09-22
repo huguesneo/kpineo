@@ -4,7 +4,7 @@ import { fr } from 'date-fns/locale'
 import { supabase } from '../../lib/supabase'
 import Card from '../shared/Card'
 import Button from '../shared/Button'
-import { useCloserEOD, EOD_STATUSES, EOD_FEEDBACK_OPTIONS } from '../../hooks/useCloserEOD'
+import { useCloserEOD, EOD_STATUSES, EOD_OBJECTIONS, EOD_FEEDBACK_OPTIONS } from '../../hooks/useCloserEOD'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -34,8 +34,12 @@ function buildGHLNote(row, reportDate) {
   if (rdvDecLabel !== null) note += `RDV décision pris : ${rdvDecLabel}\n`
   if (row.feedback)      note += `Feedback : ${feedbackLabel}\n`
   if (row.action_plan)   note += `Plan de match : ${row.action_plan}\n`
-  if (row.is_closed === false && row.objection_reason)
+  if (row.is_closed === false && row.objection_principale) {
+    note += `Objection : ${row.objection_principale}`
+    note += row.objection_reason ? ` — ${row.objection_reason}\n` : '\n'
+  } else if (row.is_closed === false && row.objection_reason) {
     note += `Objection : ${row.objection_reason}\n`
+  }
 
   return note.trim()
 }
@@ -129,19 +133,30 @@ function EODRow({ row, index, onChange }) {
         />
       </td>
 
-      {/* 7. Raison d'objection (uniquement si pas closé) */}
+      {/* 7. Objection principale — obligatoire quand ce n'est pas une vente */}
       <td className="px-2 py-2.5 min-w-[180px]">
         {notClosed ? (
-          <input
-            type="text"
-            value={row.objection_reason}
-            onChange={e => onChange(index, { objection_reason: e.target.value })}
-            placeholder="Ex: Prix, timing, conjoint absent…"
-            className="w-full px-2 py-1.5 text-xs border border-[#e5e7eb] rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-[#00bbb1]"
-          />
+          <div className="space-y-1">
+            <InlineSelect
+              value={row.objection_principale}
+              onChange={v => onChange(index, { objection_principale: v })}
+              options={EOD_OBJECTIONS}
+              placeholder="— Obligatoire —"
+              className={row.objection_principale ? '' : 'border-[#ef4444] text-[#ef4444]'}
+            />
+            {row.objection_principale === 'Autre' && (
+              <input
+                type="text"
+                value={row.objection_reason}
+                onChange={e => onChange(index, { objection_reason: e.target.value })}
+                placeholder="Préciser (facultatif)"
+                className="w-full px-2 py-1.5 text-xs border border-[#e5e7eb] rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-[#00bbb1]"
+              />
+            )}
+          </div>
         ) : (
           <span className="text-[11px] text-[#d1d5db]">
-            {row.is_closed === true ? 'N/A (closé)' : '—'}
+            {row.is_closed === true ? 'N/A (vente)' : '—'}
           </span>
         )}
       </td>
@@ -194,7 +209,9 @@ function EODRowReadOnly({ row }) {
       </td>
       <td className="px-2 py-2.5 text-xs text-[#1a1a1a]">{row.action_plan || '—'}</td>
       <td className="px-2 py-2.5 text-xs text-[#6b7280]">
-        {row.is_closed === false ? (row.objection_reason || '—') : <span className="text-[#d1d5db]">N/A</span>}
+        {row.is_closed === false
+          ? [row.objection_principale, row.objection_reason].filter(Boolean).join(' — ') || '—'
+          : <span className="text-[#d1d5db]">N/A</span>}
       </td>
     </tr>
   )
@@ -329,6 +346,14 @@ export default function CloserEODForm({ userId, ghlUserId = null, closerName = n
     const finalRows  = localRows ?? rows
     const finalNotes = localNotes ?? notes
 
+    // Objection principale obligatoire dès que ce n'est pas une vente
+    const sansObjection = finalRows.filter(r => r.is_closed === false && !r.objection_principale)
+    if (sansObjection.length > 0) {
+      setSubmitting(false)
+      setGhlError(`Objection principale obligatoire pour : ${sansObjection.map(r => r.contact_name || 'un prospect').join(', ')}.`)
+      return
+    }
+
     const { error: saveErr } = await save(finalRows, finalNotes)
     if (saveErr) { setSubmitting(false); return }
 
@@ -350,9 +375,20 @@ export default function CloserEODForm({ userId, ghlUserId = null, closerName = n
       )
     )
 
+    // Objection principale → carte du pipeline Vente (jamais la carte Setting)
+    const rowsObjection = finalRows.filter(r => r.is_closed === false && r.objection_principale && r.contact_id)
+    const objectionResults = await Promise.allSettled(
+      rowsObjection.map(r =>
+        supabase.functions.invoke('ghl-update-opportunity', {
+          body: { contactId: r.contact_id, objectionPrincipale: r.objection_principale },
+        })
+      )
+    )
+
+    const failedObjection = objectionResults.filter(r => r.status === 'rejected')
     const failedGHL   = ghlResults.filter(r => r.status === 'rejected')
     const failedMove  = moveResults.filter(r => r.status === 'rejected')
-    const totalFailed = failedGHL.length + failedMove.length
+    const totalFailed = failedGHL.length + failedMove.length + failedObjection.length
     if (totalFailed > 0) {
       setGhlError(`${totalFailed} mise(s) à jour GHL échouée(s) — les données ont quand même été sauvegardées.`)
     }
@@ -482,7 +518,7 @@ export default function CloserEODForm({ userId, ghlUserId = null, closerName = n
                   'RDV Décision',
                   'Feedback Préparation',
                   'Plan de match & suivi',
-                  "Raison d'objection",
+                  'Objection principale',
                 ].map(h => (
                   <th key={h} className="px-2 pb-2 text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide first:px-3">
                     {h}

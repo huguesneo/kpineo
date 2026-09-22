@@ -7,6 +7,7 @@ import Card from '../components/shared/Card'
 import { SkeletonCard } from '../components/shared/Skeleton'
 import CloserDashboardView from '../components/closer/CloserDashboardView'
 import DataHygienePanel from '../components/closer/DataHygienePanel'
+import ObjectionsPanel from '../components/closer/ObjectionsPanel'
 import { useMembers } from '../hooks/useMembers'
 import { usePayPeriodConfig, getCurrentPayPeriod } from '../hooks/usePayPeriod'
 import {
@@ -580,6 +581,8 @@ export default function CloserAdmin() {
               <ComparisonTable closers={closers} startDate={startDate} endDate={endDate} />
             </div>
           </Card>
+
+          <ObjectionsPanel startDate={startDate} endDate={endDate} />
         </div>
       )}
 
