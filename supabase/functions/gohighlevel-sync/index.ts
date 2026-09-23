@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { idsAPurger, paquets } from './purge.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -111,6 +112,36 @@ async function fetchAndUpsertContacts(
 }
 
 // ─── Calendriers Closer ───────────────────────────────────────
+// Pipelines dont les cartes fantômes (supprimées dans GHL) sont purgées du cache
+const PURGE_PIPELINE_IDS = [
+  'KkPiFjw0ztAXc7z6Ab9c', // 📞 pipeline setting
+  'pc4eWgm1TOfZgMgqh6Gv', // 🎯 Vente
+]
+
+// Lignes en cache (ghl_id), paginées
+async function idsEnCache(
+  supabase: ReturnType<typeof createClient>,
+  table: string,
+  filtre: (q: any) => any,
+): Promise<string[]> {
+  const ids: string[] = []
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await filtre(supabase.from(table).select('ghl_id')).order('ghl_id').range(from, from + 999)
+    if (error) throw new Error(`lecture ${table}: ${error.message}`)
+    ids.push(...(data ?? []).map((r: { ghl_id: string }) => r.ghl_id))
+    if ((data?.length ?? 0) < 1000) return ids
+  }
+}
+
+async function supprimer(supabase: ReturnType<typeof createClient>, table: string, ids: string[]) {
+  for (const lot of paquets(ids, 100)) {
+    const { error } = await supabase.from(table).delete().in('ghl_id', lot)
+    if (error) throw new Error(`purge ${table}: ${error.message}`)
+  }
+}
+
+export interface OptionsPurge { purge?: boolean; dryRun?: boolean }
+
 const GHL_CLOSER_CALENDAR_IDS = [
   '4227QzeKvFczi5BZyHOC', // Rencontre découverte 1
   'DIN6EPtG7eNU3Gf6ZRoC', // Rencontre découverte 2
@@ -124,7 +155,7 @@ async function fetchCalendarEvents(
   calendarId: string,
   startTimeMs: number,
   endTimeMs: number
-): Promise<Record<string, unknown>[]> {
+): Promise<{ items: Record<string, unknown>[]; ok: boolean }> {
   const params = new URLSearchParams({
     locationId,
     calendarId,
@@ -137,15 +168,15 @@ async function fetchCalendarEvents(
   const rawText = await res.text()
   if (!res.ok) {
     console.error(`[GHL] calendar events FAILED [${calendarId}]: ${res.status} ${rawText}`)
-    return []
+    return { items: [], ok: false }
   }
   console.log(`[GHL] calendar events OK [${calendarId}]: ${res.status} — body: ${rawText.slice(0, 500)}`)
   let data: Record<string, unknown>
-  try { data = JSON.parse(rawText) } catch { return [] }
+  try { data = JSON.parse(rawText) } catch { return { items: [], ok: false } }
   // GHL retourne tantôt "events", tantôt "appointments"
   const items = (data?.events ?? data?.appointments ?? []) as Record<string, unknown>[]
   console.log(`[GHL] [${calendarId}] found ${items.length} item(s), keys: ${Object.keys(data).join(', ')}`)
-  return items
+  return { items, ok: true }
 }
 
 async function syncAppointments(
@@ -154,11 +185,15 @@ async function syncAppointments(
   supabase: ReturnType<typeof createClient>,
   startTimeMs: number,
   endTimeMs: number,
-  calendarIds: string[] = GHL_CLOSER_CALENDAR_IDS
-): Promise<{ synced: number }> {
+  calendarIds: string[] = GHL_CLOSER_CALENDAR_IDS,
+  { purge = false, dryRun = false, purgeDebutMs = startTimeMs }: OptionsPurge & { purgeDebutMs?: number } = {},
+): Promise<{ synced: number; purged?: number; purgeBloquee?: string[]; aPurger?: string[] }> {
   let synced = 0
+  let purged = 0
+  const purgeBloquee: string[] = []
+  const aPurger: string[] = []
   for (const calendarId of calendarIds) {
-    const events = await fetchCalendarEvents(apiKey, locationId, calendarId, startTimeMs, endTimeMs)
+    const { items: events, ok } = await fetchCalendarEvents(apiKey, locationId, calendarId, startTimeMs, endTimeMs)
     const rows = events.map(e => {
       const contact = e.contact as Record<string, unknown> | undefined
       // Extraire l'URL de meeting (Google Meet, Zoom, etc.)
@@ -194,6 +229,25 @@ async function syncAppointments(
       await supabase.from('ghl_appointments').upsert(rows, { onConflict: 'ghl_id' })
       synced += rows.length
     }
+
+    // Purge : RDV de ce calendrier, dans la fenêtre de purge (incluse dans la
+    // fenêtre lue), que GHL n'a pas renvoyés. Jamais si la lecture a échoué.
+    if (purge) {
+      const debutIso = new Date(purgeDebutMs).toISOString()
+      const finIso = new Date(endTimeMs).toISOString()
+      const enCache = await idsEnCache(supabase, 'ghl_appointments', q => q
+        .eq('calendar_id', calendarId).gte('start_time', debutIso).lte('start_time', finIso))
+      const decision = idsAPurger(enCache, rows.map(r => r.ghl_id), { complet: ok })
+      if (decision.bloque) {
+        console.warn(`[GHL] Purge RDV [${calendarId}] bloquée : ${decision.bloque}`)
+        purgeBloquee.push(`${calendarId}: ${decision.bloque}`)
+      } else if (decision.ids.length > 0) {
+        aPurger.push(...decision.ids)
+        if (!dryRun) await supprimer(supabase, 'ghl_appointments', decision.ids)
+        purged += decision.ids.length
+      }
+      console.log(`[GHL] Purge RDV [${calendarId}] : ${decision.ids.length} ligne(s) ${dryRun ? 'à purger (essai)' : 'purgée(s)'}`)
+    }
   }
 
   // Enrichir les noms depuis ghl_contacts pour les RDV sans nom
@@ -201,7 +255,8 @@ async function syncAppointments(
   if (fillErr) console.error('[GHL] fill_appointment_contact_names error:', fillErr.message)
   else console.log(`[GHL] Filled ${filled} appointment contact names from ghl_contacts`)
 
-  return { synced }
+  if (purge) console.log(`[GHL] Purge RDV totale : ${purged} ligne(s) ${dryRun ? 'à purger (essai)' : 'purgée(s)'}`)
+  return purge ? { synced, purged, purgeBloquee, aPurger } : { synced }
 }
 
 // ─── Pipelines + Opportunités ─────────────────────────────────
@@ -217,14 +272,16 @@ async function fetchPipelines(apiKey: string, locationId: string): Promise<Recor
 async function fetchOpportunities(
   apiKey: string,
   locationId: string,
-): Promise<Record<string, unknown>[]> {
+): Promise<{ opps: Record<string, unknown>[]; complet: boolean }> {
   const results: Record<string, unknown>[] = []
+  let complet = true
   let page = 1
   while (true) {
     const params = new URLSearchParams({ location_id: locationId, limit: '100', page: String(page) })
     const res = await fetch(`${GHL_BASE}/opportunities/search?${params}`, { headers: ghlHeaders(apiKey) })
     if (!res.ok) {
       console.error('GHL opportunities failed:', res.status, await res.text())
+      complet = false
       break
     }
     const data = await res.json() as Record<string, unknown>
@@ -234,15 +291,16 @@ async function fetchOpportunities(
     if (opps.length < 100 || !meta?.nextPage) break
     page++
   }
-  return results
+  return { opps: results, complet }
 }
 
 async function syncOpportunities(
   apiKey: string,
   locationId: string,
-  supabase: ReturnType<typeof createClient>
-): Promise<{ pipelines: number; opportunities: number }> {
-  const [pipelines, opps] = await Promise.all([
+  supabase: ReturnType<typeof createClient>,
+  { purge = false, dryRun = false }: OptionsPurge = {},
+): Promise<{ pipelines: number; opportunities: number; purged?: number; purgeBloquee?: string | null; aPurger?: string[] }> {
+  const [pipelines, { opps, complet }] = await Promise.all([
     fetchPipelines(apiKey, locationId),
     fetchOpportunities(apiKey, locationId),
   ])
@@ -297,6 +355,20 @@ async function syncOpportunities(
     await supabase.from('ghl_opportunities').upsert(oppRows.slice(i, i + BATCH_SIZE), { onConflict: 'ghl_id' })
   }
 
+  // Purge : cartes des pipelines setting et Vente que GHL ne renvoie plus
+  // (supprimées dans GHL). Jamais si la lecture a été interrompue.
+  if (purge) {
+    const enCache = await idsEnCache(supabase, 'ghl_opportunities', q => q.in('pipeline_id', PURGE_PIPELINE_IDS))
+    const decision = idsAPurger(enCache, oppRows.map(r => r.ghl_id), { complet })
+    if (decision.bloque) console.warn(`[GHL] Purge opportunités bloquée : ${decision.bloque}`)
+    else if (decision.ids.length > 0 && !dryRun) await supprimer(supabase, 'ghl_opportunities', decision.ids)
+    console.log(`[GHL] Purge opportunités : ${decision.ids.length} ligne(s) ${dryRun ? 'à purger (essai)' : 'purgée(s)'} sur ${enCache.length} en cache`)
+    return {
+      pipelines: pipelines.length, opportunities: oppRows.length,
+      purged: decision.ids.length, purgeBloquee: decision.bloque, aPurger: decision.ids,
+    }
+  }
+
   return { pipelines: pipelines.length, opportunities: oppRows.length }
 }
 
@@ -320,7 +392,7 @@ Deno.serve(async (req) => {
 
     const DEFAULT_LOCATION_ID = Deno.env.get('GHL_LOCATION_ID') ?? 'YG2spvWJqnD75L3V95UJ'
 
-    let action = 'test', locationId = '', startAfterCursor: string | undefined, maxContacts = 2000
+    let action = 'test', locationId = '', startAfterCursor: string | undefined, maxContacts = 2000, dryRun = false
     try {
       const text = await req.text()
       const b = text ? JSON.parse(text) : {}
@@ -328,6 +400,7 @@ Deno.serve(async (req) => {
       locationId = b?.locationId ?? ''
       startAfterCursor = b?.startAfterCursor ?? undefined
       maxContacts = b?.maxContacts ?? 2000
+      dryRun = b?.dryRun === true
     } catch { /* ok */ }
 
     // ── Test de connexion ──
@@ -370,7 +443,8 @@ Deno.serve(async (req) => {
 
     // ── Sync opportunités (full) ──
     if (action === 'sync_opportunities') {
-      const result = await syncOpportunities(apiKey, locationId, supabase)
+      // Purge des cartes fantômes (setting + Vente) ; dryRun : liste sans supprimer
+      const result = await syncOpportunities(apiKey, locationId || DEFAULT_LOCATION_ID, supabase, { purge: true, dryRun })
       await supabase.from('ghl_config')
         .update({ last_synced_at: new Date().toISOString() })
         .eq('location_id', locationId)
@@ -384,7 +458,10 @@ Deno.serve(async (req) => {
       const now = new Date()
       const aptStartMs = new Date(now.getFullYear(), now.getMonth() - 6, 1).getTime()
       const aptEndMs   = new Date(now.getFullYear(), now.getMonth() + 2, 0).getTime()
-      const result = await syncAppointments(apiKey, locId, supabase, aptStartMs, aptEndMs)
+      // Purge des RDV fantômes sur 3 mois (incluse dans la fenêtre lue) → fin du mois prochain
+      const purgeDebutMs = new Date(now.getFullYear(), now.getMonth() - 3, 1).getTime()
+      const result = await syncAppointments(apiKey, locId, supabase, aptStartMs, aptEndMs, GHL_CLOSER_CALENDAR_IDS,
+        { purge: true, dryRun, purgeDebutMs })
       return json({ ok: true, ...result })
     }
 
