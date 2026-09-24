@@ -33,6 +33,13 @@
 
 ## Technique
 
+- **Nouveau contact test « Hugues Pugliese » `7YH2RvXCKE2tFcWH4IPM`** : pas dans
+  `TEST_CONTACT_IDS` (`src/lib/commissions/config.js`), donc sa carte apparaît dans la
+  file « À appeler » et pourrait compter en commission. À ajouter (hors de cette branche :
+  le moteur de commissions n'y est pas modifié).
+- Cron `ghl-incremental-sync` : il s'authentifie avec la clé anon publique. Un secret
+  dédié fermerait la dernière porte (`sync_incremental` reste appelable avec la clé anon).
+
 - Nettoyer les 227 remarques ESLint des fichiers existants, puis étendre les règles
   complètes à tout `src/` (voir `.eslintrc.cjs`).
 - `MetaAds.jsx` est exclu du lint tant qu'il n'est pas nettoyé.
