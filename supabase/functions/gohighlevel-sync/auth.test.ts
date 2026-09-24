@@ -1,24 +1,33 @@
 import { describe, it, expect } from 'vitest'
-import { estAppelCron, verdictAcces, jetonBearer } from './auth'
+import { estAppelCron, verdictAcces, jetonBearer, roleDuJwt } from './auth'
 
-const ANON = 'eyJ.anon.cle'
+const jwt = (payload: object) => `eyJhbGciOiJIUzI1NiJ9.${btoa(JSON.stringify(payload)).replace(/=+$/, '')}.signature`
+const ANON = jwt({ iss: 'supabase', ref: 'cbqwrmyctsfdqmenczhm', role: 'anon' })
+const UTILISATEUR = jwt({ sub: 'u1', role: 'authenticated' })
 
 describe('accès à gohighlevel-sync', () => {
   it('le cron (clé anon) ne peut lancer que sync_incremental', () => {
-    expect(estAppelCron({ jeton: ANON, cleAnon: ANON, action: 'sync_incremental' })).toBe(true)
+    expect(estAppelCron({ jeton: ANON, action: 'sync_incremental' })).toBe(true)
     for (const action of ['sync_opportunities', 'sync_appointments', 'sync_contacts', 'test']) {
-      expect(estAppelCron({ jeton: ANON, cleAnon: ANON, action })).toBe(false)
+      expect(estAppelCron({ jeton: ANON, action })).toBe(false)
     }
   })
 
-  it('une autre clé que la clé anon n’est pas le cron', () => {
-    expect(estAppelCron({ jeton: 'autre', cleAnon: ANON, action: 'sync_incremental' })).toBe(false)
-    expect(estAppelCron({ jeton: '', cleAnon: '', action: 'sync_incremental' })).toBe(false)
-    expect(estAppelCron({ jeton: ANON, cleAnon: undefined, action: 'sync_incremental' })).toBe(false)
+  it('un jeton utilisateur ou invalide n’est pas le cron', () => {
+    expect(estAppelCron({ jeton: UTILISATEUR, action: 'sync_incremental' })).toBe(false)
+    expect(estAppelCron({ jeton: 'autre', action: 'sync_incremental' })).toBe(false)
+    expect(estAppelCron({ jeton: '', action: 'sync_incremental' })).toBe(false)
+    expect(estAppelCron({ jeton: 'a.@@@.c', action: 'sync_incremental' })).toBe(false)
+  })
+
+  it('roleDuJwt lit le claim role', () => {
+    expect(roleDuJwt(ANON)).toBe('anon')
+    expect(roleDuJwt(UTILISATEUR)).toBe('authenticated')
+    expect(roleDuJwt('pas-un-jwt')).toBe(null)
   })
 
   it('clé anon + action de purge : refusé (401, pas d’utilisateur)', () => {
-    const appelCron = estAppelCron({ jeton: ANON, cleAnon: ANON, action: 'sync_opportunities' })
+    const appelCron = estAppelCron({ jeton: ANON, action: 'sync_opportunities' })
     expect(verdictAcces({ appelCron, utilisateur: false, role: null })).toEqual({ ok: false, status: 401, error: expect.any(String) })
   })
 

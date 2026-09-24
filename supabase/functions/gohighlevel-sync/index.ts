@@ -404,7 +404,7 @@ Deno.serve(async (req) => {
     // Cron (clé anon) : sync_incremental seulement. Tout le reste : utilisateur
     // connecté avec le rôle admin ou resp_vente (voir auth.ts).
     const jeton = jetonBearer(authHeader)
-    const appelCron = estAppelCron({ jeton, cleAnon: Deno.env.get('SUPABASE_ANON_KEY'), action })
+    const appelCron = estAppelCron({ jeton, action })
     let utilisateur = false
     let role: string | null = null
     let email = ''

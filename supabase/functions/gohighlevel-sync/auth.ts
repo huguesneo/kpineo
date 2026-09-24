@@ -1,7 +1,7 @@
 // Qui peut appeler gohighlevel-sync (fonction pure, testée avec vitest).
 //
 // - Le cron (trigger_ghl_incremental_sync, toutes les 30 min) s'authentifie avec
-//   la clé anon. Cette clé est publique (elle est dans le bundle de l'app) : elle
+//   la clé anon (JWT legacy, différent de la variable SUPABASE_ANON_KEY). Cette clé est publique (elle est dans le bundle de l'app) : elle
 //   n'ouvre donc QUE l'action du cron, sync_incremental, qui ne purge rien.
 // - Toute autre action (test, sync_contacts, sync_opportunities et
 //   sync_appointments avec leurs purges) exige un utilisateur connecté dont le
@@ -14,9 +14,24 @@ export function jetonBearer(authHeader: string | null): string {
   return String(authHeader ?? '').replace(/^Bearer\s+/i, '').trim()
 }
 
-// Appel du cron : clé anon exacte et action du cron uniquement
-export function estAppelCron({ jeton, cleAnon, action }: { jeton: string; cleAnon: string | undefined; action: string }): boolean {
-  return !!jeton && !!cleAnon && jeton === cleAnon && action === ACTION_CRON
+// Rôle porté par un JWT Supabase (claim « role »), sans vérifier la signature :
+// c'est la passerelle Supabase qui la vérifie (verify_jwt activé sur cette
+// fonction — ne jamais la déployer avec --no-verify-jwt).
+export function roleDuJwt(jeton: string): string | null {
+  const morceaux = jeton.split('.')
+  if (morceaux.length !== 3) return null
+  try {
+    const b64 = morceaux[1].replace(/-/g, '+').replace(/_/g, '/')
+    const json = JSON.parse(atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4)))
+    return typeof json?.role === 'string' ? json.role : null
+  } catch {
+    return null
+  }
+}
+
+// Appel du cron : clé anon du projet (JWT signé de rôle « anon ») et action du cron uniquement
+export function estAppelCron({ jeton, action }: { jeton: string; action: string }): boolean {
+  return !!jeton && roleDuJwt(jeton) === 'anon' && action === ACTION_CRON
 }
 
 export type Verdict = { ok: true } | { ok: false; status: 401 | 403; error: string }
