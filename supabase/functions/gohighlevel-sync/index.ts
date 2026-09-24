@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { idsAPurger, paquets } from './purge.ts'
+import { estAppelCron, verdictAcces, jetonBearer } from './auth.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -380,17 +381,13 @@ Deno.serve(async (req) => {
     new Response(JSON.stringify(data), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
   try {
-    if (!req.headers.get('Authorization')) return json({ error: 'Non autorisé' })
+    const authHeader = req.headers.get('Authorization')
+    if (!authHeader) return json({ error: 'Non autorisé' }, 401)
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     )
-
-    const apiKey = Deno.env.get('GHL_API_KEY')
-    if (!apiKey) return json({ error: 'GHL_API_KEY non configurée' }, 500)
-
-    const DEFAULT_LOCATION_ID = Deno.env.get('GHL_LOCATION_ID') ?? 'YG2spvWJqnD75L3V95UJ'
 
     let action = 'test', locationId = '', startAfterCursor: string | undefined, maxContacts = 2000, dryRun = false
     try {
@@ -402,6 +399,35 @@ Deno.serve(async (req) => {
       maxContacts = b?.maxContacts ?? 2000
       dryRun = b?.dryRun === true
     } catch { /* ok */ }
+
+    // ── Contrôle d'accès ──
+    // Cron (clé anon) : sync_incremental seulement. Tout le reste : utilisateur
+    // connecté avec le rôle admin ou resp_vente (voir auth.ts).
+    const jeton = jetonBearer(authHeader)
+    const appelCron = estAppelCron({ jeton, cleAnon: Deno.env.get('SUPABASE_ANON_KEY'), action })
+    let utilisateur = false
+    let role: string | null = null
+    let email = ''
+    if (!appelCron) {
+      const { data: { user } } = await supabase.auth.getUser(jeton)
+      if (user) {
+        utilisateur = true
+        email = user.email ?? ''
+        const { data: profil } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle()
+        role = profil?.role ?? null
+      }
+    }
+    const verdict = verdictAcces({ appelCron, utilisateur, role })
+    if (!verdict.ok) {
+      console.warn(`[GHL sync] Accès refusé — action ${action}, ${utilisateur ? `utilisateur ${email} (rôle ${role ?? 'aucun'})` : 'sans utilisateur valide'}`)
+      return json({ error: verdict.error }, verdict.status)
+    }
+    console.log(`[GHL sync] ${action} — ${appelCron ? 'cron' : `${email} (${role})`}${dryRun ? ' — essai' : ''}`)
+
+    const apiKey = Deno.env.get('GHL_API_KEY')
+    if (!apiKey) return json({ error: 'GHL_API_KEY non configurée' }, 500)
+
+    const DEFAULT_LOCATION_ID = Deno.env.get('GHL_LOCATION_ID') ?? 'YG2spvWJqnD75L3V95UJ'
 
     // ── Test de connexion ──
     if (action === 'test') {
