@@ -171,13 +171,14 @@ function LigneLead({ lead, file, userId, locks, actions, now }) {
 // Une file (section) : en-tête, en-têtes de colonnes, lignes, état vide
 export default function FileLeads({ file, leads, userId, locks, actions, now }) {
   const [toutVoir, setToutVoir] = useState(false)
+  const [replie, setReplie] = useState(false)
   const ouverts = leads.filter(l => !['nr-attente', 'nr', 'booke'].includes(actions.etats[l.key])).length
   const limiteDesktop = toutVoir ? Infinity : LIMITE.desktop
   const limiteMobile = toutVoir ? Infinity : LIMITE.mobile
 
   return (
     <section className="bg-[#fcfcfd] border border-[#e5e7eb] rounded-xl shadow-sm overflow-hidden" aria-label={file.titre}>
-      <div className="flex items-center gap-2.5 px-4 py-3.5 border-b border-[#f0f0f0] flex-wrap">
+      <div className={`flex items-center gap-2.5 px-4 py-3.5 flex-wrap ${replie ? '' : 'border-b border-[#f0f0f0]'}`}>
         <span className="w-2 h-2 rounded-full" style={{ background: file.couleur }} />
         <h2 className="text-[15px] font-bold text-[#1a1a1a]">{file.titre}</h2>
         <span className="text-xs font-bold px-2 py-0.5 rounded-full"
@@ -185,9 +186,18 @@ export default function FileLeads({ file, leads, userId, locks, actions, now }) 
           {ouverts}
         </span>
         <span className="text-xs text-[#6b7280] hidden sm:inline">{file.sousTitre}</span>
+        {file.repliable && (
+          <button onClick={() => setReplie(r => !r)} aria-expanded={!replie}
+            className="ml-auto flex items-center gap-1 text-xs font-semibold text-[#6b7280] px-2 py-1 rounded-lg hover:bg-[#f3f4f6] hover:text-[#1a1a1a]">
+            {replie ? 'Afficher' : 'Replier'}
+            <svg className={`w-3.5 h-3.5 transition-transform ${replie ? '' : 'rotate-180'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+        )}
       </div>
 
-      {leads.length === 0 ? (
+      {replie ? null : leads.length === 0 ? (
         <div className="py-7 px-4 flex flex-col items-center gap-1 text-center">
           <div className="w-9 h-9 rounded-full bg-[#ecfdf5] flex items-center justify-center mb-1.5">
             <svg className="w-[18px] h-[18px] text-[#10b981]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}>

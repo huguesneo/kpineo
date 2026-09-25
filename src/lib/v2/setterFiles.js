@@ -150,17 +150,20 @@ export function computeSetterFiles({ opps: toutesOpps = [], appts: tousAppts = [
       creeLe: o.created_at_ghl, stageId: o.pipeline_stage_id, opp: o,
     }, ctx))
 
-  // ── Chaud à relancer : chaud à relancer et contact établi
-  const etapesChaud = new Set([S.chaudRelancer, S.contactEtabli])
-  const chaudARelancer = opps
-    .filter(o => o.pipeline_id === PIPELINE_SETTING.id && etapesChaud.has(o.pipeline_stage_id) && o.contact_id)
+  // ── Chaud à relancer et Contact établi : deux files, une par étape GHL,
+  // pour que les compteurs correspondent au pipeline. Le plus ancien
+  // changement d'étape en premier dans chacune.
+  const parEtape = stageId => opps
+    .filter(o => o.pipeline_id === PIPELINE_SETTING.id && o.pipeline_stage_id === stageId && o.contact_id)
     .sort((a, b) => (ms(dernierChangementEtape(a)) ?? 0) - (ms(dernierChangementEtape(b)) ?? 0))
     .map(o => carteLead({
       contactId: o.contact_id, nom: o.contact_name, source: o.source,
       creeLe: o.created_at_ghl, opp: o,
     }, ctx))
+  const chaudARelancer = parEtape(S.chaudRelancer)
+  const contactEtabli = parEtape(S.contactEtabli)
 
-  return { aRebooker, aConfirmer, aAppeler, chaudARelancer }
+  return { aRebooker, aConfirmer, aAppeler, chaudARelancer, contactEtabli }
 }
 
 // Jour calendaire à Montréal d'un instant ('AAAA-MM-JJ')
@@ -198,4 +201,5 @@ export function rdvBookesAujourdhui({ appts = [], opps = [], setterName, now = D
 export function totalFiles(files) {
   return (files?.aRebooker?.length ?? 0) + (files?.aConfirmer?.length ?? 0)
     + (files?.aAppeler?.length ?? 0) + (files?.chaudARelancer?.length ?? 0)
+    + (files?.contactEtabli?.length ?? 0)
 }

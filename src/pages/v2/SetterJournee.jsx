@@ -16,10 +16,11 @@ function sansEmoji(s) {
   return String(s ?? '').replace(/^[^\p{L}\p{N}]+/u, '').trim()
 }
 
-// Les 4 files, dans l'ordre de la maquette : chauds, nouveaux, rebookings, confirmations
+// Les files, dans l'ordre de la maquette (chauds, nouveaux, rebookings, confirmations),
+// puis « Contact établi », séparée de « Chaud à relancer » et repliable.
 const FILES = [
   {
-    cle: 'chaudARelancer', titre: 'Chaud à relancer', sousTitre: 'Contact établi ou chaud, le plus ancien changement d’étape en premier',
+    cle: 'chaudARelancer', titre: 'Chaud à relancer', sousTitre: 'Étape 🔥 Chaud à relancer, le plus ancien changement d’étape en premier',
     couleur: '#10b981', compteurBg: '#ecfdf5', compteurColor: '#047857', rdvLabel: 'Dernier changement',
     videTitre: 'Aucune relance due', videTexte: 'Tes leads chauds sont à jour.',
     rdv: (l, now) => ({ texte: l.changementEtape ? fmtRdvRelatif(l.changementEtape, now) : '—', couleur: '#1a1a1a' }),
@@ -47,6 +48,13 @@ const FILES = [
     couleur: '#f59e0b', compteurBg: '#fffbeb', compteurColor: '#b45309', rdvLabel: 'RDV',
     videTitre: 'Tout est confirmé', videTexte: 'Les RDV des prochaines 24 h sont confirmés.',
     rdv: (l, now) => ({ texte: fmtRdvRelatif(l.rdvRef?.start, now), couleur: '#1a1a1a' }),
+  },
+  {
+    cle: 'contactEtabli', titre: 'Contact établi', sousTitre: 'Étape 💬 Contact établi, le plus ancien changement d’étape en premier',
+    couleur: '#0ea5e9', compteurBg: '#f0f9ff', compteurColor: '#0369a1', rdvLabel: 'Dernier changement',
+    videTitre: 'Aucun contact établi en attente', videTexte: 'Personne à relancer à cette étape.',
+    repliable: true,
+    rdv: (l, now) => ({ texte: l.changementEtape ? fmtRdvRelatif(l.changementEtape, now) : '—', couleur: '#1a1a1a' }),
   },
 ]
 

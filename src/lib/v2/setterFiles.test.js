@@ -28,14 +28,22 @@ describe('computeSetterFiles', () => {
     expect(aAppeler[2].tentative).toBe(1)
   })
 
-  it('Chaud à relancer : chaud et contact établi, le plus ancien changement d’étape en premier', () => {
+  it('Chaud à relancer et Contact établi : une file par étape, le plus ancien changement d’étape en premier', () => {
     const opps = [
       oppSetting('a', S.chaudRelancer, { raw: { lastStageChangeAt: h(-2) } }),
       oppSetting('b', S.contactEtabli, { raw: { lastStageChangeAt: h(-30) } }),
-      oppSetting('c', S.rencontreBook),
+      oppSetting('c', S.chaudRelancer, { raw: { lastStageChangeAt: h(-5) } }),
+      oppSetting('d', S.contactEtabli, { raw: { lastStageChangeAt: h(-1) } }),
+      oppSetting('e', S.rencontreBook),
     ]
-    const { chaudARelancer } = computeSetterFiles({ opps, now: NOW })
-    expect(chaudARelancer.map(l => l.contactId)).toEqual(['b', 'a'])
+    const { chaudARelancer, contactEtabli } = computeSetterFiles({ opps, now: NOW })
+    expect(chaudARelancer.map(l => l.contactId)).toEqual(['c', 'a'])
+    expect(contactEtabli.map(l => l.contactId)).toEqual(['b', 'd'])
+  })
+
+  it('totalFiles compte les cinq files', async () => {
+    const { totalFiles } = await import('./setterFiles')
+    expect(totalFiles({ aRebooker: [1], aConfirmer: [1, 2], aAppeler: [1], chaudARelancer: [1], contactEtabli: [1, 2, 3] })).toBe(8)
   })
 
   it('À rebooker : no-show et annulés des 72 dernières heures, sans RDV déjà repris', () => {
