@@ -28,7 +28,7 @@ import MaPerformance from './pages/MaPerformance'
 import ReseauxSociaux from './pages/ReseauxSociaux'
 import Terminal from './pages/Terminal'
 import PayerLien from './pages/PayerLien'
-import { TERMINAL_ENABLED } from './lib/terminal/flag'
+import { TERMINAL_ENABLED, canUseTerminal } from './lib/terminal/flag'
 import { hasSocialAccess } from './lib/socialAccess'
 
 const HUGUES_EMAIL = 'hugues@neoperformance.ca'
@@ -88,10 +88,10 @@ function SocialRoute({ children }) {
 
 // Terminal : closeurs (principal ou secondaire), admin et resp_vente
 function TerminalRoute({ children }) {
-  const { user, loading, isAdminOrRespVente, hasCloserRole } = useAuth()
+  const { user, loading, isAdmin, isAdminOrRespVente, hasCloserRole } = useAuth()
   if (loading) return <LoadingScreen />
   if (!user) return <Navigate to="/login" replace />
-  if (!TERMINAL_ENABLED || !(isAdminOrRespVente || hasCloserRole)) return <Navigate to="/dashboard" replace />
+  if (!canUseTerminal({ isAdmin, isAdminOrRespVente, hasCloserRole })) return <Navigate to="/dashboard" replace />
   return children
 }
 

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { TERMINAL_ENABLED } from '../../lib/terminal/flag'
+import { canUseTerminal } from '../../lib/terminal/flag'
 import { NavLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { usePendingTasksCount, usePendingApprovalCount } from '../../hooks/useTasks'
@@ -274,7 +274,7 @@ export default function Sidebar() {
           />
         )}
         {/* Terminal de paiement — closeurs, admin et resp_vente */}
-        {TERMINAL_ENABLED && (hasCloserRole || isAdminOrRespVente) && (
+        {canUseTerminal({ isAdmin, isAdminOrRespVente, hasCloserRole }) && (
           <NavItem
             to="/terminal"
             label="Terminal de paiement"
