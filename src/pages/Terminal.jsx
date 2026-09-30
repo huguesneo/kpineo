@@ -9,7 +9,7 @@ import MonerisCardFrame from '../components/terminal/MonerisCardFrame'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import {
-  TERMINAL_PRODUCTS, buildSchedule, installmentsForProduct, todayMontreal, formatCents,
+  TERMINAL_PRODUCTS, buildSchedule, installmentsForProduct, todayMontreal, formatCents, addDays,
 } from '../../supabase/functions/_shared/schedule.js'
 
 const FREQUENCIES = [
@@ -35,11 +35,16 @@ const INST_STATUS = {
   canceled:   { label: 'Annulé', variant: 'default' },
 }
 
-const EMPTY_FORM = {
+const PROVINCES = ['QC', 'ON', 'NB', 'NS', 'PE', 'NL', 'MB', 'SK', 'AB', 'BC', 'YT', 'NT', 'NU']
+
+const emptyForm = () => ({
   clientFirstName: '', clientLastName: '', clientEmail: '', clientPhone: '',
+  clientStreetNumber: '', clientStreetName: '', clientUnit: '', clientCity: '', clientProvince: 'QC', clientPostalCode: '',
   productName: TERMINAL_PRODUCTS[0], totalAmount: '', frequencyDays: 21,
-  firstChargeDate: todayMontreal(), notes: '',
-}
+  payToday: true, chargeDate: '', notes: '',
+})
+
+const selectCls = 'w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg bg-white disabled:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#00bbb1]'
 
 async function callTerminal(body) {
   const { data, error } = await supabase.functions.invoke('moneris-terminal', { body })
@@ -55,43 +60,53 @@ async function callTerminal(body) {
 // ── Formulaire de nouvelle vente ─────────────────────────────
 
 function NewPlanForm({ onCreated }) {
-  const [form, setForm] = useState(EMPTY_FORM)
-  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState(emptyForm)
+  const [saving, setSaving] = useState('')
   const [error, setError] = useState('')
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }))
 
+  const today = todayMontreal()
   const count = installmentsForProduct(form.productName)
+  // Payer aujourd'hui : la date choisie est celle du 2e prélèvement
+  // (inutile pour un paiement unique). Sinon, c'est celle du 1er.
+  const needsDate = !form.payToday || count > 1
+  const dateLabel = form.payToday ? '2e prélèvement' : (count > 1 ? '1er prélèvement' : 'Date du prélèvement')
+
   const schedule = useMemo(() => {
     try {
+      if (needsDate && !form.chargeDate) return null
       return buildSchedule({
         totalCents: Math.round(Number(form.totalAmount) * 100),
         count,
         frequencyDays: count > 1 ? Number(form.frequencyDays) : 0,
-        firstDate: form.firstChargeDate,
+        firstDate: form.payToday ? today : form.chargeDate,
+        secondDate: form.payToday && count > 1 ? form.chargeDate : undefined,
       })
     } catch { return null }
-  }, [form.totalAmount, form.frequencyDays, form.firstChargeDate, count])
+  }, [form.totalAmount, form.frequencyDays, form.chargeDate, form.payToday, count, needsDate, today])
 
-  async function submit(e) {
-    e.preventDefault()
+  async function submit(mode) {
     setError('')
-    if (!schedule) { setError('Vérifie le montant et la date de début.'); return }
-    setSaving(true)
+    if (!schedule) { setError('Vérifie le montant et la date.'); return }
+    setSaving(mode)
     try {
-      const { planId } = await callTerminal({ action: 'create_plan', ...form, totalAmount: Number(form.totalAmount), frequencyDays: Number(form.frequencyDays) })
-      setForm({ ...EMPTY_FORM, firstChargeDate: todayMontreal() })
-      onCreated(planId)
+      const { planId } = await callTerminal({
+        action: 'create_plan', ...form,
+        totalAmount: Number(form.totalAmount), frequencyDays: Number(form.frequencyDays),
+      })
+      setForm(emptyForm())
+      await onCreated(planId, mode)
     } catch (err) {
       setError(err.message)
     } finally {
-      setSaving(false)
+      setSaving('')
     }
   }
 
   return (
     <Card className="p-6">
       <h2 className="text-lg font-bold text-[#1a1a1a] mb-4">Nouvelle vente</h2>
-      <form onSubmit={submit} className="space-y-4">
+      <form onSubmit={(e) => { e.preventDefault(); submit('card') }} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <Input label="Prénom du client" value={form.clientFirstName} onChange={set('clientFirstName')} required />
           <Input label="Nom du client" value={form.clientLastName} onChange={set('clientLastName')} required />
@@ -99,26 +114,48 @@ function NewPlanForm({ onCreated }) {
           <Input label="Téléphone" value={form.clientPhone} onChange={set('clientPhone')} />
         </div>
 
+        <div className="grid grid-cols-6 gap-3">
+          <div className="col-span-2"><Input label="No civique" value={form.clientStreetNumber} onChange={set('clientStreetNumber')} required /></div>
+          <div className="col-span-4"><Input label="Rue" value={form.clientStreetName} onChange={set('clientStreetName')} required /></div>
+          <div className="col-span-2"><Input label="App. (optionnel)" value={form.clientUnit} onChange={set('clientUnit')} /></div>
+          <div className="col-span-4"><Input label="Ville" value={form.clientCity} onChange={set('clientCity')} required /></div>
+          <div className="col-span-2 flex flex-col gap-1">
+            <label className="text-sm font-semibold text-[#1a1a1a]">Province</label>
+            <select value={form.clientProvince} onChange={set('clientProvince')} className={selectCls}>
+              {PROVINCES.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+          </div>
+          <div className="col-span-4"><Input label="Code postal" value={form.clientPostalCode} onChange={set('clientPostalCode')} placeholder="J4Z 1A7" required /></div>
+        </div>
+
         <div className="flex flex-col gap-1">
           <label className="text-sm font-semibold text-[#1a1a1a]">Produit</label>
-          <select value={form.productName} onChange={set('productName')}
-            className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#00bbb1]">
+          <select value={form.productName} onChange={set('productName')} className={selectCls}>
             {TERMINAL_PRODUCTS.map(p => <option key={p} value={p}>{p}</option>)}
           </select>
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 gap-3">
           <Input label="Montant total ($, taxes incluses)" type="number" min="1" step="0.01"
             value={form.totalAmount} onChange={set('totalAmount')} required />
           <div className="flex flex-col gap-1">
             <label className="text-sm font-semibold text-[#1a1a1a]">Fréquence</label>
-            <select value={form.frequencyDays} onChange={set('frequencyDays')} disabled={count === 1}
-              className="w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg bg-white disabled:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#00bbb1]">
+            <select value={form.frequencyDays} onChange={set('frequencyDays')} disabled={count === 1} className={selectCls}>
               {FREQUENCIES.map(f => <option key={f.days} value={f.days}>{f.label}</option>)}
             </select>
           </div>
-          <Input label="1er prélèvement" type="date" min={todayMontreal()}
-            value={form.firstChargeDate} onChange={set('firstChargeDate')} required />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 items-end">
+          <label className="flex items-center gap-2 text-sm font-semibold text-[#1a1a1a] h-10">
+            <input type="checkbox" className="w-4 h-4 accent-[#00bbb1]" checked={form.payToday}
+              onChange={e => setForm(f => ({ ...f, payToday: e.target.checked }))} />
+            Payer aujourd’hui
+          </label>
+          {needsDate && (
+            <Input label={dateLabel} type="date" min={form.payToday ? addDays(today, 1) : today}
+              value={form.chargeDate} onChange={set('chargeDate')} required />
+          )}
         </div>
 
         <Input label="Note (optionnel)" value={form.notes} onChange={set('notes')} />
@@ -131,7 +168,7 @@ function NewPlanForm({ onCreated }) {
             <ul className="text-sm text-[#374151] space-y-1">
               {schedule.map(s => (
                 <li key={s.number} className="flex justify-between">
-                  <span>{s.number}. {s.dueDate === todayMontreal() ? 'Aujourd’hui' : s.dueDate}</span>
+                  <span>{s.number}. {s.dueDate === today ? 'Aujourd’hui' : s.dueDate}</span>
                   <span className="font-semibold">{formatCents(s.amountCents)}</span>
                 </li>
               ))}
@@ -140,7 +177,11 @@ function NewPlanForm({ onCreated }) {
         )}
 
         {error && <p className="text-sm text-red-600">{error}</p>}
-        <Button type="submit" loading={saving} className="w-full">Créer la vente</Button>
+        <div className="grid grid-cols-2 gap-3">
+          <Button type="submit" loading={saving === 'card'} disabled={!!saving}>Entrer la carte</Button>
+          <Button type="button" variant="secondary" loading={saving === 'link'} disabled={!!saving}
+            onClick={() => submit('link')}>Envoyer le lien au client</Button>
+        </div>
       </form>
     </Card>
   )
@@ -292,6 +333,7 @@ export default function Terminal() {
   const [cardPlan, setCardPlan] = useState(null)
   const [highlightId, setHighlightId] = useState(null)
   const [toast, setToast] = useState(null)
+  const [linkInfo, setLinkInfo] = useState(null)
 
   const showToast = (msg, isError = false) => {
     setToast({ msg, isError })
@@ -317,10 +359,20 @@ export default function Terminal() {
     return true
   })
 
-  async function onCreated(planId) {
+  async function onCreated(planId, mode) {
+    const { data: plan } = await supabase.from('payment_plans')
+      .select('*, payment_installments(*)').eq('id', planId).single()
     await load()
     setHighlightId(planId)
-    showToast('Vente créée. Entre la carte ou envoie le lien au client.')
+    if (mode === 'card' && plan) { setCardPlan(plan); return }
+    try {
+      const { token } = await callTerminal({ action: 'create_link', planId })
+      const url = `${window.location.origin}/payer/${token}`
+      setLinkInfo({ url, name: plan ? `${plan.client_first_name} ${plan.client_last_name}` : '' })
+      try { await navigator.clipboard.writeText(url) } catch { /* copie manuelle */ }
+    } catch (err) {
+      showToast(err.message, true)
+    }
   }
 
   return (
@@ -351,6 +403,18 @@ export default function Terminal() {
       {cardPlan && (
         <CardEntryModal plan={cardPlan} onClose={() => setCardPlan(null)}
           onDone={(msg) => { setCardPlan(null); showToast(msg); load() }} />
+      )}
+
+      {linkInfo && (
+        <Modal isOpen onClose={() => setLinkInfo(null)} title="Lien de paiement">
+          <div className="p-6 space-y-3">
+            <p className="text-sm text-[#374151]">
+              Lien copié. Envoie-le à {linkInfo.name} par texto ou courriel. Il est valide 7 jours.
+            </p>
+            <p className="text-xs break-all bg-[#f5f5f7] rounded p-3 select-all">{linkInfo.url}</p>
+            <Button className="w-full" onClick={() => setLinkInfo(null)}>OK</Button>
+          </div>
+        </Modal>
       )}
 
       {toast && (

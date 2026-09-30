@@ -57,20 +57,38 @@ Deno.serve(async (req) => {
       if (!first || !last) return json({ error: 'Prénom et nom du client requis' }, 400)
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'Courriel du client invalide' }, 400)
 
+      const street = String(body.clientStreetName ?? '').trim()
+      const postal = String(body.clientPostalCode ?? '').trim().toUpperCase()
+      if (!street || !String(body.clientCity ?? '').trim() || !/^[A-Z]\d[A-Z]\s?\d[A-Z]\d$/.test(postal)) {
+        return json({ error: 'Adresse du client incomplète (rue, ville et code postal valide requis)' }, 400)
+      }
+
       const totalCents = Math.round(Number(body.totalAmount) * 100)
       const count = installmentsForProduct(product)
       const frequencyDays = count > 1 ? Number(body.frequencyDays) : 0
-      const firstDate = String(body.firstChargeDate ?? '')
-      if (firstDate < todayMontreal()) return json({ error: 'La date de début ne peut pas être dans le passé' }, 400)
+      const today = todayMontreal()
+      const payToday = body.payToday !== false
+      // Payer aujourd'hui : 1er = aujourd'hui, la date saisie est celle du 2e.
+      // Sinon : la date saisie est celle du 1er.
+      const chosenDate = String(body.chargeDate ?? '')
+      const firstDate = payToday ? today : chosenDate
+      const secondDate = payToday && count > 1 ? chosenDate : undefined
+      if (!payToday && firstDate < today) return json({ error: 'La date du 1er prélèvement ne peut pas être dans le passé' }, 400)
 
       let schedule
-      try { schedule = buildSchedule({ totalCents, count, frequencyDays, firstDate }) }
+      try { schedule = buildSchedule({ totalCents, count, frequencyDays, firstDate, secondDate }) }
       catch (e) { return json({ error: (e as Error).message }, 400) }
 
       const { data: plan, error } = await db.from('payment_plans').insert({
         closer_id: profile.id, closer_name: profile.full_name ?? user.email,
         client_first_name: first, client_last_name: last, client_email: email,
         client_phone: String(body.clientPhone ?? '').trim() || null,
+        client_street_number: String(body.clientStreetNumber ?? '').trim() || null,
+        client_street_name: street,
+        client_unit: String(body.clientUnit ?? '').trim() || null,
+        client_city: String(body.clientCity ?? '').trim(),
+        client_province: String(body.clientProvince ?? 'QC').trim().toUpperCase() || 'QC',
+        client_postal_code: postal.replace(/^(\w{3})\s?(\w{3})$/, '$1 $2'),
         product_name: product, total_amount_cents: totalCents, installments_count: count,
         frequency_days: frequencyDays || 1, first_charge_date: firstDate,
         notes: String(body.notes ?? '').trim() || null,

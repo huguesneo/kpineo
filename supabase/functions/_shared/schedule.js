@@ -39,18 +39,30 @@ export function addDays(isoDate, days) {
 
 // Montants égaux en cents ; le reste (quelques cents) va sur le 1er versement
 // pour que la somme soit exactement le total.
-export function buildSchedule({ totalCents, count, frequencyDays, firstDate }) {
+// firstDate : date du 1er versement. secondDate (optionnel) : date du 2e
+// versement quand il ne suit pas la fréquence (ex. 1er aujourd'hui, 2e choisi
+// par le closeur) ; les suivants reprennent la fréquence à partir du 2e.
+export function buildSchedule({ totalCents, count, frequencyDays, firstDate, secondDate }) {
   if (!Number.isInteger(totalCents) || totalCents <= 0) throw new Error('Montant total invalide')
   if (!Number.isInteger(count) || count < 1) throw new Error('Nombre de versements invalide')
   if (count > 1 && (!Number.isInteger(frequencyDays) || frequencyDays < 1)) throw new Error('Fréquence invalide')
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(firstDate ?? '')) throw new Error('Date de début invalide')
+  const isDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d ?? '')
+  if (!isDate(firstDate)) throw new Error('Date de début invalide')
+  if (secondDate != null && count > 1) {
+    if (!isDate(secondDate)) throw new Error('Date du 2e prélèvement invalide')
+    if (secondDate <= firstDate) throw new Error('Le 2e prélèvement doit être après le 1er')
+  }
 
   const base = Math.floor(totalCents / count)
   const remainder = totalCents - base * count
   return Array.from({ length: count }, (_, i) => ({
     number: i + 1,
     amountCents: base + (i === 0 ? remainder : 0),
-    dueDate: addDays(firstDate, i * (frequencyDays || 0)),
+    dueDate: i === 0
+      ? firstDate
+      : secondDate != null
+        ? addDays(secondDate, (i - 1) * frequencyDays)
+        : addDays(firstDate, i * frequencyDays),
   }))
 }
 

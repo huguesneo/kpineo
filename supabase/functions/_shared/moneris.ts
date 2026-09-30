@@ -49,6 +49,31 @@ async function getAccessToken(): Promise<string> {
 
 type Json = Record<string, unknown>
 
+// Titulaire de la carte : nom, courriel, téléphone et adresse de facturation
+// (sert à la vérification d'adresse AVS de Moneris)
+export interface CardHolder {
+  name: string; email?: string | null; phone?: string | null
+  streetNumber?: string | null; streetName?: string | null; unit?: string | null
+  city?: string | null; province?: string | null; postalCode?: string | null
+}
+
+function holderFields(h?: CardHolder): Json {
+  if (!h) return {}
+  const out: Json = { cardholderInformation: { cardholderName: h.name.slice(0, 60) } }
+  const digits = (h.phone ?? '').replace(/\D/g, '')
+  const phone = digits.length === 10 ? `+1${digits}` : digits.length === 11 && digits.startsWith('1') ? `+${digits}` : null
+  if (h.email || phone) out.contactDetails = { email: h.email ?? null, phoneNumber: phone }
+  if (h.streetName || h.postalCode) {
+    out.billingAddress = {
+      unitNumber: h.unit || null, streetNumber: h.streetNumber || null, streetName: h.streetName || null,
+      city: h.city || null, province: h.province || null,
+      postalCode: h.postalCode ? h.postalCode.toUpperCase().replace(/\s+/g, ' ').trim() : null,
+      country: 'CA',
+    }
+  }
+  return out
+}
+
 async function post(path: string, body: Json): Promise<{ status: number; data: Json }> {
   const merchantId = Deno.env.get('MONERIS_MERCHANT_ID')
   if (!merchantId) throw new Error('MONERIS_MERCHANT_ID manquant')
@@ -109,7 +134,7 @@ function readResult(status: number, data: Json, statusField: 'paymentStatus' | '
 // 1er paiement : débite la carte ET l'enregistre pour les versements suivants
 export async function chargeAndStoreCard(p: {
   idempotencyKey: string; orderId: string; amountCents: number; temporaryToken: string
-  eci: string; customerReference?: string
+  eci: string; customerReference?: string; holder?: CardHolder
 }): Promise<MonerisResult> {
   const { status, data } = await post('/payments', {
     idempotencyKey: p.idempotencyKey,
@@ -121,6 +146,7 @@ export async function chargeAndStoreCard(p: {
       temporaryToken: p.temporaryToken,
       storePaymentMethod: 'MERCHANT_INITIATED',
       credentialOnFileInformation: { paymentIndicator: 'RECURRING', paymentInformation: 'FIRST' },
+      ...holderFields(p.holder),
     },
     ecommerceIndicator: p.eci,
     automaticCapture: true,
@@ -132,6 +158,7 @@ export async function chargeAndStoreCard(p: {
 // Début futur : valide la carte (sans débit) et l'enregistre
 export async function validateAndStoreCard(p: {
   idempotencyKey: string; orderId: string; temporaryToken: string; eci: string; customerReference?: string
+  holder?: CardHolder
 }): Promise<MonerisResult> {
   const { status, data } = await post('/validations', {
     idempotencyKey: p.idempotencyKey,
@@ -142,6 +169,7 @@ export async function validateAndStoreCard(p: {
       temporaryToken: p.temporaryToken,
       storePaymentMethod: 'MERCHANT_INITIATED',
       credentialOnFileInformation: { paymentIndicator: 'RECURRING', paymentInformation: 'FIRST' },
+      ...holderFields(p.holder),
     },
     ecommerceIndicator: p.eci,
     dynamicDescriptor: 'NEO Performance',

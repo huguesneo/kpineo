@@ -18,6 +18,12 @@ describe('buildSchedule', () => {
     expect(s.map(i => i.dueDate)).toEqual(['2026-10-01', '2026-10-22', '2026-11-12'])
   })
 
+  it('1er aujourd’hui, 2e à une date choisie, puis la fréquence', () => {
+    const s = buildSchedule({ totalCents: 90000, count: 3, frequencyDays: 21, firstDate: '2026-09-30', secondDate: '2026-10-15' })
+    expect(s.map(i => i.dueDate)).toEqual(['2026-09-30', '2026-10-15', '2026-11-05'])
+    expect(() => buildSchedule({ totalCents: 90000, count: 3, frequencyDays: 21, firstDate: '2026-09-30', secondDate: '2026-09-30' })).toThrow()
+  })
+
   it('gère un paiement unique', () => {
     expect(buildSchedule({ totalCents: 5000, count: 1, frequencyDays: 0, firstDate: '2026-10-01' }))
       .toEqual([{ number: 1, amountCents: 5000, dueDate: '2026-10-01' }])

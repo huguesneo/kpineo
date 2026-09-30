@@ -5,7 +5,7 @@
 //   MAKE_PAYMENT_WEBHOOK_URL  webhook Make qui crée le reçu QuickBooks
 //   SLACK_PAYMENTS_WEBHOOK_URL webhook Slack pour les refus de paiement
 
-import { chargeAndStoreCard, chargeStoredCard, validateAndStoreCard, MonerisResult } from './moneris.ts'
+import { chargeAndStoreCard, chargeStoredCard, validateAndStoreCard, MonerisResult, CardHolder } from './moneris.ts'
 import { addDays, todayMontreal } from './schedule.js'
 
 declare const Deno: { env: { get(key: string): string | undefined } }
@@ -22,7 +22,16 @@ export interface Plan {
   product_name: string; total_amount_cents: number; installments_count: number
   status: string; moneris_payment_method_id: string | null; moneris_issuer_id: string | null
   card_last4: string | null
+  client_street_number?: string | null; client_street_name?: string | null; client_unit?: string | null
+  client_city?: string | null; client_province?: string | null; client_postal_code?: string | null
 }
+
+const holderOf = (p: Plan): CardHolder => ({
+  name: `${p.client_first_name} ${p.client_last_name}`.trim(),
+  email: p.client_email, phone: p.client_phone,
+  streetNumber: p.client_street_number, streetName: p.client_street_name, unit: p.client_unit,
+  city: p.client_city, province: p.client_province, postalCode: p.client_postal_code,
+})
 export interface Installment {
   id: string; plan_id: string; number: number; amount_cents: number; due_date: string
   status: string; attempts: number
@@ -151,12 +160,12 @@ export async function attachCard(db: DB, planId: string, temporaryToken: string,
       ? await chargeAndStoreCard({
           idempotencyKey: `${first.id}-${attempt}`.slice(0, 36),
           orderId: orderIdFor(planId, 1, attempt),
-          amountCents: first.amount_cents, temporaryToken, eci, customerReference: ref,
+          amountCents: first.amount_cents, temporaryToken, eci, customerReference: ref, holder: holderOf(plan),
         })
       : await validateAndStoreCard({
           idempotencyKey: crypto.randomUUID(),
           orderId: `NEO-${ref}-V${attempt}`,
-          temporaryToken, eci, customerReference: ref,
+          temporaryToken, eci, customerReference: ref, holder: holderOf(plan),
         })
   } catch (e) {
     console.error('[attachCard] erreur technique', e)
