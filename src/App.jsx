@@ -27,8 +27,7 @@ import Performance from './pages/Performance'
 import MaPerformance from './pages/MaPerformance'
 import ReseauxSociaux from './pages/ReseauxSociaux'
 import Terminal from './pages/Terminal'
-import PayerLien from './pages/PayerLien'
-import { TERMINAL_ENABLED, canUseTerminal } from './lib/terminal/flag'
+import { canUseTerminal } from './lib/terminal/flag'
 import { hasSocialAccess } from './lib/socialAccess'
 
 const HUGUES_EMAIL = 'hugues@neoperformance.ca'
@@ -140,7 +139,6 @@ function AppRoutes() {
 
       {/* Terminal de paiement Moneris */}
       <Route path="/terminal"      element={<TerminalRoute><Terminal /></TerminalRoute>} />
-      {TERMINAL_ENABLED && <Route path="/payer/:token" element={<PayerLien />} />}
 
       <Route path="*"            element={<Navigate to="/dashboard" replace />} />
     </Routes>
