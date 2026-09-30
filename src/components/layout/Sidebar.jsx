@@ -77,6 +77,9 @@ export default function Sidebar() {
   const isAdminOrRespVente = isAdmin || isRespVente
   const isPrimaryCloserOrSetter = profile?.role === 'closer' || profile?.role === 'setter'
   const monEspaceTo = profile?.role === 'closer' ? '/closer' : profile?.role === 'setter' ? '/setter' : '/mon-dossier'
+  // Closer ET setter avec un rôle de vente principal : une entrée par espace
+  // (Closer, Setter) au lieu de « Mon Espace », qui n'ouvrait que le principal.
+  const doubleVente = isPrimaryCloserOrSetter && hasCloserRole && hasSetterRole
   const { count } = usePendingTasksCount(isAdminOrRespVente ? null : profile?.id)
   const { count: approvalCount } = usePendingApprovalCount()
   const horaireAlertCount = useTotalHoraireAlertCount()
@@ -234,7 +237,7 @@ export default function Sidebar() {
           />
         )}
         {/* Closer — rôle secondaire seulement (admin inclus s'il close) */}
-        {(profile?.secondary_roles ?? []).includes('closer') && (
+        {((profile?.secondary_roles ?? []).includes('closer') || doubleVente) && (
           <NavItem
             to="/closer"
             label="Closer"
@@ -246,7 +249,7 @@ export default function Sidebar() {
           />
         )}
         {/* Setter — rôle secondaire seulement (admin inclus s'il set) */}
-        {(profile?.secondary_roles ?? []).includes('setter') && (
+        {((profile?.secondary_roles ?? []).includes('setter') || doubleVente) && (
           <NavItem
             to="/setter"
             label="Setter"
@@ -282,7 +285,7 @@ export default function Sidebar() {
           />
         )}
         {/* Mon Espace — membre (incluant resp_vente) */}
-        {!isAdmin && (
+        {!isAdmin && !doubleVente && (
           <NavItem
             to={monEspaceTo}
             label="Mon Espace"
