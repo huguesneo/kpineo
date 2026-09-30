@@ -245,11 +245,6 @@ export default function AppointmentDrawer({ appt, onClose, onStatusUpdate, userI
                   </svg>
                   Rejoindre Google Meet
                 </button>
-                {quizCompleted && (
-                  <p className="text-[10px] text-center text-[#10b981] font-semibold">
-                    Quiz complété → statut passera automatiquement à Show
-                  </p>
-                )}
               </>
             )}
           </div>
