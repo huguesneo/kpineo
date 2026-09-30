@@ -49,6 +49,7 @@ export function rowFromAppointment(appt) {
     contact_name:       appt.contact_name || '',
     contact_id:         appt.contact_id   || '',
     start_time:         appt.start_time   || '',
+    end_time:           appt.end_time     || '',  // le show ne se marque pas avant
     status:             '',     // '' | 'show' | 'noshow' | 'annule'
     is_closed:          null,   // null | true | false
     rdv_decision:       null,   // null | true | false — affiché seulement si is_closed === false

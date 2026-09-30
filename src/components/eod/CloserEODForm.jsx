@@ -5,6 +5,7 @@ import { supabase } from '../../lib/supabase'
 import Card from '../shared/Card'
 import Button from '../shared/Button'
 import { useCloserEOD, EOD_STATUSES, EOD_OBJECTIONS, EOD_FEEDBACK_OPTIONS } from '../../hooks/useCloserEOD'
+import { showPermis, heureShowPermis } from '../../lib/showHoraire'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -55,7 +56,7 @@ function InlineSelect({ value, onChange, options, placeholder = '—', className
     >
       <option value="">{placeholder}</option>
       {options.map(o => (
-        <option key={o.value} value={o.value}>{o.label}</option>
+        <option key={o.value} value={o.value} disabled={o.disabled}>{o.label}</option>
       ))}
     </select>
   )
@@ -79,7 +80,9 @@ function EODRow({ row, index, onChange }) {
         <InlineSelect
           value={row.status}
           onChange={v => onChange(index, { status: v })}
-          options={EOD_STATUSES}
+          options={row.status === 'show' || showPermis(row) ? EOD_STATUSES : EOD_STATUSES.map(s =>
+            s.value === 'show' ? { ...s, label: `Show dès ${heureShowPermis(row)}`, disabled: true } : s
+          )}
         />
       </td>
 
@@ -347,6 +350,14 @@ export default function CloserEODForm({ userId, ghlUserId = null, closerName = n
     const finalNotes = localNotes ?? notes
 
     // Objection principale obligatoire dès que ce n'est pas une vente
+    // Show seulement après la fin prévue du rendez-vous
+    const showTropTot = finalRows.filter(r => r.status === 'show' && !showPermis(r))
+    if (showTropTot.length > 0) {
+      setSubmitting(false)
+      setGhlError(`Le show se marque à la fin prévue du rendez-vous : ${showTropTot.map(r => `${r.contact_name || 'un prospect'} (dès ${heureShowPermis(r)})`).join(', ')}.`)
+      return
+    }
+
     const sansObjection = finalRows.filter(r => r.is_closed === false && !r.objection_principale)
     if (sansObjection.length > 0) {
       setSubmitting(false)

@@ -29,25 +29,15 @@ describe('show automatique', () => {
     }
   })
 
-  it('pendant le rendez-vous, écran ouvert : pas encore', () => {
+  it('avant la fin prévue : non', () => {
+    expect(cas({ maintenant: t(14, 30) })).toBe(false)
     expect(cas({ maintenant: t(15, 20) })).toBe(false)
     expect(cas({ maintenant: t(15, 44) })).toBe(false)
-  })
-
-  it('fermeture de l\'écran une fois la rencontre commencée : oui', () => {
-    expect(cas({ fermeture: true, maintenant: t(15, 0) })).toBe(true)
-    expect(cas({ fermeture: true, maintenant: t(15, 20) })).toBe(true)
-  })
-
-  it('fermeture de l\'écran avant le début (préparation) : non', () => {
-    expect(cas({ fermeture: true, maintenant: t(14, 59) })).toBe(false)
-    expect(cas({ fermeture: true, maintenant: t(14, 30) })).toBe(false)
   })
 
   it('trop tard : non', () => {
     expect(cas({ maintenant: t(23, 30) })).toBe(true)  // 7 h 45 après la fin
     expect(cas({ maintenant: t(23, 46) })).toBe(false) // plus de 8 h après la fin
-    expect(cas({ fermeture: true, maintenant: t(23, 46) })).toBe(false)
   })
 
   it('sans heure de fin : une heure après le début', () => {

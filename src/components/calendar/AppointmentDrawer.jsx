@@ -15,6 +15,7 @@ import {
   QUIZ_FIELDS,
 } from '../../hooks/useQuizResponse'
 import { saveStatusToEOD } from '../../hooks/useCloserEOD'
+import { showPermis, heureShowPermis } from '../../lib/showHoraire'
 
 function fmtTime(iso) {
   if (!iso) return '—'
@@ -74,6 +75,7 @@ export default function AppointmentDrawer({ appt, onClose, onStatusUpdate, userI
 
   async function handleStatus(status) {
     if (statusSaving) return
+    if (status === 'show' && !showPermis(appt)) return
     setUiStatus(status)
     setStatusSaving(true)
     const results = await Promise.allSettled([
@@ -92,10 +94,8 @@ export default function AppointmentDrawer({ appt, onClose, onStatusUpdate, userI
     // Open Google Meet in new tab
     window.open(appt.meeting_url, '_blank', 'noopener,noreferrer')
 
-    // Auto-show if quiz is completed
-    if (quizCompleted && uiStatus !== 'show') {
-      await handleStatus('show')
-    }
+    // Plus de show en rejoignant le Meet : le show se marque à la fin prévue
+    // du rendez-vous (src/lib/showHoraire.js), depuis l'écran d'appel.
 
     // Navigate to sale call script
     navigate(`/sale-call-script/${appt.ghl_id}`)
@@ -258,18 +258,23 @@ export default function AppointmentDrawer({ appt, onClose, onStatusUpdate, userI
           <div className="px-5 py-4">
             <p className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wide mb-3">Statut du rendez-vous</p>
             <div className="grid grid-cols-3 gap-2">
-              {STATUS_BTNS.map(btn => (
+              {STATUS_BTNS.map(btn => {
+                // Show : pas avant la fin prévue du rendez-vous
+                const tropTot = btn.value === 'show' && uiStatus !== 'show' && !showPermis(appt)
+                return (
                 <button
                   key={btn.value}
                   onClick={() => handleStatus(btn.value)}
-                  disabled={statusSaving}
+                  disabled={statusSaving || tropTot}
+                  title={tropTot ? `Le show se marque à partir de ${heureShowPermis(appt)}, à la fin prévue du rendez-vous` : undefined}
                   className={`py-2.5 rounded-xl text-sm font-bold border transition-all disabled:opacity-60 ${
                     uiStatus === btn.value ? btn.activeClass : btn.inactiveClass
                   }`}
                 >
-                  {btn.label}
+                  {tropTot ? `${btn.label} dès ${heureShowPermis(appt)}` : btn.label}
                 </button>
-              ))}
+                )
+              })}
             </div>
             {statusSaving && (
               <p className="text-xs text-center text-[#9ca3af] mt-2">Mise à jour en cours…</p>

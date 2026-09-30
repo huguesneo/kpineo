@@ -4,8 +4,10 @@ import { fr } from 'date-fns/locale'
 import { supabase } from '../../lib/supabase'
 import { EOD_STATUSES, rowFromAppointment, saveStatusToEOD } from '../../hooks/useCloserEOD'
 import { useCloserAppointments } from '../../hooks/useCloserData'
+import { showPermis } from '../../lib/showHoraire'
 
-const POPUP_DELAY_MIN = 45  // minutes après le début du RDV
+// La fenêtre s'ouvre à la fin prévue du RDV : le show ne se marque pas avant
+// (src/lib/showHoraire.js).
 const LOOKBACK_HOURS  = 8   // heures de lookback max
 
 function fmtTime(iso) {
@@ -75,13 +77,12 @@ export default function AppointmentStatusPopup({ userId, ghlUserId, closerName }
   const queue = useMemo(() => {
     if (apptLoading) return []
     const now         = Date.now()
-    const cutoff      = now - POPUP_DELAY_MIN * 60_000
     const maxLookback = now - LOOKBACK_HOURS  * 3_600_000
 
     return appointments.filter(appt => {
       const start = new Date(appt.start_time).getTime()
-      // Doit avoir démarré depuis au moins 45 min, mais pas plus de 8h
-      if (start > cutoff || start < maxLookback) return false
+      // Doit être terminé (fin prévue), mais avoir démarré il y a moins de 8h
+      if (!showPermis(appt, now) || start < maxLookback) return false
       // Déjà traité dans cette session
       if (doneIds.has(appt.ghl_id)) return false
       // Statut déjà défini dans GHL (via le calendrier ou ailleurs)

@@ -19,6 +19,7 @@ import {
 } from '../hooks/useQuizResponse'
 import { useSaleCallNote } from '../hooks/useSaleCallNotes'
 import { EOD_OBJECTIONS, saveRowChangesToEOD } from '../hooks/useCloserEOD'
+import { finRendezVous, showPermis, heureShowPermis } from '../lib/showHoraire'
 
 // ─── Helpers ──────────────────────────────────────────────────
 function fmtTime(iso) {
@@ -208,22 +209,18 @@ function QuizRow({ label, value }) {
 
 // ─── Passage automatique en « show » ──────────────────────────
 // Un show déclenche la commission du setter : on ne le met tout seul que si
-// le closeur a vraiment travaillé l'appel, et jamais par-dessus un statut déjà
-// choisi (no-show, annulé, show). Il part à la fin prévue du rendez-vous, ou
-// plus tôt si le closeur quitte l'écran une fois la rencontre commencée.
+// le closeur a vraiment travaillé l'appel, jamais par-dessus un statut déjà
+// choisi (no-show, annulé, show), et seulement à partir de la fin prévue du
+// rendez-vous — la même heure que pour le bouton Show (src/lib/showHoraire.js).
 const AUTO_SHOW_CHAMPS   = 6               // champs de qualification remplis
 const AUTO_SHOW_APRES_MS = 8 * 3_600_000   // après la fin, on ne devine plus
-const DUREE_DEFAUT_MS    = 60 * 60_000     // si le rendez-vous n'a pas d'heure de fin
 
-export function peutPasserEnShowAuto({ champsRemplis, statut, debut, fin, fermeture = false, maintenant = Date.now() }) {
+export function peutPasserEnShowAuto({ champsRemplis, statut, debut, fin, maintenant = Date.now() }) {
   if (champsRemplis < AUTO_SHOW_CHAMPS) return false
   if (statut && statut !== 'confirmed' && statut !== 'new' && statut !== 'pending') return false
-  const tDebut = debut ? new Date(debut).getTime() : NaN
-  if (isNaN(tDebut)) return false
-  const tFinBrut = fin ? new Date(fin).getTime() : NaN
-  const tFin = isNaN(tFinBrut) ? tDebut + DUREE_DEFAUT_MS : tFinBrut
-  if (maintenant > tFin + AUTO_SHOW_APRES_MS) return false
-  return maintenant >= (fermeture ? tDebut : tFin)
+  if (!debut || isNaN(new Date(debut).getTime())) return false
+  const tFin = finRendezVous({ start_time: debut, end_time: fin })
+  return maintenant >= tFin && maintenant <= tFin + AUTO_SHOW_APRES_MS
 }
 
 // ─── Main page ────────────────────────────────────────────────
@@ -283,7 +280,6 @@ export default function SaleCallScript() {
   const [objError,   setObjError]       = useState(null)
   const [autoShow,   setAutoShow]       = useState(false)  // show mis automatiquement
   const autoShowFait = useRef(false)
-  const jetonRef     = useRef(null)   // jeton de session, lu à la fermeture de l'onglet
 
   // Progress
   const filledCount = QUAL_FIELDS.filter(f => qual[f.key]?.trim()).length
@@ -349,35 +345,28 @@ export default function SaleCallScript() {
   }
 
   // Passe le rendez-vous en « show » quand la qualification est vraiment
-  // remplie, à la fin du rendez-vous (ou à la fermeture de l'écran une fois
-  // la rencontre commencée), et jamais par-dessus un statut déjà choisi.
-  // Une seule fois par ouverture de l'écran.
-  // Lit ses données dans une ref : il est aussi appelé par une minuterie et
-  // au démontage, où les valeurs capturées seraient périmées.
+  // remplie, à la fin prévue du rendez-vous, et jamais par-dessus un statut
+  // déjà choisi. Une seule fois par ouverture de l'écran.
+  // Lit ses données dans une ref : il est aussi appelé par une minuterie, où
+  // les valeurs capturées seraient périmées.
   const derniers = useRef({})
   derniers.current = { appt, apptStatus, qual, userId: profile?.id, note: formatNoteForGHL }
 
-  function showAutoPermis({ fermeture = false, statut } = {}) {
-    const { appt, apptStatus, qual } = derniers.current
+  function showAutoPermis(statut) {
+    const { appt, qual } = derniers.current
     if (autoShowFait.current || !appt?.ghl_id) return false
     const champsRemplis = QUAL_FIELDS.filter(f => qual[f.key]?.trim()).length
-    return peutPasserEnShowAuto({
-      champsRemplis,
-      statut:  statut === undefined ? apptStatus : statut,
-      debut:   appt.start_time,
-      fin:     appt.end_time,
-      fermeture,
-    })
+    return peutPasserEnShowAuto({ champsRemplis, statut, debut: appt.start_time, fin: appt.end_time })
   }
 
-  async function tenterShowAuto({ fermeture = false } = {}) {
-    if (!showAutoPermis({ fermeture })) return
+  async function tenterShowAuto() {
+    if (!showAutoPermis(derniers.current.apptStatus)) return
     const { appt, userId, note } = derniers.current
 
     // Relire le statut : il a pu être changé ailleurs pendant l'appel.
     const { data: frais } = await supabase
       .from('ghl_appointments').select('status').eq('ghl_id', appt.ghl_id).maybeSingle()
-    if (!showAutoPermis({ fermeture, statut: frais?.status ?? derniers.current.apptStatus })) return
+    if (!showAutoPermis(frais?.status ?? derniers.current.apptStatus)) return
 
     autoShowFait.current = true
     const { error } = await supabase.functions.invoke('ghl-update-appointment', {
@@ -395,61 +384,18 @@ export default function SaleCallScript() {
     await saveRowChangesToEOD(userId, appt, { status: 'show' })
   }
 
-  // À la fin prévue du rendez-vous, si l'écran est encore ouvert.
+  // À la fin prévue du rendez-vous, si l'écran est encore ouvert. Si la fiche
+  // n'est pas assez remplie à ce moment-là, le prochain champ quitté réessaie.
+  // Relancé quand la note sauvegardée arrive, pour l'écran ouvert après la fin.
+  const [finPassee, setFinPassee] = useState(false)
   useEffect(() => {
     if (!appt?.start_time) return
-    const debut = new Date(appt.start_time).getTime()
-    const finBrut = appt.end_time ? new Date(appt.end_time).getTime() : NaN
-    const fin = isNaN(finBrut) ? debut + DUREE_DEFAUT_MS : finBrut
-    const delai = fin - Date.now()
+    const delai = finRendezVous(appt) - Date.now()
     if (isNaN(delai) || delai > 2 ** 31 - 1) return
-    const id = setTimeout(() => { tenterShowAuto() }, Math.max(0, delai) + 1000)
+    const id = setTimeout(() => { setFinPassee(true); tenterShowAuto() }, Math.max(0, delai) + 1000)
     return () => clearTimeout(id)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appt?.ghl_id, appt?.start_time, appt?.end_time, savedNote])
-
-  // Jeton gardé à portée de main : à la fermeture de l'onglet, on ne peut
-  // plus rien attendre.
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => { jetonRef.current = data.session?.access_token ?? null })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
-      jetonRef.current = session?.access_token ?? null
-    })
-    return () => subscription.unsubscribe()
-  }, [])
-
-  // Quand le closeur quitte l'écran : changement de page dans l'app
-  // (démontage) ou fermeture / rechargement de l'onglet (pagehide).
-  useEffect(() => {
-    function onPageHide() {
-      if (!showAutoPermis({ fermeture: true }) || !jetonRef.current) return
-      const { appt, note } = derniers.current
-      autoShowFait.current = true
-      // keepalive : la requête survit à la fermeture de l'onglet. Le rapport
-      // de fin de journée reprendra le statut depuis le rendez-vous.
-      fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ghl-update-appointment`, {
-        method:    'POST',
-        keepalive: true,
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization:  `Bearer ${jetonRef.current}`,
-          apikey:         import.meta.env.VITE_SUPABASE_ANON_KEY,
-        },
-        body: JSON.stringify({
-          appointmentId: appt.ghl_id,
-          contactId:     appt.contact_id ?? undefined,
-          status:        'show',
-          note:          note(),
-        }),
-      }).catch(() => {})
-    }
-    window.addEventListener('pagehide', onPageHide)
-    return () => {
-      window.removeEventListener('pagehide', onPageHide)
-      tenterShowAuto({ fermeture: true })
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   // ── Save notes ──
   async function handleSaveNotes() {
@@ -503,6 +449,7 @@ export default function SaleCallScript() {
   // ── Update appointment status ──
   async function handleStatus(uiStatus) {
     if (!appt?.ghl_id || statusSaving) return
+    if (uiStatus === 'show' && !showPermis(appt)) return
     setStatusSaving(true)
 
     // Save notes alongside status if any are filled
@@ -867,13 +814,17 @@ export default function SaleCallScript() {
                     </svg>
                   ),
                 },
-              ].map(({ status, label, active, activeStyle, hoverClass, icon }) => (
+              ].map(({ status, label, active, activeStyle, hoverClass, icon }) => {
+                // Show : pas avant la fin prévue du rendez-vous
+                const tropTot = status === 'show' && !active && !finPassee && !showPermis(appt)
+                return (
                 <button
                   key={status}
                   onClick={() => handleStatus(status)}
-                  disabled={statusSaving || active}
+                  disabled={statusSaving || active || tropTot}
+                  title={tropTot ? `Le show se marque à partir de ${heureShowPermis(appt)}, à la fin prévue du rendez-vous` : undefined}
                   className={`flex flex-col items-center justify-center gap-1.5 py-3 rounded-xl text-xs font-bold border transition-all disabled:cursor-default ${
-                    active ? '' : `bg-white border-[#e5e7eb] text-[#6b7280] ${hoverClass}`
+                    active ? '' : tropTot ? 'bg-[#f9fafb] border-[#e5e7eb] text-[#c4c9d1]' : `bg-white border-[#e5e7eb] text-[#6b7280] ${hoverClass}`
                   }`}
                   style={active ? activeStyle : {}}
                 >
@@ -883,9 +834,10 @@ export default function SaleCallScript() {
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                     </svg>
                   ) : icon}
-                  {label}
+                  {tropTot ? `${label} dès ${heureShowPermis(appt)}` : label}
                 </button>
-              ))}
+                )
+              })}
             </div>
 
             {/* Retour */}

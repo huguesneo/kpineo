@@ -65,9 +65,24 @@ Deno.serve(async (req) => {
     // 200 mais ignore silencieusement le changement de statut.
     const { data: apptRecord } = await supabase
       .from('ghl_appointments')
-      .select('calendar_id, location_id, raw')
+      .select('calendar_id, location_id, raw, start_time, end_time')
       .eq('ghl_id', appointmentId)
       .maybeSingle()
+
+    // ── Show : jamais avant la fin prévue du rendez-vous ─────────
+    // Un show déclenche la commission du setter. Même règle que
+    // src/lib/showHoraire.js côté app.
+    if (status === 'show' && apptRecord) {
+      const raw   = (apptRecord.raw ?? {}) as Record<string, unknown>
+      const debut = apptRecord.start_time ? new Date(apptRecord.start_time).getTime() : NaN
+      const duree = Number(raw.duration ?? raw.durationMinutes) || 60
+      const finBrut = apptRecord.end_time ? new Date(apptRecord.end_time).getTime() : NaN
+      const fin   = isNaN(finBrut) ? debut + duree * 60_000 : finBrut
+      if (!isNaN(fin) && Date.now() < fin) {
+        const heure = new Date(fin).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Toronto' })
+        return json({ error: `Le show se marque à partir de ${heure}, à la fin prévue du rendez-vous.` }, 409)
+      }
+    }
 
     const locationId = apptRecord?.location_id
       || (apptRecord?.raw as Record<string, unknown>)?.locationId as string
