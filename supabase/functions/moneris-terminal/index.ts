@@ -1,11 +1,12 @@
 // Terminal de paiement : actions des closeurs (JWT obligatoire).
 //   create_plan        crée le plan et l'échéancier
+//   create_link        génère le lien sécurisé à envoyer au client (7 jours)
 //   attach_card        le closeur entre la carte (jeton temporaire Moneris)
 //   retry_installment  relance un versement refusé
 //   cancel_plan        annule les versements à venir
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { attachCard, chargeInstallment } from '../_shared/terminal.ts'
+import { attachCard, chargeInstallment, newLinkToken, sha256 } from '../_shared/terminal.ts'
 import { ECI } from '../_shared/moneris.ts'
 import { TERMINAL_PRODUCTS, buildSchedule, installmentsForProduct, todayMontreal } from '../_shared/schedule.js'
 
@@ -15,6 +16,7 @@ const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
+const LINK_DAYS = 7
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
@@ -100,6 +102,19 @@ Deno.serve(async (req) => {
       return json({ planId: plan.id })
     }
 
+    if (action === 'create_link') {
+      const plan = await loadPlan(body.planId)
+      if (!plan) return json({ error: 'Plan introuvable' }, 404)
+      if (!['pending_card', 'card_failed'].includes(plan.status)) return json({ error: 'La carte est déjà enregistrée' }, 400)
+      const token = newLinkToken()
+      const expiresAt = new Date(Date.now() + LINK_DAYS * 86400_000).toISOString()
+      const { error } = await db.from('payment_plan_links').upsert({
+        plan_id: plan.id, token_hash: await sha256(token), expires_at: expiresAt, used_at: null, attempts: 0,
+      })
+      if (error) throw error
+      return json({ token, expiresAt })
+    }
+
     if (action === 'attach_card') {
       const plan = await loadPlan(body.planId)
       if (!plan) return json({ error: 'Plan introuvable' }, 404)
@@ -126,6 +141,7 @@ Deno.serve(async (req) => {
       await db.from('payment_plans').update({
         status: 'canceled', canceled_at: new Date().toISOString(), canceled_by: profile.id, updated_at: new Date().toISOString(),
       }).eq('id', plan.id)
+      await db.from('payment_plan_links').delete().eq('plan_id', plan.id)
       return json({ ok: true })
     }
 

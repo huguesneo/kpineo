@@ -1,6 +1,6 @@
 # Terminal de paiement Moneris
 
-Page `/terminal` (closeurs, admin, resp_vente). Le paiement par lien client a été retiré (non approuvé par Moneris).
+Page `/terminal` (closeurs, admin, resp_vente) et page publique `/payer/:token` (lien client).
 Cachée tant que `VITE_TERMINAL_MONERIS` n'est pas `true`.
 
 ## Fonctionnement

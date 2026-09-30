@@ -177,7 +177,11 @@ function NewPlanForm({ onCreated }) {
         )}
 
         {error && <p className="text-sm text-red-600">{error}</p>}
-        <Button type="submit" loading={saving === 'card'} disabled={!!saving} className="w-full">Entrer la carte</Button>
+        <div className="grid grid-cols-2 gap-3">
+          <Button type="submit" loading={saving === 'card'} disabled={!!saving}>Entrer la carte</Button>
+          <Button type="button" variant="secondary" loading={saving === 'link'} disabled={!!saving}
+            onClick={() => submit('link')}>Envoyer le lien au client</Button>
+        </div>
       </form>
     </Card>
   )
@@ -238,6 +242,7 @@ function CardEntryModal({ plan, onClose, onDone }) {
 function PlanRow({ plan, isManager, onAction, highlight }) {
   const [open, setOpen] = useState(highlight)
   const [busy, setBusy] = useState('')
+  const [link, setLink] = useState('')
   const paid = (plan.payment_installments ?? []).filter(i => i.status === 'paid').reduce((a, i) => a + i.amount_cents, 0)
   const st = PLAN_STATUS[plan.status] ?? { label: plan.status, variant: 'default' }
   const needsCard = ['pending_card', 'card_failed'].includes(plan.status)
@@ -247,6 +252,12 @@ function PlanRow({ plan, isManager, onAction, highlight }) {
     try { await fn() } catch (err) { onAction.toast(err.message, true) } finally { setBusy('') }
   }
 
+  const makeLink = () => run('link', async () => {
+    const { token } = await callTerminal({ action: 'create_link', planId: plan.id })
+    const url = `${window.location.origin}/payer/${token}`
+    setLink(url)
+    try { await navigator.clipboard.writeText(url); onAction.toast('Lien copié. Envoie-le au client (valide 7 jours).') } catch { /* copie manuelle */ }
+  })
   const cancel = () => run('cancel', async () => {
     await callTerminal({ action: 'cancel_plan', planId: plan.id }); onAction.refresh()
   })
@@ -298,6 +309,7 @@ function PlanRow({ plan, isManager, onAction, highlight }) {
 
           <div className="flex flex-wrap gap-2">
             {needsCard && <Button size="sm" onClick={() => onAction.enterCard(plan)}>Entrer la carte</Button>}
+            {needsCard && <Button size="sm" variant="secondary" loading={busy === 'link'} onClick={makeLink}>Lien pour le client</Button>}
             {!['completed', 'canceled'].includes(plan.status) && (
               <Button size="sm" variant="ghost" loading={busy === 'cancel'}
                 onClick={() => { if (window.confirm('Annuler les versements à venir de cette vente ?')) cancel() }}>
@@ -305,6 +317,7 @@ function PlanRow({ plan, isManager, onAction, highlight }) {
               </Button>
             )}
           </div>
+          {link && <p className="text-xs break-all bg-[#f5f5f7] rounded p-2">{link}</p>}
         </div>
       )}
     </Card>
@@ -320,6 +333,7 @@ export default function Terminal() {
   const [cardPlan, setCardPlan] = useState(null)
   const [highlightId, setHighlightId] = useState(null)
   const [toast, setToast] = useState(null)
+  const [linkInfo, setLinkInfo] = useState(null)
 
   const showToast = (msg, isError = false) => {
     setToast({ msg, isError })
@@ -345,12 +359,20 @@ export default function Terminal() {
     return true
   })
 
-  async function onCreated(planId) {
+  async function onCreated(planId, mode) {
     const { data: plan } = await supabase.from('payment_plans')
       .select('*, payment_installments(*)').eq('id', planId).single()
     await load()
     setHighlightId(planId)
-    if (plan) setCardPlan(plan)
+    if (mode === 'card' && plan) { setCardPlan(plan); return }
+    try {
+      const { token } = await callTerminal({ action: 'create_link', planId })
+      const url = `${window.location.origin}/payer/${token}`
+      setLinkInfo({ url, name: plan ? `${plan.client_first_name} ${plan.client_last_name}` : '' })
+      try { await navigator.clipboard.writeText(url) } catch { /* copie manuelle */ }
+    } catch (err) {
+      showToast(err.message, true)
+    }
   }
 
   return (
@@ -381,6 +403,18 @@ export default function Terminal() {
       {cardPlan && (
         <CardEntryModal plan={cardPlan} onClose={() => setCardPlan(null)}
           onDone={(msg) => { setCardPlan(null); showToast(msg); load() }} />
+      )}
+
+      {linkInfo && (
+        <Modal isOpen onClose={() => setLinkInfo(null)} title="Lien de paiement">
+          <div className="p-6 space-y-3">
+            <p className="text-sm text-[#374151]">
+              Lien copié. Envoie-le à {linkInfo.name} par texto ou courriel. Il est valide 7 jours.
+            </p>
+            <p className="text-xs break-all bg-[#f5f5f7] rounded p-3 select-all">{linkInfo.url}</p>
+            <Button className="w-full" onClick={() => setLinkInfo(null)}>OK</Button>
+          </div>
+        </Modal>
       )}
 
       {toast && (
