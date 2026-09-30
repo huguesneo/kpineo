@@ -21,6 +21,13 @@ function ghlHeaders(apiKey: string) {
   }
 }
 
+// Fiche de qualification : même liste que src/lib/showHoraire.js
+const SHOW_CHAMPS_MIN = 6
+const CHAMPS_FICHE = [
+  'reference', 'source', 'objectif', 'pourquoi', 'depuis',
+  'deja_essaye', 'problematique', 'solution', 'note',
+]
+
 // UI status → GHL appointmentStatus
 const STATUS_MAP: Record<string, string> = {
   show:   'showed',
@@ -65,7 +72,7 @@ Deno.serve(async (req) => {
     // 200 mais ignore silencieusement le changement de statut.
     const { data: apptRecord } = await supabase
       .from('ghl_appointments')
-      .select('calendar_id, location_id, raw, start_time, end_time')
+      .select('calendar_id, location_id, raw, start_time, end_time, status')
       .eq('ghl_id', appointmentId)
       .maybeSingle()
 
@@ -81,6 +88,24 @@ Deno.serve(async (req) => {
       if (!isNaN(fin) && Date.now() < fin) {
         const heure = new Date(fin).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Toronto' })
         return json({ error: `Le show se marque à partir de ${heure}, à la fin prévue du rendez-vous.` }, 409)
+      }
+
+      // ── Show : jamais sans fiche de qualification remplie ────────
+      // Au moins 6 des 9 champs de l'écran d'appel (src/lib/showHoraire.js).
+      // Un rendez-vous déjà en show passe (renvoi du rapport de fin de journée).
+      const dejaShow = apptRecord.status === 'showed' || apptRecord.status === 'attended'
+      if (!dejaShow) {
+        // Il peut y avoir plusieurs fiches pour un rendez-vous : la plus remplie compte
+        const { data: fiches } = await supabase
+          .from('sale_call_notes').select('qualification')
+          .eq('appointment_ghl_id', appointmentId)
+        const remplis = Math.max(0, ...(fiches ?? []).map(f => {
+          const q = (f.qualification ?? {}) as Record<string, unknown>
+          return CHAMPS_FICHE.filter(k => String(q[k] ?? '').trim()).length
+        }))
+        if (remplis < SHOW_CHAMPS_MIN) {
+          return json({ error: `Pas de show sans fiche de qualification remplie (${remplis}/${SHOW_CHAMPS_MIN} champs).` }, 409)
+        }
       }
     }
 

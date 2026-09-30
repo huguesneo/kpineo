@@ -28,3 +28,22 @@ describe('show manuel : pas avant la fin prévue', () => {
     expect(heureShowPermis({ ...appt, end_time: new Date(t(19, 0)).toISOString() })).toBe(new Date(t(19, 0)).toTimeString().slice(0, 5))
   })
 })
+
+import { champsFiche, ficheRemplie } from './showHoraire.js'
+
+describe('fiche de qualification', () => {
+  const q = (n) => Object.fromEntries(['reference', 'source', 'objectif', 'pourquoi', 'depuis', 'deja_essaye', 'problematique', 'solution', 'note'].slice(0, n).map(k => [k, 'x']))
+
+  it('6 champs remplis : oui ; 5 : non', () => {
+    expect(ficheRemplie(q(6))).toBe(true)
+    expect(ficheRemplie(q(5))).toBe(false)
+  })
+
+  it('les champs vides ou blancs ne comptent pas', () => {
+    expect(champsFiche({ ...q(5), solution: '   ', autre: 'x' })).toBe(5)
+  })
+
+  it('pas de fiche : non', () => {
+    expect(ficheRemplie(null)).toBe(false)
+  })
+})

@@ -96,7 +96,10 @@ Deno.serve(async () => {
 
   const resultats: Record<string, string> = {}
   for (const a of candidats) {
-    const note = (notes ?? []).find(n => n.appointment_ghl_id === a.ghl_id)
+    // Il peut y avoir plusieurs fiches pour un rendez-vous : la plus remplie compte
+    const note = (notes ?? [])
+      .filter(n => n.appointment_ghl_id === a.ghl_id)
+      .sort((x, y) => champsRemplis(y.qualification ?? {}) - champsRemplis(x.qualification ?? {}))[0]
     const q = (note?.qualification ?? {}) as Record<string, unknown>
     if (champsRemplis(q) < CHAMPS_MIN) continue
 

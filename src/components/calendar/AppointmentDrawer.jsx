@@ -15,7 +15,8 @@ import {
   QUIZ_FIELDS,
 } from '../../hooks/useQuizResponse'
 import { saveStatusToEOD } from '../../hooks/useCloserEOD'
-import { showPermis, heureShowPermis } from '../../lib/showHoraire'
+import { supabase } from '../../lib/supabase'
+import { showPermis, heureShowPermis, champsFicheParRdv, SHOW_CHAMPS_MIN } from '../../lib/showHoraire'
 
 function fmtTime(iso) {
   if (!iso) return '—'
@@ -63,6 +64,15 @@ export default function AppointmentDrawer({ appt, onClose, onStatusUpdate, userI
     setShowQuiz(false)
   }, [appt?.ghl_id, appt?.status])
 
+  // Fiche de qualification : pas de show sans au moins 6 champs remplis
+  const [champsFiche, setChampsFiche] = useState(0)
+  useEffect(() => {
+    if (!appt?.ghl_id) return
+    let actif = true
+    champsFicheParRdv(supabase, [appt.ghl_id]).then(m => { if (actif) setChampsFiche(m[appt.ghl_id] ?? 0) })
+    return () => { actif = false }
+  }, [appt?.ghl_id])
+
   const quizCompleted = isQuizCompleted(quiz)
 
   // Réponses du formulaire de réservation (champs personnalisés GHL du contact)
@@ -75,19 +85,20 @@ export default function AppointmentDrawer({ appt, onClose, onStatusUpdate, userI
 
   async function handleStatus(status) {
     if (statusSaving) return
-    if (status === 'show' && !showPermis(appt)) return
+    // Show : fiche remplie et fin prévue passée (avant, il est déjà programmé)
+    if (status === 'show' && (champsFiche < SHOW_CHAMPS_MIN || !showPermis(appt))) return
+    const avant = uiStatus
     setUiStatus(status)
     setStatusSaving(true)
-    const results = await Promise.allSettled([
-      updateAppointmentStatus(appt.ghl_id, appt.contact_id, status),
-      saveStatusToEOD(userId, appt, status),
-    ])
-    const ghlResult = results[0].status === 'fulfilled' ? (results[0].value ?? {}) : {}
+    // GHL d'abord : le serveur peut refuser (show trop tôt, fiche incomplète),
+    // et le rapport de fin de journée ne doit pas dire autre chose que GHL.
+    const { error } = await updateAppointmentStatus(appt.ghl_id, appt.contact_id, status)
+      .catch(e => ({ error: e }))
+    if (!error) await saveStatusToEOD(userId, appt, status)
     setStatusSaving(false)
-    if (!ghlResult.error) {
-      const ghlStatusMap = { show: 'showed', noshow: 'noshow', annule: 'cancelled' }
-      onStatusUpdate?.(appt.ghl_id, ghlStatusMap[status] ?? status)
-    }
+    if (error) { setUiStatus(avant); return }
+    const ghlStatusMap = { show: 'showed', noshow: 'noshow', annule: 'cancelled' }
+    onStatusUpdate?.(appt.ghl_id, ghlStatusMap[status] ?? status)
   }
 
   async function handleJoinMeet() {
@@ -254,19 +265,29 @@ export default function AppointmentDrawer({ appt, onClose, onStatusUpdate, userI
             <p className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wide mb-3">Statut du rendez-vous</p>
             <div className="grid grid-cols-3 gap-2">
               {STATUS_BTNS.map(btn => {
-                // Show : pas avant la fin prévue du rendez-vous
-                const tropTot = btn.value === 'show' && uiStatus !== 'show' && !showPermis(appt)
+                // Show : fiche remplie obligatoire ; avant la fin prévue, une
+                // fiche remplie veut dire que le show est programmé (show-auto).
+                const estShow     = btn.value === 'show' && uiStatus !== 'show'
+                const ficheManque = estShow && champsFiche < SHOW_CHAMPS_MIN
+                const programme   = estShow && !ficheManque && !showPermis(appt)
+                const heure       = heureShowPermis(appt)
                 return (
                 <button
                   key={btn.value}
                   onClick={() => handleStatus(btn.value)}
-                  disabled={statusSaving || tropTot}
-                  title={tropTot ? `Le show se marque à partir de ${heureShowPermis(appt)}, à la fin prévue du rendez-vous` : undefined}
+                  disabled={statusSaving || ficheManque || programme}
+                  title={ficheManque
+                    ? `Remplir au moins ${SHOW_CHAMPS_MIN} champs de la fiche de qualification (Formulaire d'appel)`
+                    : programme ? `Le show sera appliqué à ${heure}, à la fin prévue du rendez-vous` : undefined}
                   className={`py-2.5 rounded-xl text-sm font-bold border transition-all disabled:opacity-60 ${
-                    uiStatus === btn.value ? btn.activeClass : btn.inactiveClass
+                    uiStatus === btn.value ? btn.activeClass
+                    : programme ? 'bg-[#10b981]/10 border-[#10b981]/40 text-[#10b981]'
+                    : btn.inactiveClass
                   }`}
                 >
-                  {tropTot ? `${btn.label} dès ${heureShowPermis(appt)}` : btn.label}
+                  {ficheManque ? `${btn.label} · fiche ${champsFiche}/${SHOW_CHAMPS_MIN}`
+                    : programme ? `${btn.label} prévu · ${heure}`
+                    : btn.label}
                 </button>
                 )
               })}

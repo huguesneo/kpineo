@@ -4,7 +4,7 @@ import { fr } from 'date-fns/locale'
 import { supabase } from '../../lib/supabase'
 import { EOD_STATUSES, rowFromAppointment, saveStatusToEOD } from '../../hooks/useCloserEOD'
 import { useCloserAppointments } from '../../hooks/useCloserData'
-import { showPermis } from '../../lib/showHoraire'
+import { showPermis, champsFicheParRdv, SHOW_CHAMPS_MIN } from '../../lib/showHoraire'
 
 // La fenêtre s'ouvre à la fin prévue du RDV : le show ne se marque pas avant
 // (src/lib/showHoraire.js).
@@ -100,8 +100,20 @@ export default function AppointmentStatusPopup({ userId, ghlUserId, closerName }
   // Réinitialiser le statut à chaque nouveau RDV
   useEffect(() => { setStatus('') }, [current?.ghl_id])
 
+  // Fiche de qualification du RDV affiché : pas de show sans 6 champs remplis
+  const [champsFiche, setChampsFiche] = useState(0)
+  useEffect(() => {
+    if (!current?.ghl_id) return
+    let actif = true
+    setChampsFiche(0)
+    champsFicheParRdv(supabase, [current.ghl_id]).then(m => { if (actif) setChampsFiche(m[current.ghl_id] ?? 0) })
+    return () => { actif = false }
+  }, [current?.ghl_id])
+  const showBloque = champsFiche < SHOW_CHAMPS_MIN
+
   async function handleSubmit() {
     if (!current || !status) return
+    if (status === 'show' && showBloque) return
     setSaving(true)
 
     await Promise.allSettled([
@@ -178,15 +190,18 @@ export default function AppointmentStatusPopup({ userId, ghlUserId, closerName }
                 annule: { active: 'bg-[#ef4444] border-[#ef4444] text-white', inactive: 'bg-white border-[#e5e7eb] text-[#6b7280] hover:border-[#ef4444]/40' },
               }
               const c = colors[s.value]
+              const bloque = s.value === 'show' && showBloque
               return (
                 <button
                   key={s.value}
                   onClick={() => setStatus(s.value)}
-                  className={`py-2.5 rounded-xl text-sm font-bold border transition-all ${
+                  disabled={bloque}
+                  title={bloque ? `Remplir au moins ${SHOW_CHAMPS_MIN} champs de la fiche de qualification (Formulaire d'appel)` : undefined}
+                  className={`py-2.5 rounded-xl text-sm font-bold border transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
                     status === s.value ? c.active : c.inactive
                   }`}
                 >
-                  {s.label}
+                  {bloque ? `${s.label} · fiche ${champsFiche}/${SHOW_CHAMPS_MIN}` : s.label}
                 </button>
               )
             })}

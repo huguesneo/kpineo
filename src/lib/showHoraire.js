@@ -28,3 +28,37 @@ export function heureShowPermis(appt) {
   const d = new Date(fin)
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
+
+// ─── Fiche de qualification ───────────────────────────────────
+// Pas de show, manuel ou automatique, sans fiche remplie : au moins 6 des 9
+// champs de l'écran d'appel (QUAL_FIELDS de SaleCallScript). Même liste
+// côté serveur (ghl-update-appointment, show-auto).
+export const SHOW_CHAMPS_MIN = 6
+export const CHAMPS_FICHE = [
+  'reference', 'source', 'objectif', 'pourquoi', 'depuis',
+  'deja_essaye', 'problematique', 'solution', 'note',
+]
+
+export function champsFiche(qualification) {
+  return CHAMPS_FICHE.filter(k => String(qualification?.[k] ?? '').trim()).length
+}
+
+export function ficheRemplie(qualification) {
+  return champsFiche(qualification) >= SHOW_CHAMPS_MIN
+}
+
+// Nombre de champs remplis par rendez-vous : { [appointment_ghl_id]: n }
+export async function champsFicheParRdv(supabase, ghlIds) {
+  const ids = (ghlIds ?? []).filter(Boolean)
+  if (ids.length === 0) return {}
+  const { data } = await supabase
+    .from('sale_call_notes')
+    .select('appointment_ghl_id, qualification')
+    .in('appointment_ghl_id', ids)
+  // Il peut y avoir plusieurs fiches pour un rendez-vous : la plus remplie compte
+  const parRdv = {}
+  for (const n of data ?? []) {
+    parRdv[n.appointment_ghl_id] = Math.max(parRdv[n.appointment_ghl_id] ?? 0, champsFiche(n.qualification))
+  }
+  return parRdv
+}
