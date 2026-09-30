@@ -1,0 +1,41 @@
+import { describe, it, expect } from 'vitest'
+import { buildSchedule, installmentsForProduct, addDays, todayMontreal } from './schedule.js'
+
+describe('installmentsForProduct', () => {
+  it('lit le nombre de paiements dans le nom du produit', () => {
+    expect(installmentsForProduct('Forfait 15 semaines NEO - 3 paiements')).toBe(3)
+    expect(installmentsForProduct('Forfait 15 semaines DUO - 5 paiements')).toBe(5)
+    expect(installmentsForProduct('Forfait 15 semaines NEO - 1 paiement')).toBe(1)
+    expect(installmentsForProduct('Évaluation naturopathie')).toBe(1)
+  })
+})
+
+describe('buildSchedule', () => {
+  it('répartit le total et met le reste sur le 1er versement', () => {
+    const s = buildSchedule({ totalCents: 100000, count: 3, frequencyDays: 21, firstDate: '2026-10-01' })
+    expect(s.map(i => i.amountCents)).toEqual([33334, 33333, 33333])
+    expect(s.reduce((a, i) => a + i.amountCents, 0)).toBe(100000)
+    expect(s.map(i => i.dueDate)).toEqual(['2026-10-01', '2026-10-22', '2026-11-12'])
+  })
+
+  it('gère un paiement unique', () => {
+    expect(buildSchedule({ totalCents: 5000, count: 1, frequencyDays: 0, firstDate: '2026-10-01' }))
+      .toEqual([{ number: 1, amountCents: 5000, dueDate: '2026-10-01' }])
+  })
+
+  it('refuse les données invalides', () => {
+    expect(() => buildSchedule({ totalCents: 0, count: 3, frequencyDays: 7, firstDate: '2026-10-01' })).toThrow()
+    expect(() => buildSchedule({ totalCents: 100, count: 3, frequencyDays: 0, firstDate: '2026-10-01' })).toThrow()
+    expect(() => buildSchedule({ totalCents: 100, count: 1, frequencyDays: 7, firstDate: '01/10/2026' })).toThrow()
+  })
+})
+
+describe('dates', () => {
+  it('traverse les fins de mois et d’année', () => {
+    expect(addDays('2026-12-25', 14)).toBe('2027-01-08')
+  })
+  it('utilise le fuseau de Montréal', () => {
+    // 2026-10-01 02:00 UTC = 30 sept. 22 h à Montréal
+    expect(todayMontreal(new Date('2026-10-01T02:00:00Z'))).toBe('2026-09-30')
+  })
+})
