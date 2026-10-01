@@ -3,8 +3,6 @@
 // Secrets / réglages (Supabase) :
 //   QBO_RECEIPTS     « on » pour activer la création (sinon rien n'est écrit dans QuickBooks)
 //   QBO_SEND_EMAIL   « off » pour ne PAS faire envoyer le reçu au client par QuickBooks
-//   QBO_TAX_MODE     « exclusive » pour ajouter les taxes au montant; défaut « inclusive »
-//                    (le total du reçu = exactement le montant prélevé sur la carte)
 // Les connexions QuickBooks (quickbooks_tokens) sont celles déjà utilisées par les commissions.
 
 declare const Deno: { env: { get(key: string): string | undefined } }
@@ -95,12 +93,13 @@ export async function createSalesReceipt(db: DB, i: ReceiptInput): Promise<strin
   const item = (await query(acc, `SELECT Id, Name FROM Item WHERE Name = '${esc(i.productName)}' AND Active = true MAXRESULTS 1`)).Item?.[0]
   if (!item) throw new Error(`Produit QuickBooks introuvable : ${i.productName}`)
   const customerId = await findOrCreateCustomer(acc, i)
-  const amount = Math.round(i.amountCents) / 100
-  const inclusive = (Deno.env.get('QBO_TAX_MODE') ?? 'inclusive') !== 'exclusive'
+  // Le montant prélevé contient déjà TPS+TVQ. On le ramène avant taxes et on laisse QuickBooks
+  // ajouter les taxes (comme tes reçus actuels : TaxExcluded). Écart possible : 1 cent au maximum.
+  const amount = Math.round(i.amountCents / 1.14975) / 100
   const receipt = {
     CustomerRef: { value: customerId },
     TxnDate: i.paidDate,
-    GlobalTaxCalculation: inclusive ? 'TaxInclusive' : 'TaxExcluded',
+    GlobalTaxCalculation: 'TaxExcluded',
     DepositToAccountRef: { value: DEPOSIT_ACCOUNT },
     PaymentMethodRef: { value: PAYMENT_METHOD },
     CurrencyRef: { value: 'CAD' },
