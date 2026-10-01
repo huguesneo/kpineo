@@ -350,7 +350,7 @@ function PlanRow({ plan, isManager, onAction, highlight }) {
   )
 }
 
-export default function Terminal() {
+export function TerminalPanel({ showHeader = true }) {
   const { isAdmin, isRespVente } = useAuth()
   const isManager = isAdmin || isRespVente
   const [plans, setPlans] = useState([])
@@ -406,11 +406,11 @@ export default function Terminal() {
   }
 
   return (
-    <Layout>
-      <div className="mb-6">
+    <>
+      {showHeader && <div className="mb-6">
         <h1 className="text-2xl font-bold text-[#1a1a1a]">Terminal de paiement</h1>
         <p className="text-sm text-[#6b7280]">Prends le paiement, enregistre la carte, Moneris prélève les versements suivants.</p>
-      </div>
+      </div>}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         <NewPlanForm onCreated={onCreated} />
@@ -467,6 +467,10 @@ export default function Terminal() {
           {toast.msg}
         </div>
       )}
-    </Layout>
+    </>
   )
+}
+
+export default function Terminal() {
+  return <Layout><TerminalPanel /></Layout>
 }

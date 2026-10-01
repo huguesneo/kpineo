@@ -1,5 +1,8 @@
 import { useState } from 'react'
 import Layout from '../components/layout/Layout'
+import { TerminalPanel } from './Terminal'
+import { useAuth } from '../context/AuthContext'
+import { canUseTerminal } from '../lib/terminal/flag'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -249,6 +252,7 @@ function NurturingCard({ cas, copiedId, onCopy }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CentreVente() {
+  const { isAdmin, isRespVente, hasCloserRole } = useAuth()
   const [view,     setView]     = useState('home')
   const [renTab,   setRenTab]   = useState('decouverte')
   const [evalTab,  setEvalTab]  = useState('clinique')
@@ -374,6 +378,17 @@ export default function CentreVente() {
             onChange={setEvalTab}
           />
           <BookingIframe src={EVAL_IFRAMES[evalTab]} />
+        </div>
+      )}
+
+      {/* Terminal de paiement : après avoir pris le rendez-vous, le closeur prend le paiement */}
+      {view === 'evaluations' && canUseTerminal({ isAdmin, isAdminOrRespVente: isAdmin || isRespVente, hasCloserRole }) && (
+        <div className="mt-8">
+          <div className="mb-4">
+            <h2 className="text-xl font-bold text-[#1a1a1a]">Prendre le paiement</h2>
+            <p className="text-sm text-[#6b7280]">Une fois le rendez-vous réservé, entre la vente et la carte du client ici.</p>
+          </div>
+          <TerminalPanel showHeader={false} />
         </div>
       )}
 
