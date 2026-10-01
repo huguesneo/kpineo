@@ -13,6 +13,7 @@ import {
   MonerisResult, CardHolder,
 } from './moneris.ts'
 import { addInterval, todayMontreal } from './schedule.js'
+import { createSalesReceipt, qboEnabled } from './qbo.ts'
 
 declare const Deno: { env: { get(key: string): string | undefined } }
 
@@ -62,6 +63,25 @@ export async function notifySlack(text: string) {
 // Envoie le paiement réussi à Make, qui crée le reçu de vente QuickBooks
 // (produit + champ « closers ») et l'envoie au client.
 async function sendToMake(db: DB, plan: Plan, inst: Installment, paymentId: string | undefined, paidDate: string) {
+  if (qboEnabled()) {
+    // Reçu QuickBooks direct. On « réserve » le versement (sent) avant de créer, pour ne jamais faire deux reçus.
+    const { data: claimed } = await db.from('payment_installments')
+      .update({ receipt_status: 'sent' }).eq('id', inst.id).in('receipt_status', ['pending', 'failed']).select('id').maybeSingle()
+    if (!claimed) return
+    try {
+      await createSalesReceipt(db, {
+        firstName: plan.client_first_name, lastName: plan.client_last_name, email: plan.client_email, phone: plan.client_phone,
+        productName: plan.product_name, closerName: plan.closer_name,
+        amountCents: inst.amount_cents, paidDate,
+        installmentNumber: inst.number, installmentsCount: plan.installments_count, mutexId: inst.id.slice(0, 8),
+      })
+    } catch (e) {
+      console.error('[QBO]', e)
+      await db.from('payment_installments').update({ receipt_status: 'failed' }).eq('id', inst.id)
+      await notifySlack(`Reçu QuickBooks non créé (${clientName(plan)}, paiement ${inst.number}/${plan.installments_count}) : ${(e as Error).message}`)
+    }
+    return
+  }
   const url = Deno.env.get('MAKE_PAYMENT_WEBHOOK_URL')
   if (!url) { console.log('[Make désactivé] versement', inst.id); return }
   const payload = {
