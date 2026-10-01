@@ -216,7 +216,7 @@ export interface SubscriptionResult {
 }
 
 function readSubscription(status: number, data: Json): SubscriptionResult {
-  const bi = (data.billingInformation ?? {}) as Json
+  const bi = (data.billingDetails ?? data.billingInformation ?? {}) as Json
   const payments = Array.isArray(data.payments) ? data.payments as Json[] : []
   const ok = status >= 200 && status < 300 && !!data.subscriptionId
   return {
@@ -245,7 +245,7 @@ export async function createSubscription(p: {
     orderId: p.orderId,
     customerReference: p.customerReference,
     subscriptionType: 'RECURRING',
-    billingInformation: {
+    billingDetails: {
       billingIntervalUnit: p.unit,
       billingIntervalFrequency: p.interval,
       billingIntervalCount: p.count,
