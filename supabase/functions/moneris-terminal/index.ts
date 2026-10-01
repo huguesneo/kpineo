@@ -90,7 +90,18 @@ Deno.serve(async (req) => {
       try { schedule = buildSchedule({ totalCents, count, frequencyUnit, frequencyInterval, firstDate, secondDate }) }
       catch (e) { return json({ error: (e as Error).message }, 400) }
 
+      // ID client Moneris : « Prénom Nom ». Si déjà pris, on ajoute un « . » à la fin.
+      const baseRef = `${first} ${last}`.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^A-Za-z0-9 '\-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 40) || 'Client'
+      let customerRef = baseRef
+      for (let i = 0; i < 20; i++) {
+        const { data: taken } = await db.from('payment_plans').select('id').eq('customer_reference', customerRef).limit(1)
+        if (!taken?.length) break
+        customerRef += '.'
+      }
+
       const { data: plan, error } = await db.from('payment_plans').insert({
+        customer_reference: customerRef,
         closer_id: profile.id, closer_name: profile.full_name ?? user.email,
         client_first_name: first, client_last_name: last, client_email: email,
         client_phone: String(body.clientPhone ?? '').trim() || null,

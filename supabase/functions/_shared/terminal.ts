@@ -26,6 +26,7 @@ export interface Plan {
   status: string; moneris_payment_method_id: string | null; moneris_issuer_id: string | null
   card_last4: string | null
   frequency_unit: 'DAY' | 'WEEK' | 'MONTH'; frequency_interval: number
+  customer_reference?: string | null
   moneris_subscription_id: string | null; subscription_status: string | null
   client_street_number?: string | null; client_street_name?: string | null; client_unit?: string | null
   client_city?: string | null; client_province?: string | null; client_postal_code?: string | null
@@ -43,6 +44,8 @@ export interface Installment {
 }
 
 const shortId = (uuid: string) => uuid.replace(/-/g, '').slice(0, 12)
+// ID client vu dans le MRC : le nom du client (sinon l'ancien identifiant court)
+const custRef = (p: Plan) => p.customer_reference || shortId(p.id)
 const orderIdFor = (planId: string, n: number, attempt: number) => `NEO-${shortId(planId)}-${n}-${attempt}`
 const clientName = (p: Plan) => `${p.client_first_name} ${p.client_last_name}`.trim()
 
@@ -159,7 +162,7 @@ export async function createPlanSubscription(db: DB, planId: string): Promise<{ 
     r = await createSubscription({
       idempotencyKey: `sub-${plan.id}`.slice(0, 36),
       orderId: `NEO-${shortId(plan.id)}-S`,
-      customerReference: shortId(plan.id),
+      customerReference: custRef(plan),
       paymentMethodId: plan.moneris_payment_method_id,
       issuerId: plan.moneris_issuer_id,
       unit: plan.frequency_unit, interval: plan.frequency_interval,
@@ -277,7 +280,7 @@ export async function attachCard(db: DB, planId: string, temporaryToken: string,
   const today = todayMontreal()
   const chargeNow = first.due_date <= today
   const attempt = first.attempts + 1
-  const ref = shortId(planId)
+  const ref = custRef(plan)
 
   let r: MonerisResult
   if (chargeNow) {
