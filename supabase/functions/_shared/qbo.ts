@@ -16,10 +16,13 @@ const TAX_CODE_QC = '8'            // « TPS/TVQ QC - 9,975 », comme tes reçus
 const DEPOSIT_ACCOUNT = '3'        // « 1260 Fonds non déposés »
 const PAYMENT_METHOD = '3'         // « Carte de crédit »
 const CLOSERS_FIELD_ID = '2'       // champ personnalisé « closers » (jamais le 4)
+const THERAPIST_FIELD_ID = '1'     // « Thérapeute »
+const SETTER_FIELD_ID = '3'        // « Setter »
 
 export interface ReceiptInput {
   firstName: string; lastName: string; email: string; phone?: string | null
   productName: string; closerName: string
+  therapistName?: string | null; setterName?: string | null
   amountCents: number; paidDate: string
   installmentNumber: number; installmentsCount: number; mutexId: string
 }
@@ -104,7 +107,11 @@ export async function createSalesReceipt(db: DB, i: ReceiptInput): Promise<strin
     PaymentMethodRef: { value: PAYMENT_METHOD },
     CurrencyRef: { value: 'CAD' },
     ...(i.email ? { BillEmail: { Address: i.email.trim() } } : {}),
-    CustomField: [{ DefinitionId: CLOSERS_FIELD_ID, Name: 'closers', Type: 'StringType', StringValue: i.closerName }],
+    CustomField: [
+      { DefinitionId: CLOSERS_FIELD_ID, Name: 'closers', Type: 'StringType', StringValue: i.closerName },
+      ...(i.therapistName ? [{ DefinitionId: THERAPIST_FIELD_ID, Name: 'Thérapeute', Type: 'StringType', StringValue: i.therapistName }] : []),
+      ...(i.setterName ? [{ DefinitionId: SETTER_FIELD_ID, Name: 'Setter', Type: 'StringType', StringValue: i.setterName }] : []),
+    ],
     PrivateNote: `Terminal NEO ${i.mutexId} (paiement ${i.installmentNumber}/${i.installmentsCount})`,
     Line: [{
       DetailType: 'SalesItemLineDetail', Amount: amount,

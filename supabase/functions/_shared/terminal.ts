@@ -14,6 +14,7 @@ import {
 } from './moneris.ts'
 import { addInterval, todayMontreal } from './schedule.js'
 import { createSalesReceipt, qboEnabled } from './qbo.ts'
+import { firstNameCap, lookupTherapistAndSetter } from './ghl.ts'
 
 declare const Deno: { env: { get(key: string): string | undefined } }
 
@@ -28,6 +29,7 @@ export interface Plan {
   card_last4: string | null
   frequency_unit: 'DAY' | 'WEEK' | 'MONTH'; frequency_interval: number
   customer_reference?: string | null
+  therapist_name?: string | null; setter_name?: string | null
   moneris_subscription_id: string | null; subscription_status: string | null
   client_street_number?: string | null; client_street_name?: string | null; client_unit?: string | null
   client_city?: string | null; client_province?: string | null; client_postal_code?: string | null
@@ -69,9 +71,20 @@ async function sendToMake(db: DB, plan: Plan, inst: Installment, paymentId: stri
       .update({ receipt_status: 'sent' }).eq('id', inst.id).in('receipt_status', ['pending', 'failed']).select('id').maybeSingle()
     if (!claimed) return
     try {
+      // Thérapeute et setter : lus dans GHL au 1er reçu, puis gardés sur la vente pour les reçus suivants.
+      let therapist = plan.therapist_name ?? null, setterName = plan.setter_name ?? null
+      if (!therapist || !setterName) {
+        const found = await lookupTherapistAndSetter(db, plan.client_email)
+        therapist = therapist ?? found.therapist
+        setterName = setterName ?? found.setter
+        if (therapist !== (plan.therapist_name ?? null) || setterName !== (plan.setter_name ?? null)) {
+          await db.from('payment_plans').update({ therapist_name: therapist, setter_name: setterName }).eq('id', plan.id)
+        }
+      }
       await createSalesReceipt(db, {
+        therapistName: therapist, setterName,
         firstName: plan.client_first_name, lastName: plan.client_last_name, email: plan.client_email, phone: plan.client_phone,
-        productName: plan.product_name, closerName: plan.closer_name,
+        productName: plan.product_name, closerName: firstNameCap(plan.closer_name) ?? plan.closer_name,
         amountCents: inst.amount_cents, paidDate,
         installmentNumber: inst.number, installmentsCount: plan.installments_count, mutexId: inst.id.slice(0, 8),
       })
