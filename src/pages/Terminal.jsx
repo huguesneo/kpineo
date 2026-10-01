@@ -70,11 +70,17 @@ function NewPlanForm({ onCreated }) {
   const needsDate = !form.payToday || count > 1
   const dateLabel = form.payToday ? '2e prélèvement' : (count > 1 ? '1er prélèvement' : 'Date du prélèvement')
 
+  // Le closer entre le montant AVANT taxes; TPS 5 % + TVQ 9,975 % s'ajoutent, et la carte est débitée du total.
+  const pretaxCents = Math.round(Number(form.totalAmount) * 100)
+  const tpsCents = Math.round(pretaxCents * 0.05)
+  const tvqCents = Math.round(pretaxCents * 0.09975)
+  const totalWithTaxCents = pretaxCents + tpsCents + tvqCents
+
   const schedule = useMemo(() => {
     try {
       if (needsDate && !form.chargeDate) return null
       return buildSchedule({
-        totalCents: Math.round(Number(form.totalAmount) * 100),
+        totalCents: totalWithTaxCents,
         count,
         frequencyUnit: form.frequencyUnit,
         frequencyInterval: count > 1 ? Number(form.frequencyInterval) : 1,
@@ -82,7 +88,7 @@ function NewPlanForm({ onCreated }) {
         secondDate: form.payToday && count > 1 ? form.chargeDate : undefined,
       })
     } catch { return null }
-  }, [form.totalAmount, form.frequencyInterval, form.frequencyUnit, form.chargeDate, form.payToday, count, needsDate, today])
+  }, [totalWithTaxCents, form.frequencyInterval, form.frequencyUnit, form.chargeDate, form.payToday, count, needsDate, today])
 
   async function submit(mode) {
     setError('')
@@ -91,7 +97,7 @@ function NewPlanForm({ onCreated }) {
     try {
       const { planId } = await callTerminal({
         action: 'create_plan', ...form,
-        totalAmount: Number(form.totalAmount), frequencyInterval: Number(form.frequencyInterval),
+        totalAmount: totalWithTaxCents / 100, frequencyInterval: Number(form.frequencyInterval),
       })
       setForm(emptyForm())
       await onCreated(planId, mode)
@@ -135,8 +141,15 @@ function NewPlanForm({ onCreated }) {
         </div>
 
         <div className="grid grid-cols-2 gap-3">
-          <Input label="Montant total ($, taxes incluses)" type="number" min="1" step="0.01"
-            value={form.totalAmount} onChange={set('totalAmount')} required />
+          <div className="flex flex-col gap-1">
+            <Input label="Montant avant taxes ($)" type="number" min="1" step="0.01"
+              value={form.totalAmount} onChange={set('totalAmount')} required />
+            {pretaxCents > 0 && (
+              <p className="text-xs text-[#6b7280]">
+                + TPS {formatCents(tpsCents)} + TVQ {formatCents(tvqCents)} = <span className="font-semibold">{formatCents(totalWithTaxCents)}</span> à prélever
+              </p>
+            )}
+          </div>
           <div className="flex flex-col gap-1">
             <label className="text-sm font-semibold text-[#1a1a1a]">Prélever tous les</label>
             <div className="grid grid-cols-2 gap-2">
