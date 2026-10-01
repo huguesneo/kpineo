@@ -1,20 +1,23 @@
-// Logique métier du terminal : enregistrement de carte, prélèvements,
-// notifications (Make pour le reçu QuickBooks, Slack pour les échecs).
+// Logique métier du terminal : enregistrement de carte, premier paiement,
+// création de l'abonnement Moneris (Moneris prélève lui-même les versements
+// suivants), synchronisation avec Moneris, notifications.
 //
+// Secrets :
+//   MONERIS_CRON_SECRET        protège l'URL de notification (webhook) de Moneris
 // Secrets optionnels :
-//   MAKE_PAYMENT_WEBHOOK_URL  webhook Make qui crée le reçu QuickBooks
+//   MAKE_PAYMENT_WEBHOOK_URL   webhook Make qui crée le reçu QuickBooks
 //   SLACK_PAYMENTS_WEBHOOK_URL webhook Slack pour les refus de paiement
 
-import { chargeAndStoreCard, chargeStoredCard, validateAndStoreCard, MonerisResult, CardHolder } from './moneris.ts'
-import { addDays, todayMontreal } from './schedule.js'
+import {
+  chargeAndStoreCard, validateAndStoreCard, createSubscription, getSubscription, getPayment,
+  MonerisResult, CardHolder,
+} from './moneris.ts'
+import { addInterval, todayMontreal } from './schedule.js'
 
 declare const Deno: { env: { get(key: string): string | undefined } }
 
 // deno-lint-ignore no-explicit-any
 type DB = any
-
-export const MAX_ATTEMPTS = 3
-export const RETRY_AFTER_DAYS = 3
 
 export interface Plan {
   id: string; closer_id: string; closer_name: string
@@ -22,6 +25,8 @@ export interface Plan {
   product_name: string; total_amount_cents: number; installments_count: number
   status: string; moneris_payment_method_id: string | null; moneris_issuer_id: string | null
   card_last4: string | null
+  frequency_unit: 'DAY' | 'WEEK' | 'MONTH'; frequency_interval: number
+  moneris_subscription_id: string | null; subscription_status: string | null
   client_street_number?: string | null; client_street_name?: string | null; client_unit?: string | null
   client_city?: string | null; client_province?: string | null; client_postal_code?: string | null
 }
@@ -34,7 +39,7 @@ const holderOf = (p: Plan): CardHolder => ({
 })
 export interface Installment {
   id: string; plan_id: string; number: number; amount_cents: number; due_date: string
-  status: string; attempts: number
+  status: string; attempts: number; moneris_payment_id?: string | null
 }
 
 const shortId = (uuid: string) => uuid.replace(/-/g, '').slice(0, 12)
@@ -53,7 +58,7 @@ export async function notifySlack(text: string) {
 
 // Envoie le paiement réussi à Make, qui crée le reçu de vente QuickBooks
 // (produit + champ « closers ») et l'envoie au client.
-async function sendToMake(db: DB, plan: Plan, inst: Installment, paymentId?: string) {
+async function sendToMake(db: DB, plan: Plan, inst: Installment, paymentId: string | undefined, paidDate: string) {
   const url = Deno.env.get('MAKE_PAYMENT_WEBHOOK_URL')
   if (!url) { console.log('[Make désactivé] versement', inst.id); return }
   const payload = {
@@ -71,7 +76,7 @@ async function sendToMake(db: DB, plan: Plan, inst: Installment, paymentId?: str
     currency: 'CAD',
     installment_number: inst.number,
     installments_count: plan.installments_count,
-    paid_date: todayMontreal(),
+    paid_date: paidDate,
     card_last4: plan.card_last4,
     moneris_payment_id: paymentId ?? null,
   }
@@ -84,7 +89,7 @@ async function sendToMake(db: DB, plan: Plan, inst: Installment, paymentId?: str
   }
 }
 
-// ── Verrou : un versement ne peut être prélevé que par un seul appel ──
+// ── Verrou du 1er paiement ───────────────────────────────────
 
 async function lockInstallment(db: DB, instId: string): Promise<Installment | null> {
   const { data } = await db.from('payment_installments')
@@ -96,10 +101,10 @@ async function lockInstallment(db: DB, instId: string): Promise<Installment | nu
   return data ?? null
 }
 
-async function markPaid(db: DB, plan: Plan, inst: Installment, r: MonerisResult, attempt: number) {
+async function markPaid(db: DB, plan: Plan, inst: Installment, paymentId: string | undefined, paidAtIso: string, orderId?: string) {
   await db.from('payment_installments').update({
-    status: 'paid', attempts: attempt, paid_at: new Date().toISOString(),
-    moneris_payment_id: r.paymentId ?? null, moneris_order_id: orderIdFor(plan.id, inst.number, attempt),
+    status: 'paid', paid_at: paidAtIso,
+    moneris_payment_id: paymentId ?? null, ...(orderId ? { moneris_order_id: orderId } : {}),
     error_message: null, next_retry_date: null,
   }).eq('id', inst.id)
 
@@ -109,32 +114,156 @@ async function markPaid(db: DB, plan: Plan, inst: Installment, r: MonerisResult,
   if (count === 0) {
     await db.from('payment_plans').update({ status: 'completed', updated_at: new Date().toISOString() }).eq('id', plan.id)
   }
-  await sendToMake(db, plan, inst, r.paymentId)
+  await sendToMake(db, plan, inst, paymentId, todayMontreal(new Date(paidAtIso)))
 }
 
-async function markDeclined(db: DB, plan: Plan, inst: Installment, r: MonerisResult, attempt: number) {
-  const finalFail = attempt >= MAX_ATTEMPTS
-  await db.from('payment_installments').update({
-    status: 'declined', attempts: attempt,
-    moneris_order_id: orderIdFor(plan.id, inst.number, attempt),
-    error_message: r.message,
-    next_retry_date: finalFail ? null : addDays(todayMontreal(), RETRY_AFTER_DAYS),
-  }).eq('id', inst.id)
+// ── Abonnement Moneris pour les versements restants ───────────
 
-  const next = finalFail
-    ? 'Plus de nouvel essai automatique : le closeur doit contacter le client.'
-    : `Nouvel essai automatique dans ${RETRY_AFTER_DAYS} jours.`
-  await notifySlack(
-    `❌ Paiement refusé : ${clientName(plan)} (closeur : ${plan.closer_name})\n` +
-    `Versement ${inst.number}/${plan.installments_count} de ${(inst.amount_cents / 100).toFixed(2)} $, essai ${attempt}/${MAX_ATTEMPTS}\n` +
-    `Raison : ${r.message}\n${next}`,
-  )
+function webhookUrl(): string | undefined {
+  const base = Deno.env.get('SUPABASE_URL')
+  const secret = Deno.env.get('MONERIS_CRON_SECRET')
+  if (!base || !secret) return undefined
+  return `${base}/functions/v1/moneris-webhook?s=${encodeURIComponent(secret)}`
+}
+
+// Crée l'abonnement des versements non encore payés. Idempotent : ne fait rien
+// si le plan a déjà un abonnement.
+export async function createPlanSubscription(db: DB, planId: string): Promise<{ ok: boolean; message: string }> {
+  const { data: plan } = await db.from('payment_plans').select('*').eq('id', planId).maybeSingle() as { data: Plan | null }
+  if (!plan) return { ok: false, message: 'Plan introuvable' }
+  if (plan.moneris_subscription_id) return { ok: true, message: 'Abonnement déjà créé' }
+  if (!plan.moneris_payment_method_id) return { ok: false, message: 'Carte absente' }
+
+  const { data: remaining } = await db.from('payment_installments').select('*')
+    .eq('plan_id', planId).eq('status', 'scheduled').order('number') as { data: Installment[] | null }
+  if (!remaining?.length) return { ok: true, message: 'Aucun versement à planifier' }
+
+  // Moneris exige une date de début future : si la date prévue est passée
+  // (carte entrée par lien après quelques jours), on décale les versements.
+  const today = todayMontreal()
+  let start = remaining[0].due_date
+  if (start <= today) {
+    start = addInterval(today, 'DAY', 1, 1)
+    for (let i = 0; i < remaining.length; i++) {
+      const due = i === 0 ? start : addInterval(start, plan.frequency_unit, plan.frequency_interval, i)
+      await db.from('payment_installments').update({ due_date: due }).eq('id', remaining[i].id)
+    }
+  }
+
+  const amounts = new Set(remaining.map(i => i.amount_cents))
+  if (amounts.size > 1) console.warn('[createPlanSubscription] montants inégaux, on utilise le dernier', [...amounts])
+  const amountCents = remaining[remaining.length - 1].amount_cents
+
+  let r
+  try {
+    r = await createSubscription({
+      idempotencyKey: `sub-${plan.id}`.slice(0, 36),
+      orderId: `NEO-${shortId(plan.id)}-S`,
+      customerReference: shortId(plan.id),
+      paymentMethodId: plan.moneris_payment_method_id,
+      issuerId: plan.moneris_issuer_id,
+      unit: plan.frequency_unit, interval: plan.frequency_interval,
+      count: remaining.length, amountCents, startDate: start,
+      callbackUrl: webhookUrl(),
+    })
+  } catch (e) {
+    r = { ok: false, message: `Erreur technique : ${(e as Error).message}`, raw: {}, paymentIds: [] as string[] }
+  }
+
+  if (!r.ok || !r.subscriptionId) {
+    console.error('[createPlanSubscription] échec', JSON.stringify(r.raw))
+    await db.from('payment_plans').update({
+      subscription_status: 'ERROR', subscription_error: r.message, updated_at: new Date().toISOString(),
+    }).eq('id', planId)
+    await notifySlack(
+      `⚠️ L'échéancier Moneris n'a pas pu être créé : ${clientName(plan)} (closeur : ${plan.closer_name})\n` +
+      `Raison : ${r.message}\nLe 1er paiement est passé. Ouvrir la vente dans le terminal et relancer la création de l'échéancier.`,
+    )
+    return { ok: false, message: r.message }
+  }
+
+  await db.from('payment_plans').update({
+    moneris_subscription_id: r.subscriptionId, subscription_status: r.status ?? 'ACTIVE',
+    subscription_error: null, updated_at: new Date().toISOString(),
+  }).eq('id', planId)
+  return { ok: true, message: 'Échéancier créé chez Moneris' }
+}
+
+// ── Synchronisation avec Moneris (webhook + passage quotidien) ──
+
+const FINAL_OK = 'SUCCEEDED'
+const FINAL_DECLINED = ['DECLINED', 'DECLINED_RETRY']
+
+export async function syncPlan(db: DB, planId: string): Promise<{ paid: number; declined: number }> {
+  const out = { paid: 0, declined: 0 }
+  const { data: plan } = await db.from('payment_plans').select('*').eq('id', planId).maybeSingle() as { data: Plan | null }
+  if (!plan?.moneris_subscription_id) return out
+
+  const sub = await getSubscription(plan.moneris_subscription_id)
+  if (!sub.ok) { console.error('[syncPlan] lecture abonnement', plan.id, sub.message); return out }
+
+  const { data: insts } = await db.from('payment_installments').select('*')
+    .eq('plan_id', plan.id).order('number') as { data: Installment[] }
+  const byPayment = new Map<string, Installment>()
+  for (const i of insts) if (i.moneris_payment_id) byPayment.set(i.moneris_payment_id, i)
+
+  for (const pid of sub.paymentIds) {
+    const info = await getPayment(pid)
+    if (!info) continue
+    const final = info.status === FINAL_OK || FINAL_DECLINED.includes(info.status)
+    if (!final) continue
+    let inst = byPayment.get(pid)
+    if (!inst) {
+      inst = insts.find(i => i.status === 'scheduled' && !i.moneris_payment_id)
+      if (!inst) continue
+      inst.moneris_payment_id = pid
+      byPayment.set(pid, inst)
+    }
+    if (info.status === FINAL_OK && inst.status !== 'paid') {
+      await markPaid(db, plan, inst, pid, info.createdAt || new Date().toISOString())
+      inst.status = 'paid'
+      out.paid++
+    } else if (FINAL_DECLINED.includes(info.status) && inst.status !== 'declined' && inst.status !== 'paid') {
+      await db.from('payment_installments').update({
+        status: 'declined', moneris_payment_id: pid, error_message: info.message || 'Paiement refusé',
+      }).eq('id', inst.id)
+      inst.status = 'declined'
+      out.declined++
+      await notifySlack(
+        `❌ Paiement refusé : ${clientName(plan)} (closeur : ${plan.closer_name})\n` +
+        `Versement ${inst.number}/${plan.installments_count} de ${(inst.amount_cents / 100).toFixed(2)} $\n` +
+        `Raison : ${info.message || 'refusé par la banque'}\nMoneris peut réessayer. Le closeur doit contacter le client si ça ne passe pas.`,
+      )
+    }
+  }
+
+  const changedStatus = sub.status && sub.status !== plan.subscription_status
+  if (changedStatus) {
+    await db.from('payment_plans').update({ subscription_status: sub.status, updated_at: new Date().toISOString() }).eq('id', plan.id)
+    if (sub.status && FINAL_DECLINED.includes(sub.status) && out.declined === 0) {
+      await notifySlack(`❌ Abonnement en échec chez Moneris : ${clientName(plan)} (closeur : ${plan.closer_name}). Statut : ${sub.status}.`)
+    }
+  }
+  return out
+}
+
+export async function syncAllPlans(db: DB): Promise<{ plans: number; paid: number; declined: number }> {
+  const { data: plans } = await db.from('payment_plans').select('id')
+    .eq('status', 'active').not('moneris_subscription_id', 'is', null).limit(500)
+  const total = { plans: plans?.length ?? 0, paid: 0, declined: 0 }
+  for (const p of plans ?? []) {
+    try {
+      const r = await syncPlan(db, p.id)
+      total.paid += r.paid; total.declined += r.declined
+    } catch (e) { console.error('[syncAllPlans]', p.id, e) }
+  }
+  return total
 }
 
 // ── Enregistrement de la carte (closeur ou lien client) ─────────
 
 export async function attachCard(db: DB, planId: string, temporaryToken: string, mode: 'closer' | 'client_link', eci: string)
-  : Promise<{ ok: boolean; message: string; charged: boolean }> {
+  : Promise<{ ok: boolean; message: string; charged: boolean; warning?: string }> {
   const { data: plan } = await db.from('payment_plans').select('*').eq('id', planId).maybeSingle() as { data: Plan | null }
   if (!plan) return { ok: false, message: 'Plan introuvable', charged: false }
   if (!['pending_card', 'card_failed'].includes(plan.status)) {
@@ -192,49 +321,21 @@ export async function attachCard(db: DB, planId: string, temporaryToken: string,
   }
   await db.from('payment_plans').update(updatedPlan).eq('id', planId)
 
-  if (chargeNow) await markPaid(db, { ...plan, ...updatedPlan } as Plan, first, r, attempt)
-  return { ok: true, message: chargeNow ? 'Paiement approuvé, carte enregistrée.' : 'Carte validée et enregistrée.', charged: chargeNow }
-}
-
-// ── Prélèvement d'un versement sur la carte enregistrée ─────────
-
-export async function chargeInstallment(db: DB, instId: string): Promise<{ ok: boolean; message: string }> {
-  const locked = await lockInstallment(db, instId)
-  if (!locked) return { ok: false, message: 'Versement déjà payé, annulé ou en cours.' }
-
-  const { data: plan } = await db.from('payment_plans').select('*').eq('id', locked.plan_id).maybeSingle() as { data: Plan | null }
-  const release = (msg: string) => db.from('payment_installments')
-    .update({ status: 'scheduled', error_message: msg }).eq('id', instId)
-
-  if (!plan || plan.status !== 'active' || !plan.moneris_payment_method_id) {
-    await release('Plan inactif ou carte absente')
-    return { ok: false, message: 'Plan inactif ou carte absente.' }
+  if (chargeNow) {
+    await db.from('payment_installments').update({ attempts: attempt }).eq('id', first.id)
+    await markPaid(db, { ...plan, ...updatedPlan } as Plan, first, r.paymentId, new Date().toISOString(), orderIdFor(planId, 1, attempt))
   }
 
-  const attempt = locked.attempts + 1
-  let r: MonerisResult
-  try {
-    r = await chargeStoredCard({
-      idempotencyKey: `${locked.id}-${attempt}`.slice(0, 36),
-      orderId: orderIdFor(plan.id, locked.number, attempt),
-      amountCents: locked.amount_cents,
-      paymentMethodId: plan.moneris_payment_method_id,
-      issuerId: plan.moneris_issuer_id,
-      customerReference: shortId(plan.id),
-    })
-  } catch (e) {
-    // Erreur technique (réseau, OAuth) : on ne compte pas l'essai
-    await release(`Erreur technique : ${(e as Error).message}`)
-    return { ok: false, message: 'Erreur technique, réessayer plus tard.' }
+  // Les versements restants : c'est Moneris qui les prélève
+  const sub = await createPlanSubscription(db, planId)
+  const base = chargeNow ? 'Paiement approuvé, carte enregistrée.' : 'Carte validée et enregistrée.'
+  if (!sub.ok) {
+    return {
+      ok: true, charged: chargeNow, message: base,
+      warning: `Attention : l'échéancier des prochains prélèvements n'a pas pu être créé chez Moneris (${sub.message}). Ouvre la vente et relance la création.`,
+    }
   }
-
-  if (r.ok) {
-    await markPaid(db, plan, locked, r, attempt)
-    return { ok: true, message: 'Paiement approuvé.' }
-  }
-  console.error('[chargeInstallment] refus', JSON.stringify(r.raw))
-  await markDeclined(db, plan, locked, r, attempt)
-  return { ok: false, message: `Refusé : ${r.message}` }
+  return { ok: true, charged: chargeNow, message: base }
 }
 
 // ── Lien client ──────────────────────────────────────────────

@@ -37,15 +37,47 @@ export function addDays(isoDate, days) {
   return dt.toISOString().slice(0, 10)
 }
 
+export function addMonths(isoDate, months) {
+  const [y, m, d] = isoDate.split('-').map(Number)
+  const total = (m - 1) + months
+  const ty = y + Math.floor(total / 12)
+  const tm = ((total % 12) + 12) % 12
+  const last = new Date(Date.UTC(ty, tm + 1, 0)).getUTCDate()
+  return new Date(Date.UTC(ty, tm, Math.min(d, last))).toISOString().slice(0, 10)
+}
+
+export const FREQUENCY_UNITS = ['DAY', 'WEEK', 'MONTH']
+
+// Date après `steps` intervalles : « tous les 2 semaines », « tous les 1 mois »...
+// Calculée depuis la date de départ (pas de dérive d'un mois à l'autre).
+export function addInterval(isoDate, unit, interval, steps = 1) {
+  const n = interval * steps
+  if (unit === 'MONTH') return addMonths(isoDate, n)
+  if (unit === 'WEEK') return addDays(isoDate, 7 * n)
+  return addDays(isoDate, n)
+}
+
+// Nombre de jours approximatif (affichage et colonne frequency_days seulement)
+export function approxDays(unit, interval) {
+  const per = unit === 'MONTH' ? 30 : unit === 'WEEK' ? 7 : 1
+  return Math.min(365, per * interval)
+}
+
 // Montants égaux en cents ; le reste (quelques cents) va sur le 1er versement
 // pour que la somme soit exactement le total.
 // firstDate : date du 1er versement. secondDate (optionnel) : date du 2e
 // versement quand il ne suit pas la fréquence (ex. 1er aujourd'hui, 2e choisi
 // par le closeur) ; les suivants reprennent la fréquence à partir du 2e.
-export function buildSchedule({ totalCents, count, frequencyDays, firstDate, secondDate }) {
+// Fréquence : frequencyUnit (DAY | WEEK | MONTH) + frequencyInterval (« tous les N »).
+export function buildSchedule(opts) {
+  const { totalCents, count, frequencyUnit = 'DAY', frequencyInterval, frequencyDays, firstDate, secondDate } = opts
+  const interval = frequencyInterval ?? frequencyDays
   if (!Number.isInteger(totalCents) || totalCents <= 0) throw new Error('Montant total invalide')
   if (!Number.isInteger(count) || count < 1) throw new Error('Nombre de versements invalide')
-  if (count > 1 && (!Number.isInteger(frequencyDays) || frequencyDays < 1)) throw new Error('Fréquence invalide')
+  if (count > 1) {
+    if (!FREQUENCY_UNITS.includes(frequencyUnit)) throw new Error('Unité de fréquence invalide')
+    if (!Number.isInteger(interval) || interval < 1 || interval > 99) throw new Error('Fréquence invalide')
+  }
   const isDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d ?? '')
   if (!isDate(firstDate)) throw new Error('Date de début invalide')
   if (secondDate != null && count > 1) {
@@ -61,8 +93,8 @@ export function buildSchedule({ totalCents, count, frequencyDays, firstDate, sec
     dueDate: i === 0
       ? firstDate
       : secondDate != null
-        ? addDays(secondDate, (i - 1) * frequencyDays)
-        : addDays(firstDate, i * frequencyDays),
+        ? addInterval(secondDate, frequencyUnit, interval, i - 1)
+        : addInterval(firstDate, frequencyUnit, interval, i),
   }))
 }
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildSchedule, installmentsForProduct, addDays, todayMontreal } from './schedule.js'
+import { buildSchedule, installmentsForProduct, addDays, addMonths, addInterval, todayMontreal } from './schedule.js'
 
 describe('installmentsForProduct', () => {
   it('lit le nombre de paiements dans le nom du produit', () => {
@@ -33,6 +33,28 @@ describe('buildSchedule', () => {
     expect(() => buildSchedule({ totalCents: 0, count: 3, frequencyDays: 7, firstDate: '2026-10-01' })).toThrow()
     expect(() => buildSchedule({ totalCents: 100, count: 3, frequencyDays: 0, firstDate: '2026-10-01' })).toThrow()
     expect(() => buildSchedule({ totalCents: 100, count: 1, frequencyDays: 7, firstDate: '01/10/2026' })).toThrow()
+  })
+})
+
+describe('fréquence jour / semaine / mois', () => {
+  it('tous les 2 semaines', () => {
+    const s = buildSchedule({ totalCents: 30000, count: 3, frequencyUnit: 'WEEK', frequencyInterval: 2, firstDate: '2026-10-01' })
+    expect(s.map(i => i.dueDate)).toEqual(['2026-10-01', '2026-10-15', '2026-10-29'])
+  })
+  it('tous les 1 mois, sans dérive en fin de mois', () => {
+    const s = buildSchedule({ totalCents: 30000, count: 3, frequencyUnit: 'MONTH', frequencyInterval: 1, firstDate: '2026-01-31' })
+    expect(s.map(i => i.dueDate)).toEqual(['2026-01-31', '2026-02-28', '2026-03-31'])
+  })
+  it('1er aujourd’hui, 2e choisi, puis tous les 1 mois', () => {
+    const s = buildSchedule({ totalCents: 30000, count: 3, frequencyUnit: 'MONTH', frequencyInterval: 1, firstDate: '2026-10-01', secondDate: '2026-10-15' })
+    expect(s.map(i => i.dueDate)).toEqual(['2026-10-01', '2026-10-15', '2026-11-15'])
+  })
+  it('refuse une unité invalide', () => {
+    expect(() => buildSchedule({ totalCents: 100, count: 2, frequencyUnit: 'YEAR', frequencyInterval: 1, firstDate: '2026-10-01' })).toThrow()
+  })
+  it('addMonths / addInterval', () => {
+    expect(addMonths('2026-12-15', 2)).toBe('2027-02-15')
+    expect(addInterval('2026-10-01', 'WEEK', 2, 2)).toBe('2026-10-29')
   })
 })
 

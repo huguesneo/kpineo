@@ -12,12 +12,10 @@ import {
   TERMINAL_PRODUCTS, buildSchedule, installmentsForProduct, todayMontreal, formatCents, addDays,
 } from '../../supabase/functions/_shared/schedule.js'
 
-const FREQUENCIES = [
-  { days: 7, label: 'Chaque semaine' },
-  { days: 14, label: 'Aux 2 semaines' },
-  { days: 21, label: 'Aux 3 semaines' },
-  { days: 28, label: 'Aux 4 semaines' },
-  { days: 30, label: 'Aux 30 jours' },
+const FREQUENCY_UNITS = [
+  { value: 'DAY', label: 'jour(s)' },
+  { value: 'WEEK', label: 'semaine(s)' },
+  { value: 'MONTH', label: 'mois' },
 ]
 
 const PLAN_STATUS = {
@@ -40,7 +38,7 @@ const PROVINCES = ['QC', 'ON', 'NB', 'NS', 'PE', 'NL', 'MB', 'SK', 'AB', 'BC', '
 const emptyForm = () => ({
   clientFirstName: '', clientLastName: '', clientEmail: '', clientPhone: '',
   clientStreetNumber: '', clientStreetName: '', clientUnit: '', clientCity: '', clientProvince: 'QC', clientPostalCode: '',
-  productName: TERMINAL_PRODUCTS[0], totalAmount: '', frequencyDays: 21,
+  productName: TERMINAL_PRODUCTS[0], totalAmount: '', frequencyInterval: 2, frequencyUnit: 'WEEK',
   payToday: true, chargeDate: '', notes: '',
 })
 
@@ -78,12 +76,13 @@ function NewPlanForm({ onCreated }) {
       return buildSchedule({
         totalCents: Math.round(Number(form.totalAmount) * 100),
         count,
-        frequencyDays: count > 1 ? Number(form.frequencyDays) : 0,
+        frequencyUnit: form.frequencyUnit,
+        frequencyInterval: count > 1 ? Number(form.frequencyInterval) : 1,
         firstDate: form.payToday ? today : form.chargeDate,
         secondDate: form.payToday && count > 1 ? form.chargeDate : undefined,
       })
     } catch { return null }
-  }, [form.totalAmount, form.frequencyDays, form.chargeDate, form.payToday, count, needsDate, today])
+  }, [form.totalAmount, form.frequencyInterval, form.frequencyUnit, form.chargeDate, form.payToday, count, needsDate, today])
 
   async function submit(mode) {
     setError('')
@@ -92,7 +91,7 @@ function NewPlanForm({ onCreated }) {
     try {
       const { planId } = await callTerminal({
         action: 'create_plan', ...form,
-        totalAmount: Number(form.totalAmount), frequencyDays: Number(form.frequencyDays),
+        totalAmount: Number(form.totalAmount), frequencyInterval: Number(form.frequencyInterval),
       })
       setForm(emptyForm())
       await onCreated(planId, mode)
@@ -139,10 +138,14 @@ function NewPlanForm({ onCreated }) {
           <Input label="Montant total ($, taxes incluses)" type="number" min="1" step="0.01"
             value={form.totalAmount} onChange={set('totalAmount')} required />
           <div className="flex flex-col gap-1">
-            <label className="text-sm font-semibold text-[#1a1a1a]">Fréquence</label>
-            <select value={form.frequencyDays} onChange={set('frequencyDays')} disabled={count === 1} className={selectCls}>
-              {FREQUENCIES.map(f => <option key={f.days} value={f.days}>{f.label}</option>)}
-            </select>
+            <label className="text-sm font-semibold text-[#1a1a1a]">Prélever tous les</label>
+            <div className="grid grid-cols-2 gap-2">
+              <input type="number" min="1" max="99" step="1" value={form.frequencyInterval}
+                onChange={set('frequencyInterval')} disabled={count === 1} className={selectCls} />
+              <select value={form.frequencyUnit} onChange={set('frequencyUnit')} disabled={count === 1} className={selectCls}>
+                {FREQUENCY_UNITS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+              </select>
+            </div>
           </div>
         </div>
 
@@ -153,7 +156,7 @@ function NewPlanForm({ onCreated }) {
             Payer aujourd’hui
           </label>
           {needsDate && (
-            <Input label={dateLabel} type="date" min={form.payToday ? addDays(today, 1) : today}
+            <Input label={dateLabel} type="date" min={addDays(today, 1)}
               value={form.chargeDate} onChange={set('chargeDate')} required />
           )}
         </div>
@@ -200,7 +203,7 @@ function CardEntryModal({ plan, onClose, onDone }) {
   const onToken = useCallback(async (token) => {
     try {
       const r = await callTerminal({ action: 'attach_card', planId: plan.id, temporaryToken: token })
-      onDone(r.message)
+      onDone(r.warning ? `${r.message} ${r.warning}` : r.message, !!r.warning)
     } catch (err) {
       setError(err.message)
       setBusy(false)
@@ -261,8 +264,8 @@ function PlanRow({ plan, isManager, onAction, highlight }) {
   const cancel = () => run('cancel', async () => {
     await callTerminal({ action: 'cancel_plan', planId: plan.id }); onAction.refresh()
   })
-  const retry = (instId) => run(instId, async () => {
-    const r = await callTerminal({ action: 'retry_installment', installmentId: instId })
+  const retrySubscription = () => run('sub', async () => {
+    const r = await callTerminal({ action: 'retry_subscription', planId: plan.id })
     onAction.toast(r.message); onAction.refresh()
   })
 
@@ -286,6 +289,16 @@ function PlanRow({ plan, isManager, onAction, highlight }) {
           {plan.card_last4 && (
             <p className="text-sm text-[#374151]">Carte : {plan.card_brand} •••• {plan.card_last4} ({plan.card_expiry})</p>
           )}
+          {plan.status === 'active' && plan.subscription_status === 'ERROR' && (
+            <p className="text-sm text-red-600">
+              Les prochains prélèvements ne sont pas planifiés chez Moneris ({plan.subscription_error || 'erreur'}).
+            </p>
+          )}
+          {plan.status === 'active' && ['DECLINED', 'DECLINED_RETRY'].includes(plan.subscription_status) && (
+            <p className="text-sm text-red-600">
+              Un prélèvement a été refusé. Moneris peut réessayer. Contacte le client si ça ne passe pas.
+            </p>
+          )}
           <ul className="text-sm divide-y divide-[#e5e7eb]">
             {(plan.payment_installments ?? []).sort((a, b) => a.number - b.number).map(i => {
               const s = INST_STATUS[i.status] ?? { label: i.status, variant: 'default' }
@@ -295,9 +308,6 @@ function PlanRow({ plan, isManager, onAction, highlight }) {
                   <span className="font-semibold">{formatCents(i.amount_cents)}</span>
                   <span className="flex items-center gap-2">
                     <Badge variant={s.variant}>{s.label}</Badge>
-                    {i.status === 'declined' && plan.status === 'active' && (
-                      <Button size="sm" variant="secondary" loading={busy === i.id} onClick={() => retry(i.id)}>Relancer</Button>
-                    )}
                   </span>
                   {i.error_message && i.status !== 'paid' && (
                     <span className="basis-full text-xs text-red-600">{i.error_message}</span>
@@ -308,6 +318,9 @@ function PlanRow({ plan, isManager, onAction, highlight }) {
           </ul>
 
           <div className="flex flex-wrap gap-2">
+            {plan.status === 'active' && plan.subscription_status === 'ERROR' && (
+              <Button size="sm" loading={busy === 'sub'} onClick={retrySubscription}>Relancer la création de l’échéancier</Button>
+            )}
             {needsCard && <Button size="sm" onClick={() => onAction.enterCard(plan)}>Entrer la carte</Button>}
             {needsCard && <Button size="sm" variant="secondary" loading={busy === 'link'} onClick={makeLink}>Lien pour le client</Button>}
             {!['completed', 'canceled'].includes(plan.status) && (
@@ -337,7 +350,7 @@ export default function Terminal() {
 
   const showToast = (msg, isError = false) => {
     setToast({ msg, isError })
-    setTimeout(() => setToast(null), 5000)
+    setTimeout(() => setToast(null), 8000)
   }
 
   const load = useCallback(async () => {
@@ -355,7 +368,10 @@ export default function Terminal() {
 
   const visible = plans.filter(p => {
     if (filter === 'open') return !['completed', 'canceled'].includes(p.status)
-    if (filter === 'issues') return p.status === 'card_failed' || (p.payment_installments ?? []).some(i => i.status === 'declined')
+    if (filter === 'issues') {
+      return p.status === 'card_failed' || p.subscription_status === 'ERROR'
+        || (p.payment_installments ?? []).some(i => i.status === 'declined')
+    }
     return true
   })
 
@@ -379,7 +395,7 @@ export default function Terminal() {
     <Layout>
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-[#1a1a1a]">Terminal de paiement</h1>
-        <p className="text-sm text-[#6b7280]">Prends le paiement, enregistre la carte, les versements suivants se font tout seuls.</p>
+        <p className="text-sm text-[#6b7280]">Prends le paiement, enregistre la carte, Moneris prélève les versements suivants.</p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
@@ -402,7 +418,7 @@ export default function Terminal() {
 
       {cardPlan && (
         <CardEntryModal plan={cardPlan} onClose={() => setCardPlan(null)}
-          onDone={(msg) => { setCardPlan(null); showToast(msg); load() }} />
+          onDone={(msg, isWarn) => { setCardPlan(null); showToast(msg, isWarn); load() }} />
       )}
 
       {linkInfo && (

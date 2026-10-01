@@ -74,25 +74,26 @@ function holderFields(h?: CardHolder): Json {
   return out
 }
 
-async function post(path: string, body: Json): Promise<{ status: number; data: Json }> {
+async function call(method: 'GET' | 'POST', path: string, body?: Json): Promise<{ status: number; data: Json }> {
   const merchantId = Deno.env.get('MONERIS_MERCHANT_ID')
   if (!merchantId) throw new Error('MONERIS_MERCHANT_ID manquant')
   const token = await getAccessToken()
   const res = await fetch(`${BASE()}${path}`, {
-    method: 'POST',
+    method,
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`,
       'Api-Version': API_VERSION(),
       'X-Merchant-Id': merchantId,
     },
-    body: JSON.stringify(body),
+    body: body ? JSON.stringify(body) : undefined,
   })
   const text = await res.text()
   let data: Json = {}
   try { data = text ? JSON.parse(text) : {} } catch { data = { raw: text } }
   return { status: res.status, data }
 }
+const post = (path: string, body: Json) => call('POST', path, body)
 
 export interface MonerisResult {
   ok: boolean
@@ -200,4 +201,92 @@ export async function chargeStoredCard(p: {
     dynamicDescriptor: 'NEO Performance',
   })
   return readResult(status, data, 'paymentStatus', 'paymentId')
+}
+
+// ── Abonnements : Moneris tient l'horaire et prélève lui-même ──────────
+
+export interface SubscriptionResult {
+  ok: boolean
+  subscriptionId?: string
+  status?: string
+  nextBillingDate?: string
+  paymentIds: string[]
+  message: string
+  raw: Json
+}
+
+function readSubscription(status: number, data: Json): SubscriptionResult {
+  const bi = (data.billingInformation ?? {}) as Json
+  const payments = Array.isArray(data.payments) ? data.payments as Json[] : []
+  const ok = status >= 200 && status < 300 && !!data.subscriptionId
+  return {
+    ok,
+    subscriptionId: data.subscriptionId ? String(data.subscriptionId) : undefined,
+    status: data.subscriptionStatus ? String(data.subscriptionStatus) : undefined,
+    nextBillingDate: bi.nextBillingDate ? String(bi.nextBillingDate) : undefined,
+    paymentIds: payments.map(p => String(p.paymentId)).filter(Boolean),
+    message: ok ? 'OK' : String(data.detail ?? data.title ?? `Erreur ${status}`),
+    raw: data,
+  }
+}
+
+// Crée l'abonnement sur la carte enregistrée. count = nombre de prélèvements
+// que Moneris fera (sans le paiement déjà fait aujourd'hui). startDate : date future.
+export async function createSubscription(p: {
+  idempotencyKey: string; orderId: string; customerReference?: string
+  paymentMethodId: string; issuerId?: string | null
+  unit: 'DAY' | 'WEEK' | 'MONTH'; interval: number; count: number
+  amountCents: number; startDate: string; callbackUrl?: string
+}): Promise<SubscriptionResult> {
+  const cof: Json = { paymentIndicator: 'RECURRING', paymentInformation: 'SUBSEQUENT' }
+  if (p.issuerId) cof.issuerId = p.issuerId
+  const { status, data } = await call('POST', '/subscriptions', {
+    idempotencyKey: p.idempotencyKey,
+    orderId: p.orderId,
+    customerReference: p.customerReference,
+    subscriptionType: 'RECURRING',
+    billingInformation: {
+      billingIntervalUnit: p.unit,
+      billingIntervalFrequency: p.interval,
+      billingIntervalCount: p.count,
+      billingAmount: { amount: p.amountCents, currency: 'CAD' },
+      billingStartDate: p.startDate,
+    },
+    paymentMethod: {
+      paymentMethodSource: 'PAYMENT_METHOD_ID',
+      paymentMethodId: p.paymentMethodId,
+      credentialOnFileInformation: cof,
+    },
+    ecommerceIndicator: ECI.recurring,
+    callbackUrl: p.callbackUrl,
+  })
+  return readSubscription(status, data)
+}
+
+export async function getSubscription(id: string): Promise<SubscriptionResult> {
+  const { status, data } = await call('GET', `/subscriptions/${encodeURIComponent(id)}`)
+  return readSubscription(status, data)
+}
+
+export async function cancelSubscription(id: string, reason?: string): Promise<SubscriptionResult> {
+  const { status, data } = await call('POST', `/subscriptions/${encodeURIComponent(id)}/cancel`, {
+    idempotencyKey: crypto.randomUUID(), reason: reason?.slice(0, 100),
+  })
+  return readSubscription(status, data)
+}
+
+export interface PaymentInfo { paymentId: string; status: string; amountCents: number; createdAt: string; message: string }
+
+export async function getPayment(id: string): Promise<PaymentInfo | null> {
+  const { status, data } = await call('GET', `/payments/${encodeURIComponent(id)}`)
+  if (status < 200 || status >= 300) return null
+  const amt = (data.amount ?? {}) as Json
+  const tx = (data.transactionDetails ?? {}) as Json
+  return {
+    paymentId: String(data.paymentId ?? id),
+    status: String(data.paymentStatus ?? ''),
+    amountCents: Number(amt.amount ?? 0),
+    createdAt: String(data.createdAt ?? ''),
+    message: String(tx.message ?? ''),
+  }
 }

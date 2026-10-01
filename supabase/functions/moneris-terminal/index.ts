@@ -2,13 +2,13 @@
 //   create_plan        crée le plan et l'échéancier
 //   create_link        génère le lien sécurisé à envoyer au client (7 jours)
 //   attach_card        le closeur entre la carte (jeton temporaire Moneris)
-//   retry_installment  relance un versement refusé
-//   cancel_plan        annule les versements à venir
+//   retry_subscription relance la création de l'échéancier chez Moneris
+//   cancel_plan        annule l'abonnement chez Moneris et les versements à venir
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { attachCard, chargeInstallment, newLinkToken, sha256 } from '../_shared/terminal.ts'
-import { ECI } from '../_shared/moneris.ts'
-import { TERMINAL_PRODUCTS, buildSchedule, installmentsForProduct, todayMontreal } from '../_shared/schedule.js'
+import { attachCard, createPlanSubscription, newLinkToken, sha256 } from '../_shared/terminal.ts'
+import { ECI, cancelSubscription } from '../_shared/moneris.ts'
+import { FREQUENCY_UNITS, TERMINAL_PRODUCTS, approxDays, buildSchedule, installmentsForProduct, todayMontreal } from '../_shared/schedule.js'
 
 declare const Deno: { env: { get(key: string): string | undefined }; serve(handler: (req: Request) => Promise<Response> | Response): void }
 
@@ -42,7 +42,7 @@ Deno.serve(async (req) => {
 
     // Le closeur n'agit que sur ses propres plans
     const loadPlan = async (planId: unknown) => {
-      const { data } = await db.from('payment_plans').select('id, closer_id, status').eq('id', String(planId)).maybeSingle()
+      const { data } = await db.from('payment_plans').select('id, closer_id, status, moneris_subscription_id').eq('id', String(planId)).maybeSingle()
       if (!data) return null
       if (!isManager && data.closer_id !== profile.id) return null
       return data
@@ -65,7 +65,12 @@ Deno.serve(async (req) => {
 
       const totalCents = Math.round(Number(body.totalAmount) * 100)
       const count = installmentsForProduct(product)
-      const frequencyDays = count > 1 ? Number(body.frequencyDays) : 0
+      const frequencyUnit = String(body.frequencyUnit ?? 'WEEK').toUpperCase()
+      const frequencyInterval = count > 1 ? Number(body.frequencyInterval) : 1
+      if (count > 1 && !FREQUENCY_UNITS.includes(frequencyUnit)) return json({ error: 'Unité de fréquence invalide' }, 400)
+      if (count > 1 && (!Number.isInteger(frequencyInterval) || frequencyInterval < 1 || frequencyInterval > 99)) {
+        return json({ error: 'Fréquence invalide' }, 400)
+      }
       const today = todayMontreal()
       const payToday = body.payToday !== false
       // Payer aujourd'hui : 1er = aujourd'hui, la date saisie est celle du 2e.
@@ -73,10 +78,16 @@ Deno.serve(async (req) => {
       const chosenDate = String(body.chargeDate ?? '')
       const firstDate = payToday ? today : chosenDate
       const secondDate = payToday && count > 1 ? chosenDate : undefined
-      if (!payToday && firstDate < today) return json({ error: 'La date du 1er prélèvement ne peut pas être dans le passé' }, 400)
+      // Moneris n'accepte qu'une date de début future pour l'abonnement
+      if (!payToday && firstDate <= today) return json({ error: 'Le 1er prélèvement doit être une date à venir (sinon coche « Payer aujourd’hui »)' }, 400)
+      if (payToday && count > 1 && secondDate && secondDate <= today) return json({ error: 'Le 2e prélèvement doit être une date à venir' }, 400)
+      // Sans paiement aujourd'hui, tous les versements sont prélevés par Moneris au même montant
+      if (!payToday && count > 1 && totalCents % count !== 0) {
+        return json({ error: `Sans paiement aujourd’hui, le total doit se diviser également en ${count} versements (ex. ${(Math.floor(totalCents / count) * count / 100).toFixed(2)} $ ou ${((Math.floor(totalCents / count) + 1) * count / 100).toFixed(2)} $)` }, 400)
+      }
 
       let schedule
-      try { schedule = buildSchedule({ totalCents, count, frequencyDays, firstDate, secondDate }) }
+      try { schedule = buildSchedule({ totalCents, count, frequencyUnit, frequencyInterval, firstDate, secondDate }) }
       catch (e) { return json({ error: (e as Error).message }, 400) }
 
       const { data: plan, error } = await db.from('payment_plans').insert({
@@ -90,7 +101,9 @@ Deno.serve(async (req) => {
         client_province: String(body.clientProvince ?? 'QC').trim().toUpperCase() || 'QC',
         client_postal_code: postal.replace(/^(\w{3})\s?(\w{3})$/, '$1 $2'),
         product_name: product, total_amount_cents: totalCents, installments_count: count,
-        frequency_days: frequencyDays || 1, first_charge_date: firstDate,
+        frequency_days: count > 1 ? approxDays(frequencyUnit, frequencyInterval) : 1,
+        frequency_unit: count > 1 ? frequencyUnit : 'DAY', frequency_interval: frequencyInterval,
+        first_charge_date: firstDate,
         notes: String(body.notes ?? '').trim() || null,
       }).select('id').single()
       if (error) throw error
@@ -124,22 +137,32 @@ Deno.serve(async (req) => {
       return json(r, r.ok ? 200 : 402)
     }
 
-    if (action === 'retry_installment') {
-      const { data: inst } = await db.from('payment_installments').select('id, plan_id, status').eq('id', String(body.installmentId)).maybeSingle()
-      if (!inst || !(await loadPlan(inst.plan_id))) return json({ error: 'Versement introuvable' }, 404)
-      if (inst.status !== 'declined') return json({ error: 'Seul un versement refusé peut être relancé' }, 400)
-      const r = await chargeInstallment(db, inst.id)
-      return json(r, r.ok ? 200 : 402)
+    if (action === 'retry_subscription') {
+      const plan = await loadPlan(body.planId)
+      if (!plan) return json({ error: 'Plan introuvable' }, 404)
+      if (plan.status !== 'active') return json({ error: 'Le plan doit être actif' }, 400)
+      const r = await createPlanSubscription(db, plan.id)
+      return json(r, r.ok ? 200 : 502)
     }
 
     if (action === 'cancel_plan') {
       const plan = await loadPlan(body.planId)
       if (!plan) return json({ error: 'Plan introuvable' }, 404)
       if (['completed', 'canceled'].includes(plan.status)) return json({ error: 'Plan déjà terminé ou annulé' }, 400)
+      // D'abord chez Moneris : sinon il continuerait à prélever le client
+      if (plan.moneris_subscription_id) {
+        let c
+        try { c = await cancelSubscription(plan.moneris_subscription_id, 'Annulé par NEO') }
+        catch (e) { console.error('[cancel_plan]', e); return json({ error: 'Impossible de joindre Moneris. Rien n’a été annulé, réessaie.' }, 502) }
+        if (!c.ok && c.status !== 'CANCELED' && c.status !== 'COMPLETED') {
+          return json({ error: `Moneris n’a pas annulé l’échéancier (${c.message}). Rien n’a été annulé ici.` }, 502)
+        }
+      }
       await db.from('payment_installments').update({ status: 'canceled' })
         .eq('plan_id', plan.id).in('status', ['scheduled', 'declined'])
       await db.from('payment_plans').update({
-        status: 'canceled', canceled_at: new Date().toISOString(), canceled_by: profile.id, updated_at: new Date().toISOString(),
+        status: 'canceled', subscription_status: plan.moneris_subscription_id ? 'CANCELED' : null,
+        canceled_at: new Date().toISOString(), canceled_by: profile.id, updated_at: new Date().toISOString(),
       }).eq('id', plan.id)
       await db.from('payment_plan_links').delete().eq('plan_id', plan.id)
       return json({ ok: true })
