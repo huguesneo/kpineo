@@ -360,6 +360,7 @@ export default function Terminal() {
   const [highlightId, setHighlightId] = useState(null)
   const [toast, setToast] = useState(null)
   const [linkInfo, setLinkInfo] = useState(null)
+  const [result, setResult] = useState(null) // gros message après la saisie de carte
 
   const showToast = (msg, isError = false) => {
     setToast({ msg, isError })
@@ -431,7 +432,7 @@ export default function Terminal() {
 
       {cardPlan && (
         <CardEntryModal plan={cardPlan} onClose={() => setCardPlan(null)}
-          onDone={(msg, isWarn) => { setCardPlan(null); showToast(msg, isWarn); load() }} />
+          onDone={(msg, isWarn) => { setCardPlan(null); setResult({ msg, isWarn }); load() }} />
       )}
 
       {linkInfo && (
@@ -442,6 +443,21 @@ export default function Terminal() {
             </p>
             <p className="text-xs break-all bg-[#f5f5f7] rounded p-3 select-all">{linkInfo.url}</p>
             <Button className="w-full" onClick={() => setLinkInfo(null)}>OK</Button>
+          </div>
+        </Modal>
+      )}
+
+      {result && (
+        <Modal isOpen onClose={() => setResult(null)} title={result.isWarn ? 'Paiement approuvé, à vérifier' : 'Paiement approuvé'}>
+          <div className="p-8 text-center space-y-4">
+            <div className={`mx-auto w-20 h-20 rounded-full flex items-center justify-center text-5xl text-white ${result.isWarn ? 'bg-amber-500' : 'bg-green-500'}`}>
+              {result.isWarn ? '!' : '✓'}
+            </div>
+            <p className="text-2xl font-bold text-[#1a1a1a]">
+              {result.isWarn ? 'Paiement passé, mais attention' : 'Paiement réussi !'}
+            </p>
+            <p className="text-base text-[#374151]">{result.msg}</p>
+            <Button className="w-full" onClick={() => setResult(null)}>OK</Button>
           </div>
         </Modal>
       )}
