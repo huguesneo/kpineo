@@ -171,3 +171,9 @@ export function prechargerGoogle() {
   chargerScript('https://accounts.google.com/gsi/client').catch(() => {})
   chargerScript('https://apis.google.com/js/api.js').catch(() => {})
 }
+
+// Un jeton encore valide est-il en mémoire ? Sinon, la connexion doit partir
+// d'un clic (le navigateur bloque la fenêtre Google après un glisser-déposer).
+export function jetonDriveEnMemoire() {
+  return !!(jetonMemorise && jetonMemorise.expire > Date.now() + 60_000)
+}
