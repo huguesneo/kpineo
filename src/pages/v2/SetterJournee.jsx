@@ -16,21 +16,22 @@ function sansEmoji(s) {
   return String(s ?? '').replace(/^[^\p{L}\p{N}]+/u, '').trim()
 }
 
-// Les files, dans l'ordre de la maquette (chauds, nouveaux, rebookings, confirmations),
-// puis « Contact établi », séparée de « Chaud à relancer » et repliable.
+// Les files : nouveaux leads (🔥 chauds en tête), leads à rappeler, rebookings,
+// confirmations, puis « Contact établi » (repliable). Tri par défaut : âge,
+// du plus vieux au plus jeune ; Âge et Tentatives se cliquent.
 const FILES = [
   {
-    cle: 'chaudARelancer', titre: 'Chaud à relancer', sousTitre: 'Étape 🔥 Chaud à relancer, le plus ancien changement d’étape en premier',
-    couleur: '#10b981', compteurBg: '#ecfdf5', compteurColor: '#047857', rdvLabel: 'Dernier changement',
-    videTitre: 'Aucune relance due', videTexte: 'Tes leads chauds sont à jour.',
-    rdv: (l, now) => ({ texte: l.changementEtape ? fmtRdvRelatif(l.changementEtape, now) : '—', couleur: '#1a1a1a' }),
-  },
-  {
-    cle: 'aAppeler', titre: 'Lead à appeler', sousTitre: 'Nouveaux leads et tentatives, sources chaudes en premier',
+    cle: 'nouveauxLeads', titre: 'Nouveaux leads', sousTitre: '🔥 Chauds à relancer en tête, puis les nouveaux leads',
     couleur: '#6366f1', compteurBg: 'rgba(99,102,241,0.1)', compteurColor: '#4f46e5', rdvLabel: 'Statut',
     videTitre: 'File vide', videTexte: 'Aucun nouveau lead pour le moment.',
+    rdv: l => ({ texte: l.chaud ? 'Chaud à relancer' : 'Nouveau', couleur: l.chaud ? '#c2410c' : '#1a1a1a' }),
+  },
+  {
+    cle: 'aRappeler', titre: 'Leads à rappeler', sousTitre: '1 à 4 tentatives faites',
+    couleur: '#8b5cf6', compteurBg: '#f5f3ff', compteurColor: '#6d28d9', rdvLabel: 'Statut',
+    videTitre: 'Aucun rappel', videTexte: 'Personne à rappeler pour le moment.',
     rdv: l => ({
-      texte: l.tentative >= 5 ? 'Dernière tentative' : sansEmoji(l.etape) || 'Nouveau',
+      texte: l.tentative >= 5 ? 'Dernière tentative' : sansEmoji(l.etape) || '—',
       couleur: l.tentative >= 4 ? '#b45309' : '#1a1a1a',
     }),
   },
@@ -47,10 +48,11 @@ const FILES = [
     cle: 'aConfirmer', titre: 'À confirmer', sousTitre: 'RDV des prochaines 24 h, par heure',
     couleur: '#f59e0b', compteurBg: '#fffbeb', compteurColor: '#b45309', rdvLabel: 'RDV',
     videTitre: 'Tout est confirmé', videTexte: 'Les RDV des prochaines 24 h sont confirmés.',
+    triInitial: null, // par heure du RDV ; Âge et Tentatives restent cliquables
     rdv: (l, now) => ({ texte: fmtRdvRelatif(l.rdvRef?.start, now), couleur: '#1a1a1a' }),
   },
   {
-    cle: 'contactEtabli', titre: 'Contact établi', sousTitre: 'Étape 💬 Contact établi, le plus ancien changement d’étape en premier',
+    cle: 'contactEtabli', titre: 'Contact établi', sousTitre: 'Étape 💬 Contact établi',
     couleur: '#0ea5e9', compteurBg: '#f0f9ff', compteurColor: '#0369a1', rdvLabel: 'Dernier changement',
     videTitre: 'Aucun contact établi en attente', videTexte: 'Personne à relancer à cette étape.',
     repliable: true,

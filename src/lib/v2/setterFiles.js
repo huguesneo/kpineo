@@ -77,7 +77,10 @@ export function carteLead({ contactId, nom, source, creeLe, stageId = null, opp 
     sourceChaude: isSourceChaude(source),
     creeLe: creeLe ?? null,
     ageHeures: creeLe ? Math.max(0, Math.floor((ctx.now - ms(creeLe)) / HEURE)) : null,
-    tentative: stageId ? tentativeDeLEtape(stageId) : null,
+    // Tentative à faire, déduite de l'étape setting (celle de la file, sinon celle de la carte)
+    tentative: tentativeDeLEtape(stageId ?? setterOpp?.pipeline_stage_id),
+    // Lead classé « 🔥 Chaud à relancer » dans le pipeline setting
+    chaud: (stageId ?? setterOpp?.pipeline_stage_id) === PIPELINE_SETTING.stages.chaudRelancer,
     etape: setterOpp?.stage_name ?? null,
     prochainRdv: rdv ? { start: rdv.start_time, status: rdv.status, calendarId: rdv.calendar_id } : null,
     rdvRef: rdvRef ? { ghlId: rdvRef.ghl_id, start: rdvRef.start_time, status: rdvRef.status } : null,
@@ -136,34 +139,24 @@ export function computeSetterFiles({ opps: toutesOpps = [], appts: tousAppts = [
       }, ctx)
     })
 
-  // ── À appeler : nouveau lead et tentatives 1 à 4
-  const etapesAppel = new Set([S.nouveau, S.tentative1, S.tentative2, S.tentative3, S.tentative4])
-  const aAppeler = opps
-    .filter(o => o.pipeline_id === PIPELINE_SETTING.id && etapesAppel.has(o.pipeline_stage_id) && o.contact_id)
-    .sort((a, b) => {
-      const chaud = Number(isSourceChaude(b.source)) - Number(isSourceChaude(a.source))
-      if (chaud !== 0) return chaud
-      return (ms(a.created_at_ghl) ?? 0) - (ms(b.created_at_ghl) ?? 0)
-    })
+  const cartesDesEtapes = etapes => opps
+    .filter(o => o.pipeline_id === PIPELINE_SETTING.id && etapes.includes(o.pipeline_stage_id) && o.contact_id)
     .map(o => carteLead({
       contactId: o.contact_id, nom: o.contact_name, source: o.source,
       creeLe: o.created_at_ghl, stageId: o.pipeline_stage_id, opp: o,
     }, ctx))
 
-  // ── Chaud à relancer et Contact établi : deux files, une par étape GHL,
-  // pour que les compteurs correspondent au pipeline. Le plus ancien
-  // changement d'étape en premier dans chacune.
-  const parEtape = stageId => opps
-    .filter(o => o.pipeline_id === PIPELINE_SETTING.id && o.pipeline_stage_id === stageId && o.contact_id)
-    .sort((a, b) => (ms(dernierChangementEtape(a)) ?? 0) - (ms(dernierChangementEtape(b)) ?? 0))
-    .map(o => carteLead({
-      contactId: o.contact_id, nom: o.contact_name, source: o.source,
-      creeLe: o.created_at_ghl, opp: o,
-    }, ctx))
-  const chaudARelancer = parEtape(S.chaudRelancer)
-  const contactEtabli = parEtape(S.contactEtabli)
+  // ── Nouveaux leads : 🔥 chaud à relancer (épinglés en tête) et nouveaux leads,
+  // du plus vieux au plus jeune
+  const nouveauxLeads = trierLeads(cartesDesEtapes([S.chaudRelancer, S.nouveau]))
 
-  return { aRebooker, aConfirmer, aAppeler, chaudARelancer, contactEtabli }
+  // ── Leads à rappeler : 1 à 4 tentatives faites, du plus vieux au plus jeune
+  const aRappeler = trierLeads(cartesDesEtapes([S.tentative1, S.tentative2, S.tentative3, S.tentative4]))
+
+  // ── Contact établi : une file à part (repliable à l'écran)
+  const contactEtabli = trierLeads(cartesDesEtapes([S.contactEtabli]))
+
+  return { nouveauxLeads, aRappeler, aRebooker, aConfirmer, contactEtabli }
 }
 
 // Jour calendaire à Montréal d'un instant ('AAAA-MM-JJ')
@@ -199,7 +192,49 @@ export function rdvBookesAujourdhui({ appts = [], opps = [], setterName, now = D
 
 // Total des éléments en attente dans les files (compteur du commutateur)
 export function totalFiles(files) {
-  return (files?.aRebooker?.length ?? 0) + (files?.aConfirmer?.length ?? 0)
-    + (files?.aAppeler?.length ?? 0) + (files?.chaudARelancer?.length ?? 0)
-    + (files?.contactEtabli?.length ?? 0)
+  return ['nouveauxLeads', 'aRappeler', 'aRebooker', 'aConfirmer', 'contactEtabli']
+    .reduce((n, cle) => n + (files?.[cle]?.length ?? 0), 0)
+}
+
+// Tentatives déjà faites (0 à 4) d'après l'étape ; 0 hors pipeline de tentatives
+export function tentativesFaites(lead) {
+  return lead?.tentative == null ? 0 : Math.min(4, Math.max(0, lead.tentative - 1))
+}
+
+// Tri par défaut : âge, du plus vieux au plus jeune
+export const TRI_DEFAUT = { cle: 'age', sens: 'vieux' }
+
+// Clic sur une colonne : la même colonne inverse le sens ; une autre colonne
+// part de son premier sens (Âge : plus vieux d'abord ; Tentatives : le plus d'abord).
+export function triSuivant(tri, cle) {
+  if (tri?.cle === cle) {
+    return cle === 'age'
+      ? { cle, sens: tri.sens === 'vieux' ? 'jeune' : 'vieux' }
+      : { cle, sens: tri.sens === 'plus' ? 'moins' : 'plus' }
+  }
+  return cle === 'age' ? { cle, sens: 'vieux' } : { cle, sens: 'plus' }
+}
+
+// Trie une file. Les leads 🔥 chauds restent toujours en tête. Tri par âge
+// (date de création du lead), ou par tentatives avec l'âge pour départager
+// (le plus vieux d'abord). Un lead sans date de création va à la fin.
+export function trierLeads(leads, tri = TRI_DEFAUT) {
+  const cree = l => ms(l.creeLe)
+  const parAge = (a, b, sens = 'vieux') => {
+    const ca = cree(a), cb = cree(b)
+    if (ca == null && cb == null) return 0
+    if (ca == null) return 1
+    if (cb == null) return -1
+    return sens === 'vieux' ? ca - cb : cb - ca
+  }
+  return [...(leads ?? [])].sort((a, b) => {
+    const chaud = Number(!!b.chaud) - Number(!!a.chaud)
+    if (chaud !== 0) return chaud
+    if (tri?.cle === 'tentatives') {
+      const d = tentativesFaites(a) - tentativesFaites(b)
+      if (d !== 0) return tri.sens === 'plus' ? -d : d
+      return parAge(a, b, 'vieux')
+    }
+    return parAge(a, b, tri?.sens ?? 'vieux')
+  })
 }

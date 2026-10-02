@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { fmtAge, styleSource } from '../../../lib/v2/format'
 import { verrouAutre } from '../../../hooks/v2/useLeadLocks'
+import { trierLeads, triSuivant, TRI_DEFAUT } from '../../../lib/v2/setterFiles'
 
 const COLONNES = 'xl:grid-cols-[184px_96px_52px_78px_140px_80px_minmax(0,1fr)_286px]'
 const LIMITE = { desktop: 10, mobile: 3 }
@@ -16,6 +17,36 @@ function tentativesFaites(lead, etat) {
   if (lead.tentative == null) return null
   const faites = Math.min(4, Math.max(0, lead.tentative - 1) + (etat === 'nr-attente' || etat === 'nr' ? 1 : 0))
   return faites
+}
+
+// Nom du lead : ouvre sa fiche GoHighLevel (et prend le lead 15 min), 🔥 si chaud
+function NomLead({ lead, couleur, actions, grand = false }) {
+  return (
+    <button
+      onClick={() => actions.ouvrirFiche(lead)}
+      title={`Ouvrir la fiche de ${lead.nom} dans GoHighLevel`}
+      className={`flex items-center gap-1 min-w-0 text-left hover:underline underline-offset-2 ${grand ? 'text-[15px] font-bold flex-1' : 'text-sm font-semibold'}`}
+      style={{ color: couleur }}
+    >
+      {lead.chaud && <span aria-label="Lead chaud" title="Chaud à relancer" className="flex-shrink-0">🔥</span>}
+      <span className="truncate">{lead.nom}</span>
+    </button>
+  )
+}
+
+// En-tête de colonne triable (Âge, Tentatives) avec flèche du sens actif
+function EnteteTri({ libelle, cle, tri, onTri }) {
+  const actif = tri?.cle === cle
+  const fleche = !actif ? '↕' : (tri.sens === 'vieux' || tri.sens === 'plus') ? '↓' : '↑'
+  const aide = cle === 'age'
+    ? (actif && tri.sens === 'vieux' ? 'Plus vieux d’abord (cliquer : plus jeunes d’abord)' : 'Trier du plus vieux au plus jeune')
+    : (actif && tri.sens === 'plus' ? 'Le plus de tentatives d’abord (cliquer : le moins d’abord)' : 'Trier par nombre de tentatives')
+  return (
+    <button onClick={() => onTri(cle)} title={aide}
+      className={`flex items-center gap-1 uppercase tracking-wide text-left hover:text-[#1a1a1a] ${actif ? 'text-[#4f46e5]' : ''}`}>
+      {libelle}<span aria-hidden="true">{fleche}</span>
+    </button>
+  )
 }
 
 function Tentatives({ faites }) {
@@ -133,7 +164,7 @@ function LigneLead({ lead, file, userId, locks, actions, now }) {
     <>
       {/* Grand écran : une ligne du tableau */}
       <div className={`hidden xl:grid ${COLONNES} gap-2.5 items-center px-3.5 py-2 border-t border-[#f3f4f6]`} style={{ background: fond }}>
-        <span className="text-sm font-semibold truncate" style={{ color: couleurNom }} title={lead.nom}>{lead.nom}</span>
+        <NomLead lead={lead} couleur={couleurNom} actions={actions} />
         <div className="min-w-0"><PastilleSource source={lead.source} /></div>
         <span className="text-[13px] text-[#6b7280]">{fmtAge(lead.ageHeures)}</span>
         <Tentatives faites={faites} />
@@ -153,7 +184,7 @@ function LigneLead({ lead, file, userId, locks, actions, now }) {
       {/* Mobile et tablette : carte sur trois lignes */}
       <div className="xl:hidden px-3.5 py-3 border-t border-[#f3f4f6] flex flex-col gap-2" style={{ background: fond }}>
         <div className="flex items-center gap-1.5 min-w-0">
-          <span className="text-[15px] font-bold flex-1 min-w-0 truncate" style={{ color: couleurNom }}>{lead.nom}</span>
+          <NomLead lead={lead} couleur={couleurNom} actions={actions} grand />
           <span className="max-w-[45%] flex-shrink-0"><PastilleSource source={lead.source} /></span>
           {faites != null && <span className="text-[11px] font-bold text-[#6b7280]">{faites}/4</span>}
         </div>
@@ -172,6 +203,10 @@ function LigneLead({ lead, file, userId, locks, actions, now }) {
 export default function FileLeads({ file, leads, userId, locks, actions, now }) {
   const [toutVoir, setToutVoir] = useState(false)
   const [replie, setReplie] = useState(false)
+  // Tri : âge (plus vieux d'abord) par défaut ; null = ordre de la file (ex. heure du RDV)
+  const [tri, setTri] = useState(file.triInitial === undefined ? TRI_DEFAUT : file.triInitial)
+  const changerTri = cle => setTri(t => triSuivant(t, cle))
+  const tries = useMemo(() => (tri ? trierLeads(leads, tri) : leads), [leads, tri])
   const ouverts = leads.filter(l => !['nr-attente', 'nr', 'booke'].includes(actions.etats[l.key])).length
   const limiteDesktop = toutVoir ? Infinity : LIMITE.desktop
   const limiteMobile = toutVoir ? Infinity : LIMITE.mobile
@@ -186,6 +221,14 @@ export default function FileLeads({ file, leads, userId, locks, actions, now }) 
           {ouverts}
         </span>
         <span className="text-xs text-[#6b7280] hidden sm:inline">{file.sousTitre}</span>
+        {/* Tri sur mobile et tablette (pas d'en-têtes de colonnes) */}
+        {!replie && leads.length > 1 && (
+          <span className="xl:hidden flex items-center gap-2 text-[11px] font-bold text-[#9ca3af] w-full sm:w-auto">
+            Trier :
+            <EnteteTri libelle="Âge" cle="age" tri={tri} onTri={changerTri} />
+            <EnteteTri libelle="Tentatives" cle="tentatives" tri={tri} onTri={changerTri} />
+          </span>
+        )}
         {file.repliable && (
           <button onClick={() => setReplie(r => !r)} aria-expanded={!replie}
             className="ml-auto flex items-center gap-1 text-xs font-semibold text-[#6b7280] px-2 py-1 rounded-lg hover:bg-[#f3f4f6] hover:text-[#1a1a1a]">
@@ -210,10 +253,13 @@ export default function FileLeads({ file, leads, userId, locks, actions, now }) 
       ) : (
         <>
           <div className={`hidden xl:grid ${COLONNES} gap-2.5 px-3.5 py-2 text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide`}>
-            <span>Lead</span><span>Source</span><span>Âge</span><span>Tentatives</span><span>{file.rdvLabel}</span>
+            <span>Lead</span><span>Source</span>
+            <EnteteTri libelle="Âge" cle="age" tri={tri} onTri={changerTri} />
+            <EnteteTri libelle="Tentatives" cle="tentatives" tri={tri} onTri={changerTri} />
+            <span>{file.rdvLabel}</span>
             <span>Closeur</span><span>Note</span><span className="text-right">Actions</span>
           </div>
-          {leads.map((lead, i) => (
+          {tries.map((lead, i) => (
             // Mobile : les 3 premiers, grand écran : les 10 premiers (tout après « Voir »)
             <div key={lead.key} className={i >= limiteDesktop ? 'hidden' : i >= limiteMobile ? 'hidden xl:block' : ''}>
               <LigneLead lead={lead} file={file} userId={userId} locks={locks} actions={actions} now={now} />

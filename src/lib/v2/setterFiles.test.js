@@ -15,35 +15,44 @@ function appt(id, contact, start, status, cal = CALENDARS.decouvertePublic, extr
 }
 
 describe('computeSetterFiles', () => {
-  it('À appeler : sources chaudes d’abord, puis les plus anciens', () => {
+  it('Nouveaux leads : 🔥 chauds en tête, puis nouveaux du plus vieux au plus jeune', () => {
     const opps = [
       oppSetting('a', S.nouveau, { created_at_ghl: h(-10) }),
-      oppSetting('b', S.tentative2, { created_at_ghl: h(-50) }),
-      oppSetting('c', S.tentative1, { created_at_ghl: h(-5), source: 'Optin VS' }),
-      oppSetting('d', S.contactEtabli),
+      oppSetting('b', S.nouveau, { created_at_ghl: h(-50), source: 'Optin VS' }),
+      oppSetting('c', S.chaudRelancer, { created_at_ghl: h(-2) }),
+      oppSetting('d', S.chaudRelancer, { created_at_ghl: h(-5) }),
+      oppSetting('e', S.tentative1),
+      oppSetting('f', S.contactEtabli),
     ]
-    const { aAppeler } = computeSetterFiles({ opps, now: NOW })
-    expect(aAppeler.map(l => l.contactId)).toEqual(['c', 'b', 'a'])
-    expect(aAppeler[0].tentative).toBe(2)
-    expect(aAppeler[2].tentative).toBe(1)
+    const { nouveauxLeads } = computeSetterFiles({ opps, now: NOW })
+    expect(nouveauxLeads.map(l => [l.contactId, l.chaud])).toEqual([['d', true], ['c', true], ['b', false], ['a', false]])
+    expect(nouveauxLeads[2].tentative).toBe(1)
   })
 
-  it('Chaud à relancer et Contact établi : une file par étape, le plus ancien changement d’étape en premier', () => {
+  it('Leads à rappeler : tentatives 1 à 4, du plus vieux au plus jeune', () => {
     const opps = [
-      oppSetting('a', S.chaudRelancer, { raw: { lastStageChangeAt: h(-2) } }),
-      oppSetting('b', S.contactEtabli, { raw: { lastStageChangeAt: h(-30) } }),
-      oppSetting('c', S.chaudRelancer, { raw: { lastStageChangeAt: h(-5) } }),
-      oppSetting('d', S.contactEtabli, { raw: { lastStageChangeAt: h(-1) } }),
-      oppSetting('e', S.rencontreBook),
+      oppSetting('a', S.tentative1, { created_at_ghl: h(-10) }),
+      oppSetting('b', S.tentative3, { created_at_ghl: h(-50) }),
+      oppSetting('c', S.tentative4, { created_at_ghl: h(-20) }),
+      oppSetting('d', S.nouveau),
     ]
-    const { chaudARelancer, contactEtabli } = computeSetterFiles({ opps, now: NOW })
-    expect(chaudARelancer.map(l => l.contactId)).toEqual(['c', 'a'])
-    expect(contactEtabli.map(l => l.contactId)).toEqual(['b', 'd'])
+    const { aRappeler } = computeSetterFiles({ opps, now: NOW })
+    expect(aRappeler.map(l => l.contactId)).toEqual(['b', 'c', 'a'])
+  })
+
+  it('Contact établi : file à part, du plus vieux au plus jeune', () => {
+    const opps = [
+      oppSetting('a', S.contactEtabli, { created_at_ghl: h(-2) }),
+      oppSetting('b', S.contactEtabli, { created_at_ghl: h(-30) }),
+      oppSetting('c', S.chaudRelancer),
+    ]
+    const { contactEtabli } = computeSetterFiles({ opps, now: NOW })
+    expect(contactEtabli.map(l => l.contactId)).toEqual(['b', 'a'])
   })
 
   it('totalFiles compte les cinq files', async () => {
     const { totalFiles } = await import('./setterFiles')
-    expect(totalFiles({ aRebooker: [1], aConfirmer: [1, 2], aAppeler: [1], chaudARelancer: [1], contactEtabli: [1, 2, 3] })).toBe(8)
+    expect(totalFiles({ nouveauxLeads: [1], aRappeler: [1, 2], aRebooker: [1], aConfirmer: [1], contactEtabli: [1, 2, 3] })).toBe(8)
   })
 
   it('À rebooker : no-show et annulés des 72 dernières heures, sans RDV déjà repris', () => {
@@ -122,12 +131,49 @@ describe('contacts test', () => {
   it('ne sont jamais dans les files', async () => {
     const { TEST_CONTACT_IDS } = await import('../commissions/config')
     const test = TEST_CONTACT_IDS[0]
-    const { aRebooker, aAppeler } = computeSetterFiles({
+    const { aRebooker, nouveauxLeads } = computeSetterFiles({
       opps: [oppSetting(test, S.nouveau), oppSetting('z', S.nouveau)],
       appts: [appt('t1', test, h(-2), 'noshow')],
       now: NOW,
     })
-    expect(aAppeler.map(l => l.contactId)).toEqual(['z'])
+    expect(nouveauxLeads.map(l => l.contactId)).toEqual(['z'])
     expect(aRebooker).toEqual([])
+  })
+})
+
+describe('tri des files', () => {
+  it('âge : plus vieux d’abord par défaut, plus jeune au clic ; chauds toujours en tête', async () => {
+    const { trierLeads } = await import('./setterFiles')
+    const leads = [
+      { key: 'jeune', creeLe: h(-1), tentative: 2 },
+      { key: 'vieux', creeLe: h(-100), tentative: 1 },
+      { key: 'chaud', creeLe: h(-3), chaud: true },
+      { key: 'sansDate', creeLe: null, tentative: 5 },
+    ]
+    expect(trierLeads(leads).map(l => l.key)).toEqual(['chaud', 'vieux', 'jeune', 'sansDate'])
+    expect(trierLeads(leads, { cle: 'age', sens: 'jeune' }).map(l => l.key)).toEqual(['chaud', 'jeune', 'vieux', 'sansDate'])
+  })
+
+  it('tentatives : le plus d’abord, puis le moins ; l’âge départage (plus vieux d’abord)', async () => {
+    const { trierLeads } = await import('./setterFiles')
+    const leads = [
+      { key: 't1-jeune', creeLe: h(-1), tentative: 2 },
+      { key: 't1-vieux', creeLe: h(-100), tentative: 2 },
+      { key: 't3', creeLe: h(-5), tentative: 4 },
+      { key: 't0', creeLe: h(-50), tentative: 1 },
+    ]
+    expect(trierLeads(leads, { cle: 'tentatives', sens: 'plus' }).map(l => l.key)).toEqual(['t3', 't1-vieux', 't1-jeune', 't0'])
+    expect(trierLeads(leads, { cle: 'tentatives', sens: 'moins' }).map(l => l.key)).toEqual(['t0', 't1-vieux', 't1-jeune', 't3'])
+  })
+
+  it('clics sur les colonnes', async () => {
+    const { triSuivant, TRI_DEFAUT } = await import('./setterFiles')
+    const a1 = triSuivant(TRI_DEFAUT, 'age')
+    expect(a1).toEqual({ cle: 'age', sens: 'jeune' })
+    expect(triSuivant(a1, 'age')).toEqual({ cle: 'age', sens: 'vieux' })
+    const t1 = triSuivant(TRI_DEFAUT, 'tentatives')
+    expect(t1).toEqual({ cle: 'tentatives', sens: 'plus' })
+    expect(triSuivant(t1, 'tentatives')).toEqual({ cle: 'tentatives', sens: 'moins' })
+    expect(triSuivant(t1, 'age')).toEqual({ cle: 'age', sens: 'vieux' })
   })
 })
