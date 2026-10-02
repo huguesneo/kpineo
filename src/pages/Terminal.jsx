@@ -9,7 +9,7 @@ import MonerisCardFrame from '../components/terminal/MonerisCardFrame'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import {
-  TERMINAL_PRODUCTS, buildSchedule, installmentsForProduct, todayMontreal, formatCents, addDays,
+  TERMINAL_PRODUCTS, buildSaleSchedule, priceSale, withTax, installmentsForProduct, todayMontreal, formatCents, addDays,
 } from '../../supabase/functions/_shared/schedule.js'
 
 const FREQUENCY_UNITS = [
@@ -39,6 +39,7 @@ const emptyForm = () => ({
   clientFirstName: '', clientLastName: '', clientEmail: '', clientPhone: '',
   clientStreetNumber: '', clientStreetName: '', clientUnit: '', clientCity: '', clientProvince: 'QC', clientPostalCode: '',
   productName: TERMINAL_PRODUCTS[0], totalAmount: '', frequencyInterval: 2, frequencyUnit: 'WEEK',
+  addTraining: false, addGuarantee: false, discountType: 'percent', discountValue: '',
   payToday: true, chargeDate: '', notes: '',
 })
 
@@ -70,17 +71,22 @@ function NewPlanForm({ onCreated }) {
   const needsDate = !form.payToday || count > 1
   const dateLabel = form.payToday ? '2e prélèvement' : (count > 1 ? '1er prélèvement' : 'Date du prélèvement')
 
-  // Le closer entre le montant AVANT taxes; TPS 5 % + TVQ 9,975 % s'ajoutent, et la carte est débitée du total.
-  const pretaxCents = Math.round(Number(form.totalAmount) * 100)
-  const tpsCents = Math.round(pretaxCents * 0.05)
-  const tvqCents = Math.round(pretaxCents * 0.09975)
-  const totalWithTaxCents = pretaxCents + tpsCents + tvqCents
+  // Le closer entre le montant AVANT taxes. Ajouts et rabais s'appliquent avant taxes,
+  // puis TPS 5 % + TVQ 9,975 % s'ajoutent. Le serveur refait le même calcul.
+  const price = useMemo(() => {
+    try {
+      return priceSale({
+        pretaxCents: Math.round(Number(form.totalAmount) * 100), training: form.addTraining,
+        discountType: form.discountType, discountValue: Number(form.discountValue) || 0,
+      })
+    } catch (e) { return { error: e.message } }
+  }, [form.totalAmount, form.addTraining, form.discountType, form.discountValue])
+  const taxes = price.error ? null : withTax(price.pretaxTotal)
 
   const schedule = useMemo(() => {
     try {
-      if (needsDate && !form.chargeDate) return null
-      return buildSchedule({
-        totalCents: totalWithTaxCents,
+      if (price.error || (needsDate && !form.chargeDate)) return null
+      return buildSaleSchedule(price, {
         count,
         frequencyUnit: form.frequencyUnit,
         frequencyInterval: count > 1 ? Number(form.frequencyInterval) : 1,
@@ -88,16 +94,18 @@ function NewPlanForm({ onCreated }) {
         secondDate: form.payToday && count > 1 ? form.chargeDate : undefined,
       })
     } catch { return null }
-  }, [totalWithTaxCents, form.frequencyInterval, form.frequencyUnit, form.chargeDate, form.payToday, count, needsDate, today])
+  }, [price, form.frequencyInterval, form.frequencyUnit, form.chargeDate, form.payToday, count, needsDate, today])
 
   async function submit(mode) {
     setError('')
+    if (price.error) { setError(price.error); return }
     if (!schedule) { setError('Vérifie le montant et la date.'); return }
     setSaving(mode)
     try {
       const { planId } = await callTerminal({
         action: 'create_plan', ...form,
-        totalAmount: totalWithTaxCents / 100, frequencyInterval: Number(form.frequencyInterval),
+        pretaxAmount: Number(form.totalAmount), discountValue: Number(form.discountValue) || 0,
+        frequencyInterval: Number(form.frequencyInterval),
       })
       setForm(emptyForm())
       await onCreated(planId, mode)
@@ -140,14 +148,47 @@ function NewPlanForm({ onCreated }) {
           </select>
         </div>
 
+        <div className="flex flex-col gap-2">
+          <label className="text-sm font-semibold text-[#1a1a1a]">Ajout supplémentaire</label>
+          <label className="flex items-center gap-2 text-sm text-[#1a1a1a]">
+            <input type="checkbox" className="w-4 h-4 accent-[#00bbb1]" checked={form.addGuarantee}
+              onChange={e => setForm(f => ({ ...f, addGuarantee: e.target.checked }))} />
+            Ajout garantie <span className="text-[#6b7280]">(aucun montant)</span>
+          </label>
+          <label className="flex items-center gap-2 text-sm text-[#1a1a1a]">
+            <input type="checkbox" className="w-4 h-4 accent-[#00bbb1]" checked={form.addTraining}
+              onChange={e => setForm(f => ({ ...f, addTraining: e.target.checked }))} />
+            Programme d’entraînement <span className="text-[#6b7280]">(+100 $ avant taxes)</span>
+          </label>
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-3">
             <Input label="Montant avant taxes ($)" type="number" min="1" step="0.01"
               value={form.totalAmount} onChange={set('totalAmount')} required />
-            {pretaxCents > 0 && (
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-semibold text-[#1a1a1a]">Rabais</label>
+              <div className="flex gap-2">
+                <input type="number" min="0" step="0.01" value={form.discountValue} onChange={set('discountValue')}
+                  placeholder="0" className={selectCls} />
+                <div className="flex rounded-lg border border-[#e5e7eb] overflow-hidden shrink-0">
+                  {[['percent', '%'], ['amount', '$']].map(([k, l]) => (
+                    <button key={k} type="button" onClick={() => setForm(f => ({ ...f, discountType: k }))}
+                      className={`px-3 text-sm font-semibold ${form.discountType === k ? 'bg-[#00bbb1] text-white' : 'bg-white text-[#374151]'}`}>{l}</button>
+                  ))}
+                </div>
+              </div>
               <p className="text-xs text-[#6b7280]">
-                + TPS {formatCents(tpsCents)} + TVQ {formatCents(tvqCents)} = <span className="font-semibold">{formatCents(totalWithTaxCents)}</span> à prélever
+                {form.discountType === 'percent' ? 'Appliqué sur tous les paiements.' : 'Retiré du 1er paiement seulement.'}
               </p>
+            </div>
+            {price.error && Number(form.totalAmount) > 0 && <p className="text-xs text-red-600">{price.error}</p>}
+            {!price.error && taxes && (
+              <div className="text-xs text-[#6b7280] space-y-0.5">
+                {form.addTraining && <p>Programme d’entraînement : +100,00 $</p>}
+                {price.discountPretax > 0 && <p>Rabais : -{formatCents(price.discountPretax)}{form.discountType === 'amount' ? ' (1er paiement)' : ''}</p>}
+                <p>Avant taxes {formatCents(price.pretaxTotal)} + TPS {formatCents(taxes.tps)} + TVQ {formatCents(taxes.tvq)} = <span className="font-semibold text-[#1a1a1a]">{formatCents(taxes.total)}</span></p>
+              </div>
             )}
           </div>
           <div className="flex flex-col gap-1">

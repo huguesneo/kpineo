@@ -23,6 +23,7 @@ export interface ReceiptInput {
   firstName: string; lastName: string; email: string; phone?: string | null
   productName: string; closerName: string
   therapistName?: string | null; setterName?: string | null
+  memo?: string | null
   amountCents: number; paidDate: string
   installmentNumber: number; installmentsCount: number; mutexId: string
 }
@@ -112,7 +113,8 @@ export async function createSalesReceipt(db: DB, i: ReceiptInput): Promise<strin
       ...(i.therapistName ? [{ DefinitionId: THERAPIST_FIELD_ID, Name: 'Thérapeute', Type: 'StringType', StringValue: i.therapistName }] : []),
       ...(i.setterName ? [{ DefinitionId: SETTER_FIELD_ID, Name: 'Setter', Type: 'StringType', StringValue: i.setterName }] : []),
     ],
-    PrivateNote: `Terminal NEO ${i.mutexId} (paiement ${i.installmentNumber}/${i.installmentsCount})`,
+    PrivateNote: `Terminal NEO ${i.mutexId} (paiement ${i.installmentNumber}/${i.installmentsCount})${i.memo ? ' : ' + i.memo : ''}`,
+    ...(i.memo ? { CustomerMemo: { value: i.memo } } : {}),
     Line: [{
       DetailType: 'SalesItemLineDetail', Amount: amount,
       Description: `Paiement ${i.installmentNumber} de ${i.installmentsCount}`,

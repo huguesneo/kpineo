@@ -6,17 +6,52 @@
 // calcul des commissions (closer-cash-collected).
 export const TERMINAL_PRODUCTS = [
   'Forfait 15 semaines NEO - 1 paiement',
-  'Forfait 15 semaines NEO - 2 paiements',
   'Forfait 15 semaines NEO - 3 paiements',
   'Forfait 15 semaines NEO - 5 paiements',
-  'Forfait 15 semaines DUO - 1 paiement',
-  'Forfait 15 semaines DUO - 2 paiements',
-  'Forfait 15 semaines DUO - 3 paiements',
-  'Forfait 15 semaines DUO - 5 paiements',
   'Évaluation naturopathie',
   'Évaluation entrainement',
-  "Programme d'optimisation ajout entraînement personnalisé",
 ]
+
+// Ajouts possibles à la vente (section « Ajout supplémentaire »)
+export const TRAINING_ADDON_CENTS = 10000 // programme d'entraînement : +100 $ avant taxes
+
+// TPS 5 % + TVQ 9,975 %, calculées séparément puis arrondies au cent
+export function withTax(pretaxCents) {
+  const tps = Math.round(pretaxCents * 0.05)
+  const tvq = Math.round(pretaxCents * 0.09975)
+  return { pretax: pretaxCents, tps, tvq, total: pretaxCents + tps + tvq }
+}
+
+// Prix de la vente à partir de ce que le closeur a saisi.
+//   discountType 'percent' : le % s'applique au total, donc à tous les versements
+//   discountType 'amount'  : le montant (avant taxes) est retiré du 1er versement seulement
+export function priceSale({ pretaxCents, training = false, discountType = 'percent', discountValue = 0 }) {
+  if (!Number.isInteger(pretaxCents) || pretaxCents <= 0) throw new Error('Montant avant taxes invalide')
+  const basePretax = pretaxCents + (training ? TRAINING_ADDON_CENTS : 0)
+  const v = Number(discountValue) || 0
+  if (v < 0) throw new Error('Rabais invalide')
+  if (discountType === 'percent') {
+    if (v >= 100) throw new Error('Le rabais doit être plus petit que 100 %')
+    const pretaxTotal = Math.round(basePretax * (1 - v / 100))
+    return { basePretax, discountPretax: basePretax - pretaxTotal, pretaxTotal, firstDiscountTotal: 0, totalCents: withTax(pretaxTotal).total }
+  }
+  if (discountType === 'amount') {
+    const d = Math.round(v * 100)
+    if (d >= basePretax) throw new Error('Le rabais doit être plus petit que le montant')
+    return { basePretax, discountPretax: d, pretaxTotal: basePretax - d, firstDiscountTotal: d ? withTax(d).total : 0, totalCents: withTax(basePretax).total }
+  }
+  throw new Error('Type de rabais invalide')
+}
+
+// Échéancier final : le rabais en $ (taxes comprises) est retiré du 1er versement.
+export function buildSaleSchedule(price, opts) {
+  const sched = buildSchedule({ ...opts, totalCents: price.totalCents })
+  if (price.firstDiscountTotal) {
+    sched[0].amountCents -= price.firstDiscountTotal
+    if (sched[0].amountCents <= 0) throw new Error('Le rabais en $ dépasse le 1er versement')
+  }
+  return sched
+}
 
 export function installmentsForProduct(productName) {
   const m = String(productName ?? '').match(/(\d+)\s+paiements?/i)

@@ -1,0 +1,35 @@
+{
+  "version": "5",
+  "redirects": {
+    "https://esm.sh/@supabase/supabase-js@2": "https://esm.sh/@supabase/supabase-js@2.117.2"
+  },
+  "remote": {
+    "https://esm.sh/@supabase/supabase-js@2.117.2": "6da4477d96ad4392b5a8be8f423384a3812cdd651df483e433ba422a69ff879b"
+  },
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:@supabase/supabase-js@^2.39.7",
+        "npm:@types/react-dom@^18.2.21",
+        "npm:@types/react@^18.2.64",
+        "npm:@vitejs/plugin-react@^4.2.1",
+        "npm:autoprefixer@10.4.21",
+        "npm:date-fns@^3.3.1",
+        "npm:eslint-plugin-react-hooks@^4.6.0",
+        "npm:eslint-plugin-react-refresh@~0.4.5",
+        "npm:eslint-plugin-react@^7.34.0",
+        "npm:eslint@^8.57.0",
+        "npm:jspdf-autotable@^5.0.8",
+        "npm:jspdf@^4.2.1",
+        "npm:postcss@^8.4.35",
+        "npm:react-dom@^18.2.0",
+        "npm:react-router-dom@^6.22.3",
+        "npm:react@^18.2.0",
+        "npm:recharts@^3.10.1",
+        "npm:tailwindcss@^3.4.1",
+        "npm:vite@^5.1.6",
+        "npm:vitest@^3.2.7"
+      ]
+    }
+  }
+}

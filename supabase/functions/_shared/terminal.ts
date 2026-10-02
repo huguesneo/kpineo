@@ -30,6 +30,8 @@ export interface Plan {
   frequency_unit: 'DAY' | 'WEEK' | 'MONTH'; frequency_interval: number
   customer_reference?: string | null
   therapist_name?: string | null; setter_name?: string | null
+  training_addon?: boolean; guarantee_addon?: boolean
+  discount_type?: 'percent' | 'amount' | null; discount_value?: number | null
   moneris_subscription_id: string | null; subscription_status: string | null
   client_street_number?: string | null; client_street_name?: string | null; client_unit?: string | null
   client_city?: string | null; client_province?: string | null; client_postal_code?: string | null
@@ -64,6 +66,17 @@ export async function notifySlack(text: string) {
 
 // Envoie le paiement réussi à Make, qui crée le reçu de vente QuickBooks
 // (produit + champ « closers ») et l'envoie au client.
+// Notes du reçu QuickBooks : ajouts et rabais de la vente
+function receiptMemo(plan: Plan, inst: Installment): string | null {
+  const parts: string[] = []
+  if (plan.training_addon) parts.push("Ajout d'un programme d'entraînement")
+  if (plan.guarantee_addon) parts.push("Ajout d'une garantie")
+  const v = Number(plan.discount_value ?? 0)
+  if (v > 0 && plan.discount_type === 'percent') parts.push(`Rabais de ${String(v).replace('.', ',')} %`)
+  if (v > 0 && plan.discount_type === 'amount' && inst.number === 1) parts.push(`Rabais de ${v.toFixed(2).replace('.', ',')} $ (avant taxes) sur ce paiement`)
+  return parts.length ? parts.join(' · ') : null
+}
+
 async function sendToMake(db: DB, plan: Plan, inst: Installment, paymentId: string | undefined, paidDate: string) {
   if (qboEnabled()) {
     // Reçu QuickBooks direct. On « réserve » le versement (sent) avant de créer, pour ne jamais faire deux reçus.
@@ -82,7 +95,7 @@ async function sendToMake(db: DB, plan: Plan, inst: Installment, paymentId: stri
         }
       }
       await createSalesReceipt(db, {
-        therapistName: therapist, setterName,
+        therapistName: therapist, setterName, memo: receiptMemo(plan, inst),
         firstName: plan.client_first_name, lastName: plan.client_last_name, email: plan.client_email, phone: plan.client_phone,
         productName: plan.product_name, closerName: firstNameCap(plan.closer_name) ?? plan.closer_name,
         amountCents: inst.amount_cents, paidDate,
