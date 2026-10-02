@@ -1,10 +1,256 @@
+import { Link } from 'react-router-dom'
+import { format } from 'date-fns'
+import { fr } from 'date-fns/locale'
 import Layout from '../../../components/layout/Layout'
 import Header from '../../../components/layout/Header'
+import Card from '../../../components/shared/Card'
+import Badge from '../../../components/shared/Badge'
+import { SkeletonTable } from '../../../components/shared/Skeleton'
+import { useAuth } from '../../../context/AuthContext'
+import { canConfigureMontageVideo } from '../../../lib/montageVideoAccess'
+import {
+  isAgentEnLigne, statutMontage, positionsFile, rangFr, lienDriveMontage, STATUTS_EN_TRAITEMENT,
+} from '../../../lib/montageVideo'
+import { useMontageJobs, useAgentStatus } from './useMontageVideo'
+
+function dateFr(iso) {
+  return format(new Date(iso), "d MMM yyyy 'à' HH'h'mm", { locale: fr })
+}
+
+function depuis(iso, maintenant) {
+  const s = Math.max(0, Math.round((maintenant - new Date(iso).getTime()) / 1000))
+  if (s < 60) return `il y a ${s} s`
+  const m = Math.round(s / 60)
+  if (m < 60) return `il y a ${m} min`
+  const h = Math.round(m / 60)
+  if (h < 48) return `il y a ${h} h`
+  return `le ${dateFr(iso)}`
+}
+
+function PastilleMac({ status, loading, error, maintenant }) {
+  if (loading) {
+    return <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gray-100 text-sm font-semibold text-[#6b7280]">Vérification du Mac...</span>
+  }
+  const enLigne = !error && isAgentEnLigne(status?.dernier_signal, maintenant)
+  const detail = error
+    ? 'État du Mac impossible à lire'
+    : status?.dernier_signal
+      ? `Dernier signal ${depuis(status.dernier_signal, maintenant)}`
+      : 'Aucun signal reçu'
+  return (
+    <span
+      className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-semibold ${
+        enLigne ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
+      }`}
+      title={detail}
+    >
+      <span className={`w-2.5 h-2.5 rounded-full ${enLigne ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
+      {enLigne ? 'Mac en ligne' : 'Mac hors ligne'}
+      <span className="font-normal opacity-80">· {detail}</span>
+    </span>
+  )
+}
+
+function EtatVide({ titre, texte, action }) {
+  return (
+    <div className="flex flex-col items-center text-center py-12 px-6">
+      <div className="w-14 h-14 rounded-full bg-[#00bbb1]/10 text-[#00bbb1] flex items-center justify-center mb-4">
+        <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 10.5l4.72-4.72a.75.75 0 011.28.53v11.38a.75.75 0 01-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25h-9A2.25 2.25 0 002.25 7.5v9a2.25 2.25 0 002.25 2.25z" />
+        </svg>
+      </div>
+      <p className="text-base font-semibold text-[#1a1a1a]">{titre}</p>
+      <p className="text-sm text-[#6b7280] mt-1 max-w-sm">{texte}</p>
+      {action && <div className="mt-5">{action}</div>}
+    </div>
+  )
+}
+
+function BoutonNouvelleVideo() {
+  return (
+    <Link
+      to="/reseaux-sociaux/montage/nouvelle"
+      className="inline-flex items-center justify-center gap-2 px-6 py-3 rounded-lg text-base font-semibold bg-[#00bbb1] hover:bg-[#009e95] text-white transition-colors"
+    >
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+      </svg>
+      Nouvelle vidéo
+    </Link>
+  )
+}
+
+function LienDrive({ job }) {
+  const lien = lienDriveMontage(job)
+  if (lien) {
+    return (
+      <a href={lien.url} target="_blank" rel="noreferrer" className="text-sm font-semibold text-[#00bbb1] hover:underline">
+        {lien.label}
+      </a>
+    )
+  }
+  if (job.lien_drive_export) {
+    return <span className="text-xs text-[#6b7280] break-all" title="Chemin dans Google Drive">{job.lien_drive_export}</span>
+  }
+  return <span className="text-sm text-[#9ca3af]">Aucun lien</span>
+}
+
+function ListeMontages({ jobs, noms, loading, error, reload, positions }) {
+  if (loading && jobs.length === 0) return <div className="p-5"><SkeletonTable rows={3} /></div>
+  if (error) {
+    return (
+      <EtatVide
+        titre="Impossible de charger les montages"
+        texte={`Vérifie ta connexion, puis réessaie. Détail : ${error}`}
+        action={
+          <button onClick={reload} className="px-5 py-2.5 rounded-lg text-sm font-semibold bg-white border border-gray-200 hover:bg-gray-50 text-gray-700">
+            Réessayer
+          </button>
+        }
+      />
+    )
+  }
+  if (jobs.length === 0) {
+    return (
+      <EtatVide
+        titre="Aucun montage pour l'instant"
+        texte="Dépose une vidéo, choisis un template ou écris ce que tu veux : le montage se fait sur le Mac et apparaît ici."
+        action={<BoutonNouvelleVideo />}
+      />
+    )
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-xs font-semibold uppercase tracking-wide text-[#6b7280] border-b border-[#e5e7eb]">
+            <th className="px-5 py-3">Titre</th>
+            <th className="px-5 py-3">Statut</th>
+            <th className="px-5 py-3">Auteur</th>
+            <th className="px-5 py-3">Date</th>
+            <th className="px-5 py-3">Google Drive</th>
+          </tr>
+        </thead>
+        <tbody>
+          {jobs.map(job => {
+            const statut = statutMontage(job.statut)
+            const position = positions[job.id]
+            return (
+              <tr key={job.id} className="border-b border-[#f0f0f2] last:border-0 align-top">
+                <td className="px-5 py-4">
+                  <p className="font-semibold text-[#1a1a1a]">{job.titre}</p>
+                  {job.statut === 'erreur' && job.erreur && (
+                    <p className="text-xs text-red-600 mt-1">{job.erreur}</p>
+                  )}
+                </td>
+                <td className="px-5 py-4 whitespace-nowrap">
+                  <Badge variant={statut.variant}>{statut.label}</Badge>
+                  {position && <p className="text-xs text-[#6b7280] mt-1">{rangFr(position)} dans la file</p>}
+                  {STATUTS_EN_TRAITEMENT.includes(job.statut) && (
+                    <p className="text-xs text-[#6b7280] mt-1">{job.progression ?? 0} %</p>
+                  )}
+                </td>
+                <td className="px-5 py-4 text-[#374151]">{noms[job.cree_par] || job.cree_par}</td>
+                <td className="px-5 py-4 text-[#6b7280] whitespace-nowrap">{dateFr(job.created_at)}</td>
+                <td className="px-5 py-4"><LienDrive job={job} /></td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function FileAttente({ jobs, positions, noms, enLigne }) {
+  const enCours = jobs.filter(j => STATUTS_EN_TRAITEMENT.includes(j.statut))
+  const enAttente = jobs.filter(j => positions[j.id]).sort((a, b) => positions[a.id] - positions[b.id])
+
+  if (enCours.length === 0 && enAttente.length === 0) {
+    return <p className="text-sm text-[#6b7280] px-5 pb-5">Aucun montage en attente. Le Mac est libre.</p>
+  }
+  return (
+    <div className="px-5 pb-5 space-y-3">
+      {enCours.map(job => (
+        <div key={job.id} className="rounded-lg border border-[#00bbb1]/30 bg-[#00bbb1]/5 p-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-[#1a1a1a] truncate">{job.titre}</p>
+            <span className="text-xs font-semibold text-[#00bbb1] whitespace-nowrap">En cours</span>
+          </div>
+          <p className="text-xs text-[#6b7280] mt-0.5">{job.etape || statutMontage(job.statut).label}</p>
+          <div className="mt-2 h-2 rounded-full bg-white overflow-hidden">
+            <div className="h-full bg-[#00bbb1] transition-all" style={{ width: `${job.progression ?? 0}%` }} />
+          </div>
+        </div>
+      ))}
+      {enAttente.map(job => (
+        <div key={job.id} className="flex items-center gap-3 rounded-lg border border-[#e5e7eb] bg-white p-3">
+          <span className="w-9 h-9 flex-shrink-0 rounded-full bg-gray-100 text-[#374151] text-sm font-bold flex items-center justify-center">
+            {rangFr(positions[job.id])}
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-[#1a1a1a] truncate">{job.titre}</p>
+            <p className="text-xs text-[#6b7280]">{noms[job.cree_par] || job.cree_par}</p>
+          </div>
+        </div>
+      ))}
+      {!enLigne && enAttente.length > 0 && (
+        <p className="text-xs text-amber-700">La file reprendra dès que le Mac sera en ligne.</p>
+      )}
+    </div>
+  )
+}
 
 export default function MontageAccueil() {
+  const { user } = useAuth()
+  const { jobs, noms, loading, error, reload } = useMontageJobs()
+  const agent = useAgentStatus()
+  const positions = positionsFile(jobs)
+  const enLigne = !agent.error && isAgentEnLigne(agent.status?.dernier_signal, agent.maintenant)
+
   return (
     <Layout>
       <Header title="Montage vidéo" />
+
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
+        <PastilleMac {...agent} />
+        <div className="flex items-center gap-3">
+          {canConfigureMontageVideo(user?.email) && (
+            <Link
+              to="/reseaux-sociaux/montage/configuration"
+              className="inline-flex items-center gap-2 px-4 py-3 rounded-lg text-sm font-semibold bg-white border border-gray-200 hover:bg-gray-50 text-gray-700 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 6h9.75M10.5 6a1.5 1.5 0 11-3 0m3 0a1.5 1.5 0 10-3 0M3.75 6H7.5m3 12h9.75m-9.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-3.75 0H7.5m9-6h3.75m-3.75 0a1.5 1.5 0 01-3 0m3 0a1.5 1.5 0 00-3 0m-9.75 0h9.75" />
+              </svg>
+              Configuration
+            </Link>
+          )}
+          <BoutonNouvelleVideo />
+        </div>
+      </div>
+
+      {!agent.loading && !enLigne && (
+        <Card className="p-4 mb-6 border-amber-200 bg-amber-50">
+          <p className="text-sm font-semibold text-amber-800">Le Mac de montage est hors ligne.</p>
+          <p className="text-sm text-amber-700 mt-0.5">
+            Tu peux quand même préparer une vidéo : elle attendra dans la file et le montage partira dès que le Mac sera de retour.
+          </p>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card className="lg:col-span-2">
+          <h2 className="text-base font-bold text-[#1a1a1a] px-5 pt-5 pb-3">Montages</h2>
+          <ListeMontages jobs={jobs} noms={noms} loading={loading} error={error} reload={reload} positions={positions} />
+        </Card>
+        <Card className="self-start">
+          <h2 className="text-base font-bold text-[#1a1a1a] px-5 pt-5 pb-3">File d'attente</h2>
+          {error
+            ? <p className="text-sm text-[#6b7280] px-5 pb-5">File indisponible tant que les montages ne sont pas chargés.</p>
+            : <FileAttente jobs={jobs} positions={positions} noms={noms} enLigne={enLigne} />}
+        </Card>
+      </div>
     </Layout>
   )
 }
