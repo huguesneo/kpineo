@@ -10,6 +10,8 @@ describe('Prendre un rendez-vous', () => {
     expect(cleBookingSetter('Cloé NEO', SETTERS)).toBe('manuel_cloe')
     expect(cleBookingSetter('Hugues Pugliese', SETTERS)).toBe('manuel_hugues')
     expect(cleBookingSetter('Kassy NEO', SETTERS)).toBe(null)
+    expect(prenomCle('Marie-Michèle NEO')).toBe('marie-michele')
+    expect(cleBookingSetter('Marie-Michèle NEO', [{ key: 'manuel_marie-michele' }])).toBe('manuel_marie-michele')
   })
 
   it('découpe le nom du lead', () => {
@@ -31,5 +33,14 @@ describe('Prendre un rendez-vous', () => {
 
   it('lien sans setter connu ni coordonnées', () => {
     expect(lienPrendreRdv({ base: BASE, cleSetter: null, lead: { nom: 'Sans nom' } })).toBe(BASE)
+  })
+})
+
+describe('liste du Centre de vente', () => {
+  it('chaque setter actif du Centre de vente a une clé reconnue par son nom de profil', async () => {
+    const { SETTERS: LISTE } = await import('../../pages/CentreVente')
+    for (const nom of ['Kassy NEO', 'Marie-Michèle NEO', 'Maude NEO', 'Vicky NEO', 'Cloé NEO']) {
+      expect(cleBookingSetter(nom, LISTE)).not.toBe(null)
+    }
   })
 })

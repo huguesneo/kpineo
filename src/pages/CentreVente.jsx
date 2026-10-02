@@ -21,6 +21,10 @@ export const SETTERS = [
   { key: 'manuel_pascal',   label: 'Pascal' },
   { key: 'manuel_hugues',   label: 'Hugues' },
   { key: 'manuel_vicky',    label: 'Vicky' },
+  // Kassy : clé déjà reconnue par GHL (setter « Kassy NEO » sur la carte)
+  { key: 'manuel_kassy',    label: 'Kassy' },
+  // Marie-Michèle : nouvelle clé, à ajouter au workflow GHL qui lit booking_source
+  { key: 'manuel_marie-michele', label: 'Marie-Michèle' },
 ]
 
 const EVAL_IFRAMES = {

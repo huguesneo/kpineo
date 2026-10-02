@@ -46,4 +46,4 @@
 - Quand la v2 sera adoptée : retirer les tâches `setter_shared_tasks`, `ghl-setter-task`
   et l'accordéon `SetterTaskBoard` (non touchés dans cette branche, volontairement).
 
-- **Kassy n’est pas dans la liste des setters du Centre de vente** (`SETTERS` dans `src/pages/CentreVente.jsx`) : le bouton « Prendre un rendez-vous » ne peut pas lui attribuer ses bookings. L’ajouter (clé `manuel_kassy`) et vérifier que le workflow GHL qui lit `booking_source` la reconnaît.
+- **Marie-Michèle dans le workflow GHL** : la clé `manuel_marie-michele` est ajoutée au Centre de vente (2 oct.), mais GHL ne l’a jamais reçue. Ajouter une branche au workflow qui lit `booking_source` (champ contact `fb3QUZzqmOjGuzFKBGMn`) : `manuel_marie-michele` → setter « Marie-Michèle NEO », type « Manuel ». Kassy (`manuel_kassy`) est déjà reconnue.
