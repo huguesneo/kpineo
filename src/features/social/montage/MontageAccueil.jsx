@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { format } from 'date-fns'
 import { fr } from 'date-fns/locale'
@@ -9,9 +10,9 @@ import { SkeletonTable } from '../../../components/shared/Skeleton'
 import { useAuth } from '../../../context/AuthContext'
 import { canConfigureMontageVideo } from '../../../lib/montageVideoAccess'
 import {
-  isAgentEnLigne, statutMontage, positionsFile, rangFr, lienDriveMontage, STATUTS_EN_TRAITEMENT,
+  isAgentEnLigne, statutMontage, positionsFile, rangFr, lienDriveMontage, STATUTS_EN_TRAITEMENT, erreurAgent,
 } from '../../../lib/montageVideo'
-import { useMontageJobs, useAgentStatus } from './useMontageVideo'
+import { useMontageJobs, useAgentStatus, useDernieresTaches, ouvrirDernierApercu } from './useMontageVideo'
 
 function dateFr(iso) {
   return format(new Date(iso), "d MMM yyyy 'à' HH'h'mm", { locale: fr })
@@ -95,7 +96,34 @@ function LienDrive({ job }) {
   return <span className="text-sm text-[#9ca3af]">Aucun lien</span>
 }
 
-function ListeMontages({ jobs, noms, loading, error, reload, positions }) {
+// Dépannage avant l'éditeur (phase 3) : la dernière version dans un nouvel onglet.
+function BoutonApercu({ job }) {
+  const [enCours, setEnCours] = useState(false)
+  const [erreur, setErreur] = useState(null)
+  if (!(job.version_courante > 0)) return null
+  async function ouvrir() {
+    setEnCours(true)
+    setErreur(null)
+    try {
+      await ouvrirDernierApercu(job.id)
+    } catch (e) {
+      setErreur(e.message || "L'aperçu ne peut pas être ouvert.")
+    } finally {
+      setEnCours(false)
+    }
+  }
+  return (
+    <div className="mt-2">
+      <button onClick={ouvrir} disabled={enCours} className="inline-flex items-center gap-1 text-sm font-semibold text-[#00bbb1] hover:underline disabled:opacity-50">
+        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5.14v13.72a1 1 0 001.5.86l11-6.86a1 1 0 000-1.72l-11-6.86A1 1 0 008 5.14z" /></svg>
+        {enCours ? 'Ouverture...' : `Voir l'aperçu (v${job.version_courante})`}
+      </button>
+      {erreur && <p className="text-xs text-red-600 mt-1">{erreur}</p>}
+    </div>
+  )
+}
+
+function ListeMontages({ jobs, noms, loading, error, reload, positions, taches }) {
   if (loading && jobs.length === 0) return <div className="p-5"><SkeletonTable rows={3} /></div>
   if (error) {
     return (
@@ -139,15 +167,24 @@ function ListeMontages({ jobs, noms, loading, error, reload, positions }) {
               <tr key={job.id} className="border-b border-[#f0f0f2] last:border-0 align-top">
                 <td className="px-5 py-4">
                   <p className="font-semibold text-[#1a1a1a]">{job.titre}</p>
-                  {job.statut === 'erreur' && job.erreur && (
-                    <p className="text-xs text-red-600 mt-1">{job.erreur}</p>
+                  {erreurAgent(job, taches[job.id]) && (
+                    <p className="text-xs text-red-600 mt-1 max-w-md">{erreurAgent(job, taches[job.id])}</p>
                   )}
+                  <BoutonApercu job={job} />
                 </td>
                 <td className="px-5 py-4 whitespace-nowrap">
                   <Badge variant={statut.variant}>{statut.label}</Badge>
                   {position && <p className="text-xs text-[#6b7280] mt-1">{rangFr(position)} dans la file</p>}
                   {STATUTS_EN_TRAITEMENT.includes(job.statut) && (
-                    <p className="text-xs text-[#6b7280] mt-1">{job.progression ?? 0} %</p>
+                    <div className="mt-2 w-40">
+                      <div className="flex justify-between gap-2 text-xs text-[#6b7280]">
+                        <span className="truncate" title={job.etape || ''}>{job.etape || statut.label}</span>
+                        <span className="tabular-nums">{job.progression ?? 0} %</span>
+                      </div>
+                      <div className="mt-1 h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                        <div className="h-full bg-[#00bbb1] transition-all" style={{ width: `${job.progression ?? 0}%` }} />
+                      </div>
+                    </div>
                   )}
                 </td>
                 <td className="px-5 py-4 text-[#374151]">{noms[job.cree_par] || job.cree_par}</td>
@@ -205,6 +242,7 @@ export default function MontageAccueil() {
   const { user } = useAuth()
   const { jobs, noms, loading, error, reload, direct } = useMontageJobs()
   const agent = useAgentStatus()
+  const taches = useDernieresTaches()
   const positions = positionsFile(jobs)
   const enLigne = !agent.error && isAgentEnLigne(agent.status?.dernier_signal, agent.maintenant)
 
@@ -257,7 +295,7 @@ export default function MontageAccueil() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2">
           <h2 className="text-base font-bold text-[#1a1a1a] px-5 pt-5 pb-3">Montages</h2>
-          <ListeMontages jobs={jobs} noms={noms} loading={loading} error={error} reload={reload} positions={positions} />
+          <ListeMontages jobs={jobs} noms={noms} loading={loading} error={error} reload={reload} positions={positions} taches={taches} />
         </Card>
         <Card className="self-start">
           <h2 className="text-base font-bold text-[#1a1a1a] px-5 pt-5 pb-3">File d'attente</h2>
