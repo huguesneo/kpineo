@@ -9,7 +9,7 @@
 //   SLACK_PAYMENTS_WEBHOOK_URL webhook Slack pour les refus de paiement
 
 import {
-  chargeAndStoreCard, validateAndStoreCard, createSubscription, getSubscription, getPayment,
+  chargeAndStoreCard, validateAndStoreCard, createSubscription, getSubscription, getPayment, listSubscriptionPaymentIds,
   MonerisResult, CardHolder,
 } from './moneris.ts'
 import { addInterval, todayMontreal } from './schedule.js'
@@ -260,8 +260,16 @@ export async function syncPlan(db: DB, planId: string): Promise<{ paid: number; 
   const byPayment = new Map<string, Installment>()
   for (const i of insts) if (i.moneris_payment_id) byPayment.set(i.moneris_payment_id, i)
 
-  for (const pid of sub.paymentIds) {
+  // L'abonnement ne liste pas toujours ses paiements : on cherche aussi dans la liste des paiements Moneris
+  const ids = new Set(sub.paymentIds)
+  const since = new Date(new Date((plan as unknown as { created_at: string }).created_at).getTime() - 86400_000).toISOString()
+  const listed = await listSubscriptionPaymentIds(plan.moneris_subscription_id, since)
+  for (const id of listed.ids) ids.add(id)
+  console.log('[syncPlan]', plan.id.slice(0, 8), JSON.stringify({ sub: sub.status, next: sub.nextBillingDate, fromSub: sub.paymentIds.length, fromList: listed.ids.length, listStatus: listed.status }))
+
+  for (const pid of ids) {
     const info = await getPayment(pid)
+    if (info) console.log('[syncPlan] paiement', pid.slice(-6), info.status, info.amountCents)
     if (!info) continue
     const final = info.status === FINAL_OK || FINAL_DECLINED.includes(info.status)
     if (!final) continue
