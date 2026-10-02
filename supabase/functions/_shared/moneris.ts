@@ -295,8 +295,12 @@ export async function getPayment(id: string): Promise<PaymentInfo | null> {
 // l'abonnement ne liste pas ses paiements). Lecture seule.
 export async function listSubscriptionPaymentIds(subscriptionId: string, createdFromIso: string): Promise<{ ids: string[]; status: number }> {
   const ids: string[] = []
-  const { status, data } = await call('GET', `/payments?created_from=${encodeURIComponent(createdFromIso)}&limit=100`)
-  if (status < 200 || status >= 300) return { ids, status }
+  const from = createdFromIso.replace(/\.\d{3}Z$/, 'Z')
+  const { status, data } = await call('GET', `/payments?created_from=${encodeURIComponent(from)}&limit=100`)
+  if (status < 200 || status >= 300) {
+    console.error('[listPayments]', status, JSON.stringify(data).slice(0, 400))
+    return { ids, status }
+  }
   for (const p of (Array.isArray(data.data) ? data.data : []) as Json[]) {
     const sub = (p.subscription ?? {}) as Json
     if (String(sub.subscriptionId ?? '') === subscriptionId && p.paymentId) ids.push(String(p.paymentId))
