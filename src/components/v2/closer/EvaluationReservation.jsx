@@ -214,6 +214,9 @@ export default function EvaluationReservation({
                 Prendre le paiement
               </button>
             )}
+            {terminalPrerempli && !terminalPermis && (
+              <p className="text-xs text-[#9ca3af]">Le terminal de paiement n’est pas accessible pour ce compte.</p>
+            )}
             <button onClick={onTermine}
               className={terminalPrerempli && terminalPermis && !paiementOuvert
                 ? 'text-xs font-semibold text-[#6b7280] underline underline-offset-2'
