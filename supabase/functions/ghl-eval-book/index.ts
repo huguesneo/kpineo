@@ -3,7 +3,9 @@
 //   action 'slots' : plages libres d'un calendrier d'évaluation (30 jours), pour un
 //                    membre (userId) ou tous les membres (round robin)
 //   action 'book'  : revérifie la plage, met à jour le contact GHL (coordonnées,
-//                    type de forfait, nombre de paiements) puis crée le RDV
+//                    type de forfait, nombre de paiements) puis crée le RDV.
+//                    Sans contactId (Centre de vente, nouveau client) : le contact
+//                    est créé ou retrouvé par courriel/téléphone (upsert GHL).
 // Accès : utilisateur connecté, rôle admin, resp_vente ou closeur.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { decouperPeriode, extraireCreneaux, grouperParJour, creneauLibre } from './creneaux.js'
@@ -94,7 +96,10 @@ Deno.serve(async (req) => {
 
     if (body.action === 'book') {
       const { contactId, startTime, prenom, nom, telephone, courriel, forfait, nbPaiements } = body
-      if (!contactId || !startTime) return json({ ok: false, motif: 'incomplet' }, 400)
+      if (!startTime) return json({ ok: false, motif: 'incomplet' }, 400)
+      if (!contactId && !String(courriel ?? '').trim() && !String(telephone ?? '').trim()) {
+        return json({ ok: false, motif: 'coordonnees_requises' }, 400)
+      }
       if (!String(prenom ?? '').trim() || !String(nom ?? '').trim()) return json({ ok: false, motif: 'incomplet' }, 400)
       if (!FORFAITS.has(String(forfait))) return json({ ok: false, motif: 'forfait_inconnu' }, 400)
       if (!NB_PAIEMENTS.has(String(nbPaiements))) return json({ ok: false, motif: 'nb_paiements_inconnu' }, 400)
@@ -115,20 +120,30 @@ Deno.serve(async (req) => {
       }
       if (String(courriel ?? '').trim()) contact.email = String(courriel).trim()
       if (String(telephone ?? '').trim()) contact.phone = String(telephone).trim()
-      const rc = await fetch(`${GHL_BASE}/contacts/${contactId}`, {
-        method: 'PUT', headers: entetes(token, '2021-07-28'), body: JSON.stringify(contact),
-      })
+      // Contact connu : mise à jour ; sinon création ou contact existant (upsert)
+      const rc = contactId
+        ? await fetch(`${GHL_BASE}/contacts/${contactId}`, {
+          method: 'PUT', headers: entetes(token, '2021-07-28'), body: JSON.stringify(contact),
+        })
+        : await fetch(`${GHL_BASE}/contacts/upsert`, {
+          method: 'POST', headers: entetes(token, '2021-07-28'), body: JSON.stringify({ ...contact, locationId: LOCATION_ID }),
+        })
+      const texteContact = await rc.text()
       if (!rc.ok) {
-        const t = await rc.text()
-        console.error(`[ghl-eval-book] contact ${contactId} ${rc.status}: ${t.slice(0, 300)}`)
-        return json({ ok: false, motif: 'contact_refuse', detail: t.slice(0, 200) })
+        console.error(`[ghl-eval-book] contact ${contactId ?? '(nouveau)'} ${rc.status}: ${texteContact.slice(0, 300)}`)
+        return json({ ok: false, motif: 'contact_refuse', detail: texteContact.slice(0, 200) })
+      }
+      let idContact = contactId
+      if (!idContact) {
+        try { idContact = JSON.parse(texteContact)?.contact?.id } catch { /* réponse inattendue */ }
+        if (!idContact) return json({ ok: false, motif: 'contact_refuse', detail: 'contact non retourné par GHL' })
       }
 
       // 3. Rendez-vous (sans membre choisi : GHL répartit en round robin)
       const rdv: Record<string, unknown> = {
         calendarId: type.calendarId,
         locationId: LOCATION_ID,
-        contactId,
+        contactId: idContact,
         startTime: new Date(startTime).toISOString(),
         appointmentStatus: 'confirmed',
         title: `${String(prenom).trim()} ${String(nom).trim()} – ${type.libelle}`,
@@ -147,10 +162,10 @@ Deno.serve(async (req) => {
       }
       let cree: Record<string, unknown> = {}
       try { cree = JSON.parse(texte) } catch { /* réponse vide */ }
-      console.log(`[ghl-eval-book] RDV créé par ${profil?.full_name} : ${type.libelle} ${rdv.startTime} contact ${contactId} membre ${cree.assignedUserId ?? userId ?? 'round robin'}`)
+      console.log(`[ghl-eval-book] RDV créé par ${profil?.full_name} : ${type.libelle} ${rdv.startTime} contact ${idContact} membre ${cree.assignedUserId ?? userId ?? 'round robin'}`)
       return json({
         ok: true,
-        rdv: { id: cree.id ?? null, startTime: rdv.startTime, assignedUserId: cree.assignedUserId ?? userId ?? null },
+        rdv: { id: cree.id ?? null, startTime: rdv.startTime, assignedUserId: cree.assignedUserId ?? userId ?? null, contactId: idContact },
       })
     }
 

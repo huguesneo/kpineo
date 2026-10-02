@@ -3,6 +3,9 @@ import Layout from '../components/layout/Layout'
 import { TerminalPanel } from './Terminal'
 import { useAuth } from '../context/AuthContext'
 import { canUseTerminal } from '../lib/terminal/flag'
+// Espace de vente v2 : rencontre d'évaluation réservée dans l'app
+import { ESPACE_VENTE_V2 } from '../lib/v2/featureFlag'
+import EvaluationReservation from '../components/v2/closer/EvaluationReservation'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -261,6 +264,9 @@ export default function CentreVente() {
   const [view,     setView]     = useState('home')
   const [renTab,   setRenTab]   = useState('decouverte')
   const [evalTab,  setEvalTab]  = useState('clinique')
+  // v2 : réservation intégrée ; « secours » = calendrier GHL ; la clé remet le formulaire à zéro
+  const [evalSecours, setEvalSecours] = useState(false)
+  const [evalCle, setEvalCle] = useState(0)
   const [bilanTab, setBilanTab] = useState('ligne')
   const [setter,   setSetter]   = useState(null)
   const [copiedId, setCopiedId] = useState(null)
@@ -371,8 +377,26 @@ export default function CentreVente() {
       )}
 
       {/* ── Évaluations ── */}
-      {view === 'evaluations' && (
+      {view === 'evaluations' && ESPACE_VENTE_V2 && !evalSecours && (
+        <div className="bg-white rounded-2xl border border-[#e5e7eb] flex flex-col">
+          <EvaluationReservation
+            key={evalCle}
+            rechercheClient
+            onSecours={() => setEvalSecours(true)}
+            onTermine={() => setEvalCle(k => k + 1)}
+            libelleTermine="Nouvelle réservation"
+          />
+        </div>
+      )}
+
+      {view === 'evaluations' && (!ESPACE_VENTE_V2 || evalSecours) && (
         <div className="bg-white rounded-2xl border border-[#e5e7eb] p-6">
+          {ESPACE_VENTE_V2 && (
+            <button onClick={() => setEvalSecours(false)}
+              className="mb-4 text-xs font-bold text-[#6b7280] hover:text-[#1a1a1a] bg-white border border-[#e5e7eb] px-3 py-2 rounded-lg">
+              ← Revenir à la réservation dans l'app
+            </button>
+          )}
           <TabBar
             tabs={[
               { key: 'clinique',  label: 'Évaluation en clinique' },
