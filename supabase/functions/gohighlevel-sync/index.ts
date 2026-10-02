@@ -1,6 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { idsAPurger, paquets } from './purge.ts'
 import { estAppelCron, verdictAcces, jetonBearer } from './auth.ts'
+import { ligneContactComplete, ligneContactModifie, corpsRechercheModifies } from './contacts.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -48,46 +49,12 @@ async function fetchAndUpsertContacts(
     const data = await res.json() as Record<string, unknown>
     const contacts = (data?.contacts ?? []) as Record<string, unknown>[]
 
-    const rows = contacts.map(c => {
-      // Deux attributions, pas une. Le premier contact dit ce qui a fait
-      // connaître NEO, le dernier ce qui a déclenché l'action — et c'est le
-      // dernier qui décide à quelle publication un rendez-vous revient.
-      // Sur 90 jours, un contact sur quatre a deux sources différentes.
-      const attributions = (c.attributions ?? []) as Record<string, unknown>[]
-      const firstTouch = attributions.find(a => a.isFirst) ?? attributions[0] ?? {}
-      // isLast n'est pas toujours posé : repli sur le dernier élément, GHL
-      // renvoyant le tableau dans l'ordre chronologique.
-      const lastTouch = attributions.find(a => a.isLast)
-        ?? attributions[attributions.length - 1] ?? {}
-      const str = (v: unknown) => (v === null || v === undefined ? null : String(v) || null)
-      return {
-        ghl_id:         String(c.id ?? ''),
-        location_id:    locationId,
-        first_name:     String(c.firstName ?? ''),
-        last_name:      String(c.lastName ?? ''),
-        email:          String(c.email ?? ''),
-        phone:          String(c.phone ?? ''),
-        tags:           (c.tags ?? []) as string[],
-        source:         String(c.source ?? ''),
-        utm_campaign:   String(firstTouch.utmCampaign ?? ''),
-        utm_content:    String(firstTouch.utmContent ?? ''),
-        utm_source:     String(firstTouch.utmSource ?? ''),
-        utm_campaign_last: str(lastTouch.utmCampaign),
-        utm_content_last:  str(lastTouch.utmContent),
-        utm_source_last:   str(lastTouch.utmSource),
-        utm_medium_last:   str(lastTouch.utmMedium),
-        first_page_url:    str(firstTouch.url),
-        last_page_url:     str(lastTouch.url),
-        first_referrer:    str(firstTouch.referrer),
-        touch_count:       attributions.length,
-        created_at_ghl: c.dateAdded ? new Date(c.dateAdded as string).toISOString() : null,
-        raw:            c,
-        synced_at:      new Date().toISOString(),
-      }
-    })
+    const maintenant = new Date().toISOString()
+    const rows = contacts.map(c => ligneContactComplete(c, locationId, maintenant))
 
     for (let i = 0; i < rows.length; i += BATCH_SIZE) {
-      await supabase.from('ghl_contacts').upsert(rows.slice(i, i + BATCH_SIZE), { onConflict: 'ghl_id' })
+      const { error } = await supabase.from('ghl_contacts').upsert(rows.slice(i, i + BATCH_SIZE), { onConflict: 'ghl_id' })
+      if (error) console.error(`[GHL] Contacts : écriture du cache refusée (${rows.slice(i, i + BATCH_SIZE).length} lignes) : ${error.message}`)
     }
     synced += rows.length
 
@@ -110,6 +77,51 @@ async function fetchAndUpsertContacts(
   }
 
   return { synced, nextCursor }
+}
+
+// ─── Contacts modifiés depuis une date (recherche GHL) ─────────
+// La liste des contacts ne sert qu'aux nouveaux ; un contact existant corrigé
+// dans GHL (nom, téléphone…) n'y repassait pas. On relit ceux dont dateUpdated
+// est postérieur au dernier passage. Identité et champs personnalisés seulement :
+// les colonnes UTM ne sont pas touchées (voir contacts.ts).
+async function syncModifiedContacts(
+  apiKey: string,
+  locationId: string,
+  supabase: ReturnType<typeof createClient>,
+  depuisIso: string,
+  max = 2000,
+): Promise<{ modifies: number; erreurs: number; complet: boolean }> {
+  let modifies = 0, erreurs = 0
+  let searchAfter: unknown[] | null = null
+  while (modifies < max) {
+    const res = await fetch(`${GHL_BASE}/contacts/search`, {
+      method: 'POST', headers: ghlHeaders(apiKey),
+      body: JSON.stringify(corpsRechercheModifies(locationId, depuisIso, searchAfter)),
+    })
+    if (!res.ok) {
+      console.error(`[GHL] Contacts modifiés : recherche refusée ${res.status}: ${(await res.text()).slice(0, 200)}`)
+      return { modifies, erreurs: erreurs + 1, complet: false }
+    }
+    const data = await res.json() as Record<string, unknown>
+    const contacts = (data?.contacts ?? []) as Record<string, unknown>[]
+    if (contacts.length === 0) break
+
+    // raw déjà en cache, pour garder la liste `attributions`
+    const ids = contacts.map(c => String(c.id ?? '')).filter(Boolean)
+    const { data: anciens } = await supabase.from('ghl_contacts').select('ghl_id, raw').in('ghl_id', ids)
+    const rawParId = new Map((anciens ?? []).map((r: { ghl_id: string; raw: Record<string, unknown> }) => [r.ghl_id, r.raw]))
+
+    const maintenant = new Date().toISOString()
+    const rows = contacts.map(c => ligneContactModifie(c, locationId, maintenant, rawParId.get(String(c.id ?? '')) ?? null))
+    const { error } = await supabase.from('ghl_contacts').upsert(rows, { onConflict: 'ghl_id' })
+    if (error) { erreurs++; console.error(`[GHL] Contacts modifiés : écriture refusée : ${error.message}`) }
+    else modifies += rows.length
+
+    const dernier = contacts[contacts.length - 1]
+    searchAfter = (dernier?.searchAfter as unknown[] | undefined) ?? null
+    if (contacts.length < 100 || !searchAfter) break
+  }
+  return { modifies, erreurs, complet: modifies < max }
 }
 
 // ─── Calendriers Closer ───────────────────────────────────────
@@ -511,6 +523,13 @@ Deno.serve(async (req) => {
         apiKey, locId, supabase, undefined, 5000, sinceDate
       )
 
+      // Contacts existants modifiés dans GHL depuis le dernier passage
+      const modif = sinceDate
+        // Marge de 15 min : modifications faites pendant un passage, ou date de
+        // dernière synchro avancée par une synchro manuelle des opportunités
+        ? await syncModifiedContacts(apiKey, locId, supabase, new Date(Date.parse(sinceDate) - 15 * 60_000).toISOString())
+        : { modifies: 0, erreurs: 0, complet: true }
+
       // Opportunités : toujours full sync (changements de stage fréquents)
       const { pipelines, opportunities } = await syncOpportunities(apiKey, locId, supabase)
 
@@ -524,8 +543,8 @@ Deno.serve(async (req) => {
         .update({ last_synced_at: nowIso })
         .eq('location_id', locId)
 
-      console.log(`Incremental sync: +${newContacts} contacts, ${opportunities} opps, ${appointments} appts (since ${sinceDate ?? 'beginning'})`)
-      return json({ ok: true, newContacts, pipelines, opportunities, appointments, syncedAt: nowIso })
+      console.log(`Incremental sync: +${newContacts} contacts, ${modif.modifies} contacts modifiés${modif.erreurs ? ` (${modif.erreurs} erreur(s))` : ''}${modif.complet ? '' : ' (plafond atteint)'}, ${opportunities} opps, ${appointments} appts (since ${sinceDate ?? 'beginning'})`)
+      return json({ ok: true, newContacts, modifiedContacts: modif.modifies, pipelines, opportunities, appointments, syncedAt: nowIso })
     }
 
     return json({ error: `Action inconnue: ${action}` }, 400)
