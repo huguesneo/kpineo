@@ -159,3 +159,34 @@ SET ROLE authenticated; SELECT set_config('request.jwt.claims','{"email":"info@n
 SELECT t.ecrit('dépose un fichier dans video-apercus', $q$insert into storage.objects (bucket_id, name) values ('video-apercus','apercus/x/v9.mp4')$q$, 'refusé');
 SELECT t.ecrit('supprime un aperçu', $q$delete from storage.objects where bucket_id='video-apercus'$q$, '0');
 RESET ROLE;
+
+\echo
+\echo '=== 8. Ajouts phase 1b (20261001f) ==='
+SET ROLE authenticated; SELECT set_config('request.jwt.claims','{"email":"info@neoperformance.ca"}',false), set_config('t.qui','info',false) \g /dev/null
+SELECT t.ecrit('crée un montage avec nom_source, en trichant sur session_id', $q$insert into video_jobs (id, titre, prompt, nom_source, session_id) values ('22222222-0000-0000-0000-000000000003','Hormones','Monte-la','IMG_1234.MOV','session-pirate')$q$, '1');
+SELECT t.lit('  → format 9:16 par défaut, session_id vidé, nom_source gardé', $q$select 1 from video_jobs where id='22222222-0000-0000-0000-000000000003' and format='9:16' and session_id is null and nom_source='IMG_1234.MOV'$q$, 1);
+SELECT t.ecrit('crée un montage en 4:5', $q$insert into video_jobs (titre, prompt, format) values ('Carré','x','4:5')$q$, '1');
+SELECT t.ecrit('crée un montage en 16:9 (format inconnu)', $q$insert into video_jobs (titre, prompt, format) values ('Large','x','16:9')$q$, 'refusé');
+SELECT t.ecrit('change session_id', $q$update video_jobs set session_id='x' where id='22222222-0000-0000-0000-000000000003'$q$, 'refusé');
+SELECT t.ecrit('change le format après création', $q$update video_jobs set format='1:1' where id='22222222-0000-0000-0000-000000000003'$q$, 'refusé');
+SELECT t.ecrit('propose un template lié à un montage et une version', $q$insert into video_templates (id, nom, type_video, job_id, numero_version) values ('11111111-0000-0000-0000-000000000010','Style Hormones','neo-video-montage','22222222-0000-0000-0000-000000000001',1)$q$, '1');
+SELECT t.lit('voit la config', 'select * from video_config', 0);
+SELECT t.ecrit('écrit dans la config', $q$insert into video_config (cle, valeur) values ('drive_brut_id','"abc"')$q$, 'refusé');
+RESET ROLE; SET ROLE service_role; SELECT set_config('request.jwt.claims','{"role":"service_role"}',false), set_config('t.qui','agent',false) \g /dev/null
+SELECT t.ecrit('enregistre session_id', $q$update video_jobs set session_id='sess-1' where id='22222222-0000-0000-0000-000000000003'$q$, '1');
+SELECT t.ecrit('insère une version avec ses sous-titres', $q$insert into video_versions (job_id, numero, auteur, sous_titres) values ('22222222-0000-0000-0000-000000000003',1,'info@neoperformance.ca','{"mots":[{"texte":"Salut","debutMs":0,"finMs":300}]}')$q$, '1');
+SELECT t.ecrit('format 2:3', $q$update video_jobs set format='2:3' where id='22222222-0000-0000-0000-000000000003'$q$, 'refusé');
+RESET ROLE; SET ROLE authenticated; SELECT set_config('request.jwt.claims','{"email":"hugues@neoperformance.ca"}',false), set_config('t.qui','hugues',false) \g /dev/null
+SELECT t.ecrit('écrit dans la config', $q$insert into video_config (cle, valeur) values ('drive_brut_id','"abc"')$q$, '1');
+SELECT t.ecrit('modifie la config', $q$update video_config set valeur='"def"' where cle='drive_brut_id'$q$, '1');
+SELECT t.lit('  → valeur modifiée', $q$select 1 from video_config where cle='drive_brut_id' and valeur='"def"'$q$, 1);
+SELECT set_config('request.jwt.claims','{"email":"info@neoperformance.ca"}',false), set_config('t.qui','info',false) \g /dev/null
+SELECT t.lit('voit la config', 'select * from video_config', 1);
+SELECT t.ecrit('modifie la config', $q$update video_config set valeur='"pirate"'$q$, '0');
+SELECT t.ecrit('supprime la config', $q$delete from video_config$q$, '0');
+SELECT set_config('request.jwt.claims','{"email":"jason@neoperformance.ca"}',false), set_config('t.qui','jason',false) \g /dev/null
+SELECT t.lit('hors liste : config', 'select * from video_config', 0);
+RESET ROLE; SET ROLE anon; SELECT set_config('request.jwt.claims','',false), set_config('t.qui','anon',false) \g /dev/null
+SELECT t.lit('non connecté : config', 'select * from video_config', 0);
+SELECT t.ecrit('non connecté : écrit la config', $q$insert into video_config (cle) values ('x')$q$, 'refusé');
+RESET ROLE;
