@@ -91,7 +91,7 @@ function TerminalRoute({ children }) {
   const { user, loading, isAdmin, isAdminOrRespVente, hasCloserRole } = useAuth()
   if (loading) return <LoadingScreen />
   if (!user) return <Navigate to="/login" replace />
-  if (!canUseTerminal({ isAdmin, isAdminOrRespVente, hasCloserRole })) return <Navigate to="/dashboard" replace />
+  if (!canUseTerminal({ isAdmin, isAdminOrRespVente, hasCloserRole, email: user?.email })) return <Navigate to="/dashboard" replace />
   return children
 }
 
