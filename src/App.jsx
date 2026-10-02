@@ -28,8 +28,10 @@ import MaPerformance from './pages/MaPerformance'
 import ReseauxSociaux from './pages/ReseauxSociaux'
 import Terminal from './pages/Terminal'
 import PayerLien from './pages/PayerLien'
+import MontageAccueil from './features/social/montage/MontageAccueil'
 import { TERMINAL_ENABLED, canUseTerminal } from './lib/terminal/flag'
 import { hasSocialAccess } from './lib/socialAccess'
+import { MONTAGE_VIDEO_ENABLED, canUseMontageVideo } from './lib/montageVideoAccess'
 
 const HUGUES_EMAIL = 'hugues@neoperformance.ca'
 
@@ -86,6 +88,15 @@ function SocialRoute({ children }) {
   return children
 }
 
+// Montage vidéo : flag VITE_MONTAGE_VIDEO + liste de montageVideoAccess
+function MontageVideoRoute({ children }) {
+  const { user, loading } = useAuth()
+  if (loading) return <LoadingScreen />
+  if (!user) return <Navigate to="/login" replace />
+  if (!canUseMontageVideo(user.email)) return <Navigate to="/dashboard" replace />
+  return children
+}
+
 // Terminal : closeurs (principal ou secondaire), admin et resp_vente
 function TerminalRoute({ children }) {
   const { user, loading, isAdmin, isAdminOrRespVente, hasCloserRole } = useAuth()
@@ -130,7 +141,16 @@ function AppRoutes() {
       <Route path="/meta-ads"    element={<SalesManagerRoute><MetaAds /></SalesManagerRoute>} />
       <Route path="/performance" element={<HuguesRoute><Performance /></HuguesRoute>} />
       <Route path="/ma-performance" element={<PrivateRoute><MaPerformance /></PrivateRoute>} />
-      <Route path="/reseaux-sociaux" element={<SocialRoute><ReseauxSociaux /></SocialRoute>} />
+      {MONTAGE_VIDEO_ENABLED ? (
+        <>
+          {/* Réseaux sociaux : Analyse et pub (écran actuel) + Montage vidéo */}
+          <Route path="/reseaux-sociaux" element={<Navigate to="/reseaux-sociaux/analyse" replace />} />
+          <Route path="/reseaux-sociaux/analyse" element={<SocialRoute><ReseauxSociaux /></SocialRoute>} />
+          <Route path="/reseaux-sociaux/montage" element={<MontageVideoRoute><MontageAccueil /></MontageVideoRoute>} />
+        </>
+      ) : (
+        <Route path="/reseaux-sociaux" element={<SocialRoute><ReseauxSociaux /></SocialRoute>} />
+      )}
 
       {/* Admin + resp_vente — équipe de vente & naturopathe */}
       <Route path="/closer-admin" element={<SalesManagerRoute><CloserAdmin /></SalesManagerRoute>} />

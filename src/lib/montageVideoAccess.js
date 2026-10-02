@@ -15,3 +15,17 @@ export function hasMontageVideoAccess(email) {
 export function canApproveVideoTemplates(email) {
   return (email || '').toLowerCase() === MONTAGE_VIDEO_APPROVER_EMAIL
 }
+
+// Module caché tant que VITE_MONTAGE_VIDEO n'est pas « true » (désactivé par
+// défaut, jamais activé dans Netlify avant la fin des tests en local).
+export const MONTAGE_VIDEO_ENABLED = import.meta.env.VITE_MONTAGE_VIDEO === 'true'
+
+export function canUseMontageVideo(email, enabled = MONTAGE_VIDEO_ENABLED) {
+  return !!enabled && hasMontageVideoAccess(email)
+}
+
+// Configuration du module (dossier Brut) : Hugues seulement, comme
+// l'écriture dans video_config (public.is_hugues() côté base).
+export function canConfigureMontageVideo(email, enabled = MONTAGE_VIDEO_ENABLED) {
+  return !!enabled && canApproveVideoTemplates(email)
+}
