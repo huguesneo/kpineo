@@ -96,6 +96,17 @@ export function infosSetting(opps, contactId) {
   return { setter: String(champ(o.raw, FIELDS.setterNom) ?? '').trim() || null, source: o.source || null }
 }
 
+// Le RDV a-t-il lieu aujourd'hui (jour calendaire à Montréal) ?
+export function estAujourdhui(iso, now = Date.now()) {
+  if (!iso) return false
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return false
+  const jour = x => new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Toronto', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(x)
+  return jour(d) === jour(new Date(now))
+}
+
 export function typeRdv(appt) {
   return appt?.calendar_id === CALENDARS.decision ? 'Rencontre de décision' : 'Rencontre découverte'
 }

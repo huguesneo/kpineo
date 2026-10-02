@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { estAStatuer, prochainRdv, listeDuJour, mesDecisions, infosSetting, statutEffectif } from './closerAgenda'
+import { estAujourdhui, estAStatuer, prochainRdv, listeDuJour, mesDecisions, infosSetting, statutEffectif } from './closerAgenda'
 import { PIPELINE_VENTE, PIPELINE_SETTING, FIELDS } from './salesConfig'
 
 const NOW = new Date('2026-09-22T15:00:00Z').getTime()
@@ -53,5 +53,15 @@ describe('agenda closeur', () => {
     const opps = [{ pipeline_id: PIPELINE_SETTING.id, contact_id: 'x', source: 'Optin VS', raw: champ(FIELDS.setterNom, 'Kassy NEO') }]
     expect(infosSetting(opps, 'x')).toEqual({ setter: 'Kassy NEO', source: 'Optin VS' })
     expect(infosSetting(opps, 'y')).toEqual({ setter: null, source: null })
+  })
+})
+
+describe('estAujourdhui', () => {
+  it('compare le jour à Montréal, pas l’écart en heures', () => {
+    // NOW = 22 sept. 11 h à Montréal
+    expect(estAujourdhui('2026-09-22T21:00:00Z', NOW)).toBe(true)   // 17 h le jour même
+    expect(estAujourdhui('2026-09-23T13:30:00Z', NOW)).toBe(false)  // demain 9 h 30, à moins de 24 h
+    expect(estAujourdhui('2026-09-23T03:30:00Z', NOW)).toBe(true)   // 23 h 30 le soir même (UTC du lendemain)
+    expect(estAujourdhui(null, NOW)).toBe(false)
   })
 })

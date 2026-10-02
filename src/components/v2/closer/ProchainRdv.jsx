@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import { fmtHeure, fmtDuree, fmtRdvRelatif, prenom, styleSource } from '../../../lib/v2/format'
-import { typeRdv, infosSetting } from '../../../lib/v2/closerAgenda'
+import { typeRdv, infosSetting, estAujourdhui } from '../../../lib/v2/closerAgenda'
 import { lienFicheGHL } from '../../../lib/v2/salesConfig'
 
 function dureeMinutes(a) {
@@ -8,7 +8,9 @@ function dureeMinutes(a) {
   return d && d > 0 ? Math.round(d) : null
 }
 
-// Grande carte « Prochain RDV » : heure, prospect, setter, Portrait Léo, liens
+// Grande carte « Prochain RDV » : heure, prospect, setter, Portrait Léo, liens.
+// Seulement pour un RDV d'aujourd'hui : un RDV de demain affiché en gros
+// (« 9 h 30 ») se lisait comme un RDV du jour.
 export default function ProchainRdv({ appt, opps, now }) {
   if (!appt) {
     return (
@@ -18,11 +20,36 @@ export default function ProchainRdv({ appt, opps, now }) {
       </section>
     )
   }
+  if (!estAujourdhui(appt.start_time, now)) {
+    return (
+      <section className="bg-[#fcfcfd] border border-[#e5e7eb] rounded-xl shadow-sm p-6 flex flex-col gap-3">
+        <p className="text-[10px] font-bold text-[#6b7280] uppercase tracking-wide">Prochain RDV</p>
+        <p className="text-lg font-extrabold text-[#1a1a1a]">Aucun RDV aujourd'hui</p>
+        <p className="text-sm text-[#6b7280]">
+          Prochain : <span className="font-bold text-[#1a1a1a]">{fmtRdvRelatif(appt.start_time, now)}</span>
+          {' '}avec <span className="font-semibold text-[#1a1a1a]">{appt.contact_name || 'Sans nom'}</span>
+          {' '}· {typeRdv(appt)}
+        </p>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Link to={`/sale-call-script/${appt.ghl_id}`}
+            className="inline-flex items-center px-3 py-1.5 rounded-lg bg-white text-[#374151] border border-[#e5e7eb] text-[13px] font-semibold hover:bg-[#f9fafb] hover:text-[#374151]">
+            Préparer : ouvrir le script
+          </Link>
+          {appt.contact_id && (
+            <a href={lienFicheGHL(appt.contact_id)} target="_blank" rel="noreferrer"
+              className="inline-flex items-center px-3 py-1.5 rounded-lg text-[#4b5563] text-[13px] font-semibold hover:bg-[#f3f4f6] hover:text-[#1a1a1a]">
+              Fiche GHL
+            </a>
+          )}
+        </div>
+      </section>
+    )
+  }
+
   const debut = new Date(appt.start_time).getTime()
   const ecart = debut - now
-  const pastille = ecart > 0
-    ? (ecart < 24 * 3_600_000 ? `Dans ${fmtDuree(ecart)}` : fmtRdvRelatif(appt.start_time, now))
-    : 'En cours'
+  // RDV d'aujourd'hui : « Dans 22 min », « Dans 3 h 10 » ou « En cours »
+  const pastille = ecart > 0 ? `Dans ${fmtDuree(ecart)}` : 'En cours'
   const { setter, source } = infosSetting(opps, appt.contact_id)
   const src = styleSource(source)
   const duree = dureeMinutes(appt)
