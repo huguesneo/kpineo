@@ -20,6 +20,13 @@ describe('copie des contacts GHL', () => {
     })
   })
 
+  it('garde la vraie graphie du nom (la liste GHL renvoie des minuscules)', () => {
+    const l = ligneContactComplete({ id: 'c3', firstName: 'mary', firstNameRaw: 'Mary', lastName: 'day-leroy', lastNameRaw: 'Day-Leroy' }, 'LOC', T)
+    expect([l.first_name, l.last_name]).toEqual(['Mary', 'Day-Leroy'])
+    const m = ligneContactModifie({ id: 'c3', firstName: 'Mary', lastName: 'Day-Leroy' }, 'LOC', T, null)
+    expect([m.first_name, m.last_name]).toEqual(['Mary', 'Day-Leroy'])
+  })
+
   it('ligne complète sans attributions : UTM vides, touch_count 0', () => {
     const l = ligneContactComplete({ id: 'c2' }, 'LOC', T)
     expect(l).toMatchObject({ utm_campaign: '', utm_source_last: null, touch_count: 0, created_at_ghl: null })

@@ -18,8 +18,9 @@ export function ligneContactComplete(c: Contact, locationId: string, maintenant:
   return {
     ghl_id:            String(c.id ?? ''),
     location_id:       locationId,
-    first_name:        String(c.firstName ?? ''),
-    last_name:         String(c.lastName ?? ''),
+    // La liste renvoie firstName/lastName en minuscules ; la vraie graphie est dans *Raw
+    first_name:        String(c.firstNameRaw ?? c.firstName ?? ''),
+    last_name:         String(c.lastNameRaw ?? c.lastName ?? ''),
     email:             String(c.email ?? ''),
     phone:             String(c.phone ?? ''),
     tags:              (c.tags ?? []) as string[],
@@ -52,8 +53,8 @@ export function ligneContactModifie(c: Contact, locationId: string, maintenant: 
   return {
     ghl_id:      String(c.id ?? ''),
     location_id: locationId,
-    first_name:  String(c.firstName ?? ''),
-    last_name:   String(c.lastName ?? ''),
+    first_name:  String(c.firstNameRaw ?? c.firstName ?? ''),
+    last_name:   String(c.lastNameRaw ?? c.lastName ?? ''),
     email:       String(c.email ?? ''),
     phone:       String(c.phone ?? ''),
     tags:        (c.tags ?? []) as string[],
