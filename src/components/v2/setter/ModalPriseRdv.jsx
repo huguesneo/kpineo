@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { BASE_BOOKING_URL, SETTERS, BookingIframe } from '../../../pages/CentreVente'
+import { BASE_BOOKING_URL, SETTERS } from '../../../pages/CentreVente'
 import { lienPrendreRdv } from '../../../lib/v2/booking'
 
 // Fenêtre « Prendre un rendez-vous » : la rencontre découverte du Centre de
@@ -26,7 +26,7 @@ export default function ModalPriseRdv({ lead, cleSetter, onClose }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-6" role="dialog" aria-modal="true" aria-label={`Prendre un rendez-vous pour ${lead.nom}`}>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[94vh] flex flex-col overflow-hidden">
+      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-[94vh] flex flex-col overflow-hidden">
         <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-[#e5e7eb]">
           <div className="min-w-0">
             <p className="text-[10px] font-bold text-[#00bbb1] uppercase tracking-widest">Rencontre découverte</p>
@@ -45,10 +45,10 @@ export default function ModalPriseRdv({ lead, cleSetter, onClose }) {
           </button>
         </div>
 
-        <div className="overflow-y-auto px-4 sm:px-6 py-4">
+        <div className="flex-1 min-h-0 flex flex-col px-4 sm:px-6 py-4">
           {src ? (
             <>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+              <div className="flex-shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
                 <div>
                   <p className="text-sm font-bold text-amber-800">N'oublie pas de choisir avec qui tu veux mettre la rencontre dans le calendrier !</p>
                   <p className="text-xs text-amber-600 mt-0.5">
@@ -62,10 +62,18 @@ export default function ModalPriseRdv({ lead, cleSetter, onClose }) {
                   </button>
                 )}
               </div>
-              <BookingIframe src={src} />
+              {/* Le calendrier prend toute la hauteur restante et défile lui-même
+                  (BookingIframe du Centre de vente a une hauteur fixe sans défilement :
+                  le formulaire était coupé dans la fenêtre). */}
+              <iframe
+                key={src}
+                src={src}
+                title="Calendrier de réservation"
+                className="flex-1 min-h-0 w-full border-0 rounded-xl"
+              />
             </>
           ) : (
-            <div className="max-w-md mx-auto py-8 text-center">
+            <div className="max-w-md mx-auto py-8 text-center overflow-y-auto">
               <p className="text-xs font-black uppercase tracking-widest text-[#00bbb1] mb-2">Qui envoie cette rencontre ?</p>
               <p className="text-sm text-[#b45309] mb-6">Ton prénom n'est pas dans la liste du Centre de vente : choisis le setter à qui attribuer le rendez-vous.</p>
               <div className="grid grid-cols-3 gap-3">

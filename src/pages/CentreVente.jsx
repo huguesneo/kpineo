@@ -133,8 +133,7 @@ function TabBar({ tabs, active, onChange }) {
   )
 }
 
-// Exporté pour l'espace de vente v2 (fenêtre « Prendre un rendez-vous »)
-export function BookingIframe({ src }) {
+function BookingIframe({ src }) {
   if (!src) return null
   return (
     <iframe
