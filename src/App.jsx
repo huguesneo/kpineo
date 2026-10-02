@@ -30,9 +30,10 @@ import Terminal from './pages/Terminal'
 import PayerLien from './pages/PayerLien'
 import MontageAccueil from './features/social/montage/MontageAccueil'
 import MontageNouvelle from './features/social/montage/MontageNouvelle'
+import MontageConfiguration from './features/social/montage/MontageConfiguration'
 import { TERMINAL_ENABLED, canUseTerminal } from './lib/terminal/flag'
 import { hasSocialAccess } from './lib/socialAccess'
-import { MONTAGE_VIDEO_ENABLED, canUseMontageVideo } from './lib/montageVideoAccess'
+import { MONTAGE_VIDEO_ENABLED, canUseMontageVideo, canConfigureMontageVideo } from './lib/montageVideoAccess'
 
 const HUGUES_EMAIL = 'hugues@neoperformance.ca'
 
@@ -98,6 +99,15 @@ function MontageVideoRoute({ children }) {
   return children
 }
 
+// Configuration du montage vidéo : Hugues seulement (écriture dans video_config)
+function MontageConfigRoute({ children }) {
+  const { user, loading } = useAuth()
+  if (loading) return <LoadingScreen />
+  if (!user) return <Navigate to="/login" replace />
+  if (!canConfigureMontageVideo(user.email)) return <Navigate to="/reseaux-sociaux/montage" replace />
+  return children
+}
+
 // Terminal : closeurs (principal ou secondaire), admin et resp_vente
 function TerminalRoute({ children }) {
   const { user, loading, isAdmin, isAdminOrRespVente, hasCloserRole } = useAuth()
@@ -149,6 +159,7 @@ function AppRoutes() {
           <Route path="/reseaux-sociaux/analyse" element={<SocialRoute><ReseauxSociaux /></SocialRoute>} />
           <Route path="/reseaux-sociaux/montage" element={<MontageVideoRoute><MontageAccueil /></MontageVideoRoute>} />
           <Route path="/reseaux-sociaux/montage/nouvelle" element={<MontageVideoRoute><MontageNouvelle /></MontageVideoRoute>} />
+          <Route path="/reseaux-sociaux/montage/configuration" element={<MontageConfigRoute><MontageConfiguration /></MontageConfigRoute>} />
         </>
       ) : (
         <Route path="/reseaux-sociaux" element={<SocialRoute><ReseauxSociaux /></SocialRoute>} />
