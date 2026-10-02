@@ -296,7 +296,7 @@ export async function getPayment(id: string): Promise<PaymentInfo | null> {
 export async function listSubscriptionPaymentIds(subscriptionId: string, createdFromIso: string): Promise<{ ids: string[]; status: number }> {
   const ids: string[] = []
   const from = createdFromIso.replace(/\.\d{3}Z$/, 'Z')
-  const { status, data } = await call('GET', `/payments?created_from=${encodeURIComponent(from)}&limit=100`)
+  const { status, data } = await call('GET', `/payments?created_from=${encodeURIComponent(from)}&limit=20`)
   if (status < 200 || status >= 300) {
     console.error('[listPayments]', status, JSON.stringify(data).slice(0, 400))
     return { ids, status }

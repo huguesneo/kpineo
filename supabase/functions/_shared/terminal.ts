@@ -262,7 +262,8 @@ export async function syncPlan(db: DB, planId: string): Promise<{ paid: number; 
 
   // L'abonnement ne liste pas toujours ses paiements : on cherche aussi dans la liste des paiements Moneris
   const ids = new Set(sub.paymentIds)
-  const since = new Date(new Date((plan as unknown as { created_at: string }).created_at).getTime() - 86400_000).toISOString()
+  // Moneris limite la liste à 20 : on ne regarde que les 3 derniers jours (la synchro roule 2 fois par jour)
+  const since = new Date(Date.now() - 3 * 86400_000).toISOString()
   const listed = await listSubscriptionPaymentIds(plan.moneris_subscription_id, since)
   for (const id of listed.ids) ids.add(id)
   console.log('[syncPlan]', plan.id.slice(0, 8), JSON.stringify({ sub: sub.status, next: sub.nextBillingDate, fromSub: sub.paymentIds.length, fromList: listed.ids.length, listStatus: listed.status }))
