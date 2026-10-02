@@ -9,7 +9,7 @@ import MonerisCardFrame from '../components/terminal/MonerisCardFrame'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import {
-  TERMINAL_PRODUCTS, buildSaleSchedule, priceSale, withTax, installmentsForProduct, todayMontreal, formatCents, addDays,
+  TERMINAL_PRODUCTS, basePriceKey, buildSaleSchedule, priceSale, withTax, installmentsForProduct, todayMontreal, formatCents, addDays,
 } from '../../supabase/functions/_shared/schedule.js'
 
 const FREQUENCY_UNITS = [
@@ -58,11 +58,84 @@ async function callTerminal(body) {
 
 // ── Formulaire de nouvelle vente ─────────────────────────────
 
+const PRICE_EDITOR_EMAIL = 'hugues@neoperformance.ca'
+
+// Prix de base préremplis (lisibles par tous, modifiables seulement par Hugues)
+function useBasePrices() {
+  const [prices, setPrices] = useState([])
+  const load = useCallback(async () => {
+    const { data } = await supabase.from('terminal_base_prices').select('price_key, label, amount_cents').order('price_key')
+    setPrices(data ?? [])
+  }, [])
+  useEffect(() => { load() }, [load])
+  return { prices, reload: load }
+}
+
+function BasePricesEditor({ prices, onSaved }) {
+  const [values, setValues] = useState({})
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  useEffect(() => {
+    setValues(Object.fromEntries(prices.map(p => [p.price_key, (p.amount_cents / 100).toString()])))
+  }, [prices])
+  async function save() {
+    setBusy(true); setMsg('')
+    try {
+      for (const p of prices) {
+        const cents = Math.round(Number(values[p.price_key]) * 100)
+        if (!Number.isFinite(cents) || cents < 0) throw new Error(`Montant invalide : ${p.label}`)
+        if (cents === p.amount_cents) continue
+        const { data, error } = await supabase.from('terminal_base_prices')
+          .update({ amount_cents: cents, updated_at: new Date().toISOString() }).eq('price_key', p.price_key).select('price_key')
+        if (error) throw error
+        if (!data?.length) throw new Error('Modification refusée')
+      }
+      setMsg('Prix enregistrés.'); onSaved()
+    } catch (e) { setMsg(e.message) } finally { setBusy(false) }
+  }
+  if (!prices.length) return null
+  return (
+    <div className="rounded-lg border border-dashed border-[#00bbb1] p-4 mb-4 space-y-3">
+      <p className="text-sm font-semibold text-[#1a1a1a]">Prix de base (avant taxes), préremplis pour tout le monde</p>
+      {prices.map(p => (
+        <div key={p.price_key} className="flex items-center gap-3">
+          <span className="text-sm text-[#374151] flex-1">{p.label}</span>
+          <input type="number" min="0" step="0.01" className={`${selectCls} w-32`} value={values[p.price_key] ?? ''}
+            onChange={e => setValues(v => ({ ...v, [p.price_key]: e.target.value }))} />
+        </div>
+      ))}
+      <div className="flex items-center gap-3">
+        <Button type="button" size="sm" loading={busy} onClick={save}>Enregistrer les prix</Button>
+        {msg && <span className="text-xs text-[#6b7280]">{msg}</span>}
+      </div>
+    </div>
+  )
+}
+
 function NewPlanForm({ onCreated }) {
+  const { user } = useAuth()
   const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState('')
   const [error, setError] = useState('')
+  const [showPrices, setShowPrices] = useState(false)
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }))
+  const { prices, reload: reloadPrices } = useBasePrices()
+  const canEditPrices = (user?.email ?? '').toLowerCase() === PRICE_EDITOR_EMAIL
+  const basePriceFor = (product) => {
+    const row = prices.find(p => p.price_key === basePriceKey(product))
+    return row && row.amount_cents > 0 ? (row.amount_cents / 100).toString() : ''
+  }
+  // Prérempli le montant avec le prix de base du produit (le closeur peut le modifier)
+  const prefilled = useRef(false)
+  useEffect(() => {
+    if (prefilled.current || !prices.length) return
+    prefilled.current = true
+    setForm(f => (f.totalAmount ? f : { ...f, totalAmount: basePriceFor(f.productName) }))
+  }, [prices]) // eslint-disable-line react-hooks/exhaustive-deps
+  const onProductChange = (e) => {
+    const productName = e.target.value
+    setForm(f => ({ ...f, productName, totalAmount: basePriceFor(productName) || f.totalAmount }))
+  }
 
   const today = todayMontreal()
   const count = installmentsForProduct(form.productName)
@@ -107,7 +180,7 @@ function NewPlanForm({ onCreated }) {
         pretaxAmount: Number(form.totalAmount), discountValue: Number(form.discountValue) || 0,
         frequencyInterval: Number(form.frequencyInterval),
       })
-      setForm(emptyForm())
+      setForm(() => { const f = emptyForm(); return { ...f, totalAmount: basePriceFor(f.productName) } })
       await onCreated(planId, mode)
     } catch (err) {
       setError(err.message)
@@ -118,7 +191,15 @@ function NewPlanForm({ onCreated }) {
 
   return (
     <Card className="p-6">
-      <h2 className="text-lg font-bold text-[#1a1a1a] mb-4">Nouvelle vente</h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-bold text-[#1a1a1a]">Nouvelle vente</h2>
+        {canEditPrices && (
+          <button type="button" className="text-xs font-semibold text-[#00bbb1]" onClick={() => setShowPrices(v => !v)}>
+            {showPrices ? 'Fermer les prix' : 'Prix de base'}
+          </button>
+        )}
+      </div>
+      {canEditPrices && showPrices && <BasePricesEditor prices={prices} onSaved={reloadPrices} />}
       <form onSubmit={(e) => { e.preventDefault(); submit('card') }} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <Input label="Prénom du client" value={form.clientFirstName} onChange={set('clientFirstName')} required />
@@ -143,7 +224,7 @@ function NewPlanForm({ onCreated }) {
 
         <div className="flex flex-col gap-1">
           <label className="text-sm font-semibold text-[#1a1a1a]">Produit</label>
-          <select value={form.productName} onChange={set('productName')} className={selectCls}>
+          <select value={form.productName} onChange={onProductChange} className={selectCls}>
             {TERMINAL_PRODUCTS.map(p => <option key={p} value={p}>{p}</option>)}
           </select>
         </div>

@@ -12,6 +12,11 @@ export const TERMINAL_PRODUCTS = [
   'Évaluation entrainement',
 ]
 
+// Clé du prix de base prérempli (table terminal_base_prices) : un seul prix pour tous les forfaits NEO
+export function basePriceKey(productName) {
+  return String(productName ?? '').startsWith('Forfait 15 semaines NEO') ? 'forfait_neo' : String(productName ?? '')
+}
+
 // Ajouts possibles à la vente (section « Ajout supplémentaire »)
 export const TRAINING_ADDON_CENTS = 10000 // programme d'entraînement : +100 $ avant taxes
 
