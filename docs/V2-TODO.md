@@ -2,6 +2,16 @@
 
 ## À faire par l'équipe
 
+- **Cartes de crédit dans GHL (urgent, reporté par Hugues le 2 oct.)** : le formulaire
+  d'évaluation GHL contient des champs numéro de carte (`ONxbfMtISFr1FqYYEJ9P`), expiration
+  (`5BtIr6h6iQjEAkucCiPQ`) et CVV (`UrxeLIBdSYkj0TIOU1JV`), passés de obligatoires à
+  facultatifs le 2 oct. (toujours présents). Environ 363 numéros qui ressemblent à de
+  vraies cartes et 365 CVV sont stockés en clair dans GHL et copiés dans Supabase
+  (`ghl_contacts.raw`, lisible par tout compte connecté). À faire : supprimer ces champs du
+  formulaire ; nettoyer la copie Supabase et exclure ces champs de la synchro ; vider les
+  champs dans GHL après décision sur les paiements en cours ; paiement par le terminal
+  Moneris (phase 2).
+
 - **Liliane : créer les objectifs `daily_calls` et `daily_bookings` dans `objectives`**
   pour chaque setter (scope `individual`, période couvrant les jours visés). Sans eux,
   le bandeau setter affiche le nombre d'appels sans barre de progression, et
