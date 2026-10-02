@@ -9,7 +9,7 @@
 //   SLACK_PAYMENTS_WEBHOOK_URL webhook Slack pour les refus de paiement
 
 import {
-  chargeAndStoreCard, validateAndStoreCard, createSubscription, getSubscription, getPayment, listSubscriptionPaymentIds,
+  chargeAndStoreCard, validateAndStoreCard, createSubscription, getSubscription, getPayment, listRecentPayments,
   MonerisResult, CardHolder,
 } from './moneris.ts'
 import { addInterval, todayMontreal } from './schedule.js'
@@ -260,13 +260,22 @@ export async function syncPlan(db: DB, planId: string): Promise<{ paid: number; 
   const byPayment = new Map<string, Installment>()
   for (const i of insts) if (i.moneris_payment_id) byPayment.set(i.moneris_payment_id, i)
 
-  // L'abonnement ne liste pas toujours ses paiements : on cherche aussi dans la liste des paiements Moneris
+  // L'abonnement ne liste pas toujours ses paiements : on cherche aussi dans les paiements récents,
+  // soit liés à l'abonnement, soit faits sur la même carte enregistrée au montant d'un versement prévu.
   const ids = new Set(sub.paymentIds)
-  // Moneris limite la liste à 20 : on ne regarde que les 3 derniers jours (la synchro roule 2 fois par jour)
-  const since = new Date(Date.now() - 3 * 86400_000).toISOString()
-  const listed = await listSubscriptionPaymentIds(plan.moneris_subscription_id, since)
-  for (const id of listed.ids) ids.add(id)
-  console.log('[syncPlan]', plan.id.slice(0, 8), JSON.stringify({ sub: sub.status, next: sub.nextBillingDate, fromSub: sub.paymentIds.length, fromList: listed.ids.length, listStatus: listed.status }))
+  const known = new Set(insts.map(i => i.moneris_payment_id).filter(Boolean) as string[])
+  const scheduledAmounts = new Set(insts.filter(i => i.status !== 'paid').map(i => i.amount_cents))
+  const listed = await listRecentPayments(new Date(Date.now() - 3 * 86400_000).toISOString())
+  for (const p of listed.items) {
+    const sameSub = p.subscriptionId === plan.moneris_subscription_id
+    const sameCard = !!plan.moneris_payment_method_id && p.paymentMethodId === plan.moneris_payment_method_id
+      && !known.has(p.paymentId) && scheduledAmounts.has(p.amountCents)
+    if (sameSub || sameCard) ids.add(p.paymentId)
+  }
+  console.log('[syncPlan]', plan.id.slice(0, 8), JSON.stringify({
+    sub: sub.status, next: sub.nextBillingDate, fromSub: sub.paymentIds.length, listed: listed.items.length, listStatus: listed.status,
+    recent: listed.items.map(p => `${p.paymentId.slice(-5)}:${p.status}:${p.amountCents}:${p.subscriptionId ? 'sub' : '-'}:${p.paymentMethodId === plan.moneris_payment_method_id ? 'carte' : '-'}`),
+  }))
 
   for (const pid of ids) {
     const info = await getPayment(pid)
