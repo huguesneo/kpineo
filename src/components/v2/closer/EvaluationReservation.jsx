@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { EVALUATION } from '../../../lib/v2/salesConfig'
 import { fmtHeure } from '../../../lib/v2/format'
+import { jourDe, moisSuivant } from '../../../lib/v2/creneaux'
+import CalendrierCreneaux from './CalendrierCreneaux'
 
 const MOTIFS = {
   creneau_pris: 'Cette plage vient d’être prise. Les disponibilités sont à jour : choisis-en une autre.',
@@ -95,6 +97,10 @@ export default function EvaluationReservation({
   const [contactId, setContactId] = useState(contactIdInitial)
   const [type, setType] = useState('clinique')
   const [membre, setMembre] = useState('') // '' = tout membre disponible (round robin)
+  // Mois affiché dans le calendrier ('AAAA-MM') ; on peut avancer jusqu'à 12 mois
+  const moisCourant = jourDe(new Date().toISOString()).slice(0, 7)
+  const [mois, setMois] = useState(moisCourant)
+  const [calendrierOuvert, setCalendrierOuvert] = useState(false)
   const [jours, setJours] = useState([])
   const [chargement, setChargement] = useState(true)
   const [erreur, setErreur] = useState(null)
@@ -114,20 +120,19 @@ export default function EvaluationReservation({
   const charger = useCallback(async () => {
     setChargement(true)
     setErreur(null)
-    const r = await appeler({ action: 'slots', type, userId: membre || undefined })
+    const r = await appeler({ action: 'slots', type, userId: membre || undefined, mois })
     if (r?.ok) {
       setJours(r.jours ?? [])
-      setJour(j => (r.jours ?? []).some(x => x.jour === j) ? j : (r.jours?.[0]?.jour ?? null))
+      setJour(j => (r.jours ?? []).some(x => x.jour === j) ? j : null)
     } else {
       setJours([])
       setErreur(MOTIFS[r?.motif] ?? 'Impossible de charger les disponibilités.')
     }
     setChargement(false)
-  }, [type, membre])
+  }, [type, membre, mois])
 
   useEffect(() => { setCreneau(null); charger() }, [charger])
 
-  const creneauxDuJour = useMemo(() => jours.find(j => j.jour === jour)?.creneaux ?? [], [jours, jour])
   const complet = creneau && form.prenom.trim() && form.nom.trim() && form.forfait && form.nbPaiements
     && (form.courriel.trim() || form.telephone.trim())
 
@@ -147,7 +152,7 @@ export default function EvaluationReservation({
       return
     }
     setErreur(MOTIFS[r?.motif] ?? `Le rendez-vous n’a pas été créé${r?.detail ? ` : ${r.detail}` : '.'}`)
-    if (r?.jours) { setJours(r.jours); setCreneau(null) }
+    if (r?.motif === 'creneau_pris') { setCreneau(null); setCalendrierOuvert(true); charger() }
   }
 
   const nomMembre = id => EVALUATION.membres.find(m => m.userId === id)?.nom
@@ -192,37 +197,32 @@ export default function EvaluationReservation({
 
                 <div className="flex flex-col gap-2">
                   <span className="text-xs font-bold text-[#6b7280] uppercase tracking-wide">Date et heure</span>
-                  {chargement ? (
-                    <div className="h-40 rounded-xl bg-gray-50 animate-pulse" />
-                  ) : jours.length === 0 ? (
-                    <p className="text-sm text-[#6b7280] bg-gray-50 rounded-xl px-4 py-6 text-center">
-                      {erreur ?? 'Aucune disponibilité dans les 30 prochains jours.'}
-                    </p>
-                  ) : (
-                    <>
-                      <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
-                        {jours.map(j => {
-                          const l = libelleJour(j.jour)
-                          const actif = j.jour === jour
-                          return (
-                            <button key={j.jour} onClick={() => { setJour(j.jour); setCreneau(null) }}
-                              className={`flex-shrink-0 w-16 py-2 rounded-xl border text-center ${actif ? 'bg-[#00bbb1] border-[#00bbb1] text-white' : 'bg-white border-[#e5e7eb] text-[#1a1a1a] hover:border-[#00bbb1]/50'}`}>
-                              <span className="block text-[11px] font-semibold capitalize">{l.semaine}</span>
-                              <span className="block text-lg font-black leading-tight">{l.num}</span>
-                              <span className="block text-[11px] capitalize">{l.mois}</span>
-                            </button>
-                          )
-                        })}
-                      </div>
-                      <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                        {creneauxDuJour.map(c => (
-                          <button key={c} onClick={() => setCreneau(c)}
-                            className={`min-h-[44px] rounded-lg border text-sm font-semibold ${creneau === c ? 'bg-[#00bbb1] border-[#00bbb1] text-white' : 'bg-white border-[#00bbb1]/40 text-[#00897f] hover:bg-[#00bbb1]/5'}`}>
-                            {fmtHeure(c)}
-                          </button>
-                        ))}
-                      </div>
-                    </>
+                  <button onClick={() => setCalendrierOuvert(o => !o)} aria-expanded={calendrierOuvert}
+                    className={`min-h-[48px] flex items-center justify-between gap-3 px-4 rounded-xl border-2 text-left ${creneau ? 'border-[#00bbb1] bg-[#00bbb1]/5' : 'border-[#e5e7eb] hover:border-[#00bbb1]/40'}`}>
+                    <span className="flex items-center gap-2 min-w-0">
+                      <svg className="w-5 h-5 text-[#00bbb1] flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" /></svg>
+                      <span className={`text-sm font-semibold truncate ${creneau ? 'text-[#00897f]' : 'text-[#6b7280]'}`}>
+                        {creneau ? `${libelleJour(jour).long} à ${fmtHeure(creneau)}` : 'Choisir la date et l’heure'}
+                      </span>
+                    </span>
+                    <svg className={`w-4 h-4 text-[#6b7280] flex-shrink-0 transition-transform ${calendrierOuvert ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                  </button>
+                  {calendrierOuvert && (
+                    <div className="border border-[#e5e7eb] rounded-xl p-3">
+                      <CalendrierCreneaux
+                        mois={mois}
+                        onMois={d => { setMois(m => moisSuivant(m, d)); setJour(null); setCreneau(null) }}
+                        jours={jours}
+                        chargement={chargement}
+                        erreur={jours.length === 0 ? erreur : null}
+                        peutReculer={mois > moisCourant}
+                        peutAvancer={mois < moisSuivant(moisCourant, 12)}
+                        jourChoisi={jour}
+                        onJour={j => { setJour(j); setCreneau(null) }}
+                        creneau={creneau}
+                        onCreneau={c => { setCreneau(c); setCalendrierOuvert(false) }}
+                      />
+                    </div>
                   )}
                 </div>
               </div>

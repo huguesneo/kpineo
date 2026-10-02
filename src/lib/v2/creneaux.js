@@ -52,3 +52,37 @@ export function creneauLibre(jours, iso) {
   const t = new Date(iso).getTime()
   return (jours ?? []).some(j => j.creneaux.some(c => new Date(c).getTime() === t))
 }
+
+// ── Calendrier mensuel ───────────────────────────────────────────────────────
+// Bornes d'un mois 'AAAA-MM' en ms, pour free-slots : du début du mois (ou de
+// maintenant s'il est déjà commencé) au lendemain du dernier jour (marge de fuseau).
+export function bornesMois(mois, now = Date.now()) {
+  const [a, m] = mois.split('-').map(Number)
+  const debut = Date.UTC(a, m - 1, 1) - JOUR_MS
+  const fin = Date.UTC(a, m, 1) + JOUR_MS
+  return [Math.max(debut, now), fin]
+}
+
+// Grille du mois (semaines de dimanche à samedi) : null pour les cases vides
+export function grilleMois(mois) {
+  const [a, m] = mois.split('-').map(Number)
+  const premier = new Date(Date.UTC(a, m - 1, 1)).getUTCDay() // 0 = dimanche
+  const nbJours = new Date(Date.UTC(a, m, 0)).getUTCDate()
+  const cases = [...Array(premier).fill(null)]
+  for (let j = 1; j <= nbJours; j++) cases.push(`${mois}-${String(j).padStart(2, '0')}`)
+  while (cases.length % 7) cases.push(null)
+  const semaines = []
+  for (let i = 0; i < cases.length; i += 7) semaines.push(cases.slice(i, i + 7))
+  return semaines
+}
+
+export function moisSuivant(mois, delta) {
+  const [a, m] = mois.split('-').map(Number)
+  const d = new Date(Date.UTC(a, m - 1 + delta, 1))
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+}
+
+// Garde les jours du mois demandé (les bornes débordent d'un jour de chaque côté)
+export function joursDuMois(jours, mois) {
+  return (jours ?? []).filter(j => j.jour.startsWith(mois))
+}

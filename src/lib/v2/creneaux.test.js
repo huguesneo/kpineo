@@ -50,3 +50,33 @@ describe('copie serveur', () => {
     expect(b).toBe(a)
   })
 })
+
+describe('calendrier mensuel', () => {
+  it('grille d’octobre 2026 : commence un jeudi, 5 semaines', async () => {
+    const { grilleMois } = await import('./creneaux')
+    const g = grilleMois('2026-10')
+    expect(g).toHaveLength(5)
+    expect(g[0]).toEqual([null, null, null, null, '2026-10-01', '2026-10-02', '2026-10-03'])
+    expect(g[4].filter(Boolean).at(-1)).toBe('2026-10-31')
+    expect(g.every(s => s.length === 7)).toBe(true)
+  })
+
+  it('mois suivant / précédent, y compris changement d’année', async () => {
+    const { moisSuivant } = await import('./creneaux')
+    expect(moisSuivant('2026-12', 1)).toBe('2027-01')
+    expect(moisSuivant('2026-01', -1)).toBe('2025-12')
+  })
+
+  it('bornes du mois : jamais avant maintenant, débordent d’un jour', async () => {
+    const { bornesMois } = await import('./creneaux')
+    const now = Date.UTC(2026, 9, 15)
+    expect(bornesMois('2026-10', now)).toEqual([now, Date.UTC(2026, 10, 1) + J])
+    expect(bornesMois('2026-11', now)).toEqual([Date.UTC(2026, 10, 1) - J, Date.UTC(2026, 11, 1) + J])
+  })
+
+  it('joursDuMois retire les jours voisins', async () => {
+    const { joursDuMois } = await import('./creneaux')
+    const jours = [{ jour: '2026-09-30', creneaux: [] }, { jour: '2026-10-01', creneaux: [] }, { jour: '2026-11-01', creneaux: [] }]
+    expect(joursDuMois(jours, '2026-10').map(j => j.jour)).toEqual(['2026-10-01'])
+  })
+})

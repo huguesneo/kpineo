@@ -1,14 +1,15 @@
 // Prise de rendez-vous d'évaluation intégrée à l'app (closeurs), sur le modèle de
 // ghl-client-book de l'app NEO :
-//   action 'slots' : plages libres d'un calendrier d'évaluation (30 jours), pour un
-//                    membre (userId) ou tous les membres (round robin)
+//   action 'slots' : plages libres d'un calendrier d'évaluation, pour un membre
+//                    (userId) ou tous les membres (round robin) ; d'un mois
+//                    (mois 'AAAA-MM', jusqu'à 12 mois à l'avance) ou des 30 prochains jours
 //   action 'book'  : revérifie la plage, met à jour le contact GHL (coordonnées,
 //                    type de forfait, nombre de paiements) puis crée le RDV.
 //                    Sans contactId (Centre de vente, nouveau client) : le contact
 //                    est créé ou retrouvé par courriel/téléphone (upsert GHL).
 // Accès : utilisateur connecté, rôle admin, resp_vente ou closeur.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { decouperPeriode, extraireCreneaux, grouperParJour, creneauLibre } from './creneaux.js'
+import { decouperPeriode, extraireCreneaux, grouperParJour, creneauLibre, bornesMois, joursDuMois } from './creneaux.js'
 
 declare const Deno: {
   env: { get(key: string): string | undefined }
@@ -48,9 +49,12 @@ function entetes(token: string, version: string) {
   return { Authorization: `Bearer ${token}`, Version: version, 'Content-Type': 'application/json', Accept: 'application/json' }
 }
 
-async function lireJours(token: string, calendarId: string, userId: string | null) {
-  const debut = Date.now()
-  const fin = debut + HORIZON_JOURS * 86_400_000
+const JOUR_MS = 86_400_000
+const MOIS_MAX = 12
+
+async function lireJours(token: string, calendarId: string, userId: string | null,
+  [debut, fin]: number[] = [Date.now(), Date.now() + HORIZON_JOURS * JOUR_MS]) {
+  if (fin <= debut) return []
   const reponses = await Promise.all(decouperPeriode(debut, fin).map(async ([a, b]) => {
     const p = new URLSearchParams({ startDate: String(a), endDate: String(b), timezone: FUSEAU })
     if (userId) p.set('userId', userId)
@@ -87,6 +91,15 @@ Deno.serve(async (req) => {
 
     if (body.action === 'slots') {
       try {
+        const mois = String(body.mois ?? '')
+        if (/^\d{4}-\d{2}$/.test(mois)) {
+          const [a, m] = mois.split('-').map(Number)
+          const maintenant = new Date()
+          const ecart = (a - maintenant.getUTCFullYear()) * 12 + (m - 1 - maintenant.getUTCMonth())
+          if (ecart < 0 || ecart > MOIS_MAX) return json({ ok: true, mois, jours: [] })
+          const jours = await lireJours(token, type.calendarId, userId, bornesMois(mois))
+          return json({ ok: true, mois, jours: joursDuMois(jours, mois) })
+        }
         return json({ ok: true, jours: await lireJours(token, type.calendarId, userId) })
       } catch (e) {
         console.error('[ghl-eval-book] slots', (e as Error).message)
@@ -104,9 +117,12 @@ Deno.serve(async (req) => {
       if (!FORFAITS.has(String(forfait))) return json({ ok: false, motif: 'forfait_inconnu' }, 400)
       if (!NB_PAIEMENTS.has(String(nbPaiements))) return json({ ok: false, motif: 'nb_paiements_inconnu' }, 400)
 
-      // 1. La plage est-elle encore libre ?
+      // 1. La plage est-elle encore libre ? (lecture autour de son jour, quel que soit le mois)
+      const t = new Date(startTime).getTime()
+      if (Number.isNaN(t)) return json({ ok: false, motif: 'incomplet' }, 400)
+      const autour = [Math.max(Date.now(), t - JOUR_MS), t + JOUR_MS]
       let jours
-      try { jours = await lireJours(token, type.calendarId, userId) } catch { return json({ ok: false, motif: 'ghl_indisponible' }) }
+      try { jours = await lireJours(token, type.calendarId, userId, autour) } catch { return json({ ok: false, motif: 'ghl_indisponible' }) }
       if (!creneauLibre(jours, startTime)) return json({ ok: false, motif: 'creneau_pris', jours })
 
       // 2. Contact GHL : coordonnées, type de forfait, nombre de paiements
@@ -157,7 +173,7 @@ Deno.serve(async (req) => {
       if (!ra.ok) {
         console.error(`[ghl-eval-book] RDV ${ra.status}: ${texte.slice(0, 300)}`)
         let joursFrais = jours
-        try { joursFrais = await lireJours(token, type.calendarId, userId) } catch { /* garde l'ancienne liste */ }
+        try { joursFrais = await lireJours(token, type.calendarId, userId, autour) } catch { /* garde l'ancienne liste */ }
         return json({ ok: false, motif: ra.status >= 500 ? 'ghl_indisponible' : 'creneau_pris', detail: texte.slice(0, 200), jours: joursFrais })
       }
       let cree: Record<string, unknown> = {}
