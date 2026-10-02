@@ -6,9 +6,7 @@ CREATE TABLE IF NOT EXISTS public.terminal_base_prices (
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE public.terminal_base_prices ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Prix de base lisibles" ON public.terminal_base_prices;
 CREATE POLICY "Prix de base lisibles" ON public.terminal_base_prices FOR SELECT TO authenticated USING (true);
-DROP POLICY IF EXISTS "Prix de base modifiables par Hugues" ON public.terminal_base_prices;
 CREATE POLICY "Prix de base modifiables par Hugues" ON public.terminal_base_prices FOR UPDATE TO authenticated
   USING (lower(auth.jwt()->>'email') = 'hugues@neoperformance.ca')
   WITH CHECK (lower(auth.jwt()->>'email') = 'hugues@neoperformance.ca');
