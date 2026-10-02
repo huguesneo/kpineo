@@ -87,3 +87,21 @@ export async function lookupTherapistAndSetter(db: DB, email: string): Promise<{
   const [t, s] = await Promise.all([therapist(db, cid), setter(loc, cid)])
   return { therapist: t, setter: s }
 }
+
+// Ajoute un tag au contact GHL du client (trouvé par courriel). Retourne true si fait.
+export async function addTagByEmail(db: DB, email: string, tag: string): Promise<boolean> {
+  const key = Deno.env.get('GHL_API_KEY')
+  const loc = await locationId(db)
+  if (!key || !loc || !email) return false
+  const cid = await contactIdByEmail(db, loc, email.trim())
+  if (!cid) return false
+  try {
+    const r = await fetch(`${GHL}/contacts/${cid}/tags`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}`, Version: '2021-07-28', 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ tags: [tag] }),
+    })
+    if (!r.ok) console.error('[GHL tag]', r.status, (await r.text()).slice(0, 200))
+    return r.ok
+  } catch (e) { console.error('[GHL tag]', e); return false }
+}

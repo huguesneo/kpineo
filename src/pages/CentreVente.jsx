@@ -260,7 +260,7 @@ function NurturingCard({ cas, copiedId, onCopy }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CentreVente() {
-  const { isAdmin, isRespVente, hasCloserRole } = useAuth()
+  const { isAdmin, isRespVente, hasCloserRole, user } = useAuth()
   const [view,     setView]     = useState('home')
   const [renTab,   setRenTab]   = useState('decouverte')
   const [evalTab,  setEvalTab]  = useState('clinique')
@@ -412,7 +412,7 @@ export default function CentreVente() {
 
       {/* Terminal de paiement : après avoir pris le rendez-vous, le closeur prend le paiement */}
       {/* v2 : la réservation dans l'app ouvre elle-même le terminal prérempli ; celui-ci reste pour le calendrier GHL */}
-      {view === 'evaluations' && (!ESPACE_VENTE_V2 || evalSecours) && canUseTerminal({ isAdmin, isAdminOrRespVente: isAdmin || isRespVente, hasCloserRole }) && (
+      {view === 'evaluations' && (!ESPACE_VENTE_V2 || evalSecours) && canUseTerminal({ isAdmin, isAdminOrRespVente: isAdmin || isRespVente, hasCloserRole, email: user?.email }) && (
         <div className="mt-8">
           <div className="mb-4">
             <h2 className="text-xl font-bold text-[#1a1a1a]">Prendre le paiement</h2>

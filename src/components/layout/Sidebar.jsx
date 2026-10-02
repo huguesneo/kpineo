@@ -291,7 +291,7 @@ export default function Sidebar() {
           />
         )}
         {/* Terminal de paiement — closeurs, admin et resp_vente */}
-        {canUseTerminal({ isAdmin, isAdminOrRespVente, hasCloserRole }) && (
+        {canUseTerminal({ isAdmin, isAdminOrRespVente, hasCloserRole, email: user?.email }) && (
           <NavItem
             to="/terminal"
             label="Terminal de paiement"

@@ -8,6 +8,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { attachCard, createPlanSubscription, newLinkToken, sha256 } from '../_shared/terminal.ts'
 import { ECI, cancelSubscription } from '../_shared/moneris.ts'
+import { addTagByEmail } from '../_shared/ghl.ts'
 import { FREQUENCY_UNITS, TERMINAL_PRODUCTS, approxDays, buildSaleSchedule, installmentsForProduct, priceSale, todayMontreal } from '../_shared/schedule.js'
 
 declare const Deno: { env: { get(key: string): string | undefined }; serve(handler: (req: Request) => Promise<Response> | Response): void }
@@ -33,9 +34,12 @@ Deno.serve(async (req) => {
     if (!user) return json({ error: 'Non autorisé' }, 401)
     const { data: profile } = await db.from('profiles')
       .select('id, full_name, role, secondary_roles').eq('id', user.id).maybeSingle()
-    const isManager = ['admin', 'resp_vente'].includes(profile?.role)
+    // Superviseurs du terminal : voient toutes les ventes et peuvent annuler un programme
+    const SUPERVISORS = ['hugues@neoperformance.ca', 'info@neoperformance.ca']
+    const isSupervisor = SUPERVISORS.includes((user.email ?? '').toLowerCase())
+    const isManager = isSupervisor || ['admin', 'resp_vente'].includes(profile?.role)
     const isCloser = profile?.role === 'closer' || (profile?.secondary_roles ?? []).includes('closer')
-    if (!profile || (!isManager && !isCloser)) return json({ error: 'Accès réservé aux closeurs' }, 403)
+    if (!isSupervisor && (!profile || (!isManager && !isCloser))) return json({ error: 'Accès réservé aux closeurs' }, 403)
 
     const body = await req.json() as Record<string, unknown>
     const action = String(body.action ?? '')
@@ -44,11 +48,12 @@ Deno.serve(async (req) => {
     const loadPlan = async (planId: unknown) => {
       const { data } = await db.from('payment_plans').select('id, closer_id, status, moneris_subscription_id').eq('id', String(planId)).maybeSingle()
       if (!data) return null
-      if (!isManager && data.closer_id !== profile.id) return null
+      if (!isManager && data.closer_id !== profile?.id) return null
       return data
     }
 
     if (action === 'create_plan') {
+      if (!profile) return json({ error: 'Ton compte n’a pas de profil dans l’app : impossible de créer une vente' }, 403)
       const product = String(body.productName ?? '')
       if (!TERMINAL_PRODUCTS.includes(product)) return json({ error: 'Produit invalide' }, 400)
       const first = String(body.clientFirstName ?? '').trim()
@@ -172,6 +177,7 @@ Deno.serve(async (req) => {
     }
 
     if (action === 'cancel_plan') {
+      if (!isSupervisor) return json({ error: 'Seuls Hugues et info@ peuvent annuler un programme' }, 403)
       const plan = await loadPlan(body.planId)
       if (!plan) return json({ error: 'Plan introuvable' }, 404)
       if (['completed', 'canceled'].includes(plan.status)) return json({ error: 'Plan déjà terminé ou annulé' }, 400)
@@ -188,10 +194,12 @@ Deno.serve(async (req) => {
         .eq('plan_id', plan.id).in('status', ['scheduled', 'declined'])
       await db.from('payment_plans').update({
         status: 'canceled', subscription_status: plan.moneris_subscription_id ? 'CANCELED' : null,
-        canceled_at: new Date().toISOString(), canceled_by: profile.id, updated_at: new Date().toISOString(),
+        canceled_at: new Date().toISOString(), canceled_by: profile?.id ?? null, updated_at: new Date().toISOString(),
       }).eq('id', plan.id)
       await db.from('payment_plan_links').delete().eq('plan_id', plan.id)
-      return json({ ok: true })
+      const { data: full } = await db.from('payment_plans').select('client_email').eq('id', plan.id).maybeSingle()
+      const tagged = await addTagByEmail(db, full?.client_email ?? '', 'statut-client-annuler')
+      return json({ ok: true, tagged })
     }
 
     return json({ error: 'Action inconnue' }, 400)

@@ -133,8 +133,8 @@ export default function EvaluationReservation({
   const [erreur, setErreur] = useState(null)
   const [jour, setJour] = useState(null)
   const [creneau, setCreneau] = useState(null)
-  const { isAdmin, isAdminOrRespVente, hasCloserRole } = useAuth()
-  const terminalPermis = canUseTerminal({ isAdmin, isAdminOrRespVente, hasCloserRole })
+  const { user, isAdmin, isAdminOrRespVente, hasCloserRole } = useAuth()
+  const terminalPermis = canUseTerminal({ isAdmin, isAdminOrRespVente, hasCloserRole, email: user?.email })
   const [form, setForm] = useState({
     prenom: client?.first_name ?? '', nom: client?.last_name ?? '',
     telephone: client?.phone ?? '', courriel: client?.email ?? '',
