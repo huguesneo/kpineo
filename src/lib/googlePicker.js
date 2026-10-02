@@ -94,3 +94,80 @@ export async function choisirDossierDrive() {
     builder.build().setVisible(true)
   })
 }
+
+// --- Phase 2 : vidéos ---------------------------------------------------------
+
+const MIMES_VIDEO_PICKER = 'video/mp4,video/quicktime,video/x-m4v'
+let jetonMemorise = null // { valeur, expire }
+
+// Jeton Drive gardé en mémoire jusqu'à une minute avant son expiration (1 h),
+// pour ne pas redemander la connexion à chaque appel. `forcer` en demande un
+// nouveau (après un refus 401 de Drive).
+export async function obtenirJetonDrive({ forcer = false } = {}) {
+  if (!googlePickerConfigure()) {
+    throw new Error('VITE_GOOGLE_CLIENT_ID et VITE_GOOGLE_API_KEY manquent dans la configuration du hub.')
+  }
+  if (!forcer && jetonMemorise && jetonMemorise.expire > Date.now() + 60_000) return jetonMemorise.valeur
+  await chargerScript('https://accounts.google.com/gsi/client')
+  const rep = await new Promise((resolve, reject) => {
+    const client = window.google.accounts.oauth2.initTokenClient({
+      client_id: CLIENT_ID,
+      scope: SCOPE,
+      callback: (r) => {
+        if (r.error) reject(new Error('Connexion à Google refusée ou annulée.'))
+        else resolve(r)
+      },
+      error_callback: () => reject(new Error('Connexion à Google refusée ou annulée.')),
+    })
+    client.requestAccessToken({ prompt: '' })
+  })
+  jetonMemorise = { valeur: rep.access_token, expire: Date.now() + Number(rep.expires_in || 3600) * 1000 }
+  return jetonMemorise.valeur
+}
+
+// Réponse du Picker → { id, nom, mimeType } de la vidéo, ou null.
+export function videoChoisie(data) {
+  if (!data || data.action !== 'picked') return null
+  const doc = (data.docs || [])[0]
+  if (!doc?.id) return null
+  return { id: doc.id, nom: doc.name || 'Vidéo sans nom', mimeType: doc.mimeType || '' }
+}
+
+// Ouvre le Picker sur les vidéos (Mon disque et Partagés avec moi).
+// Résout { id, nom, mimeType } ou null si annulé.
+export async function choisirVideoDrive() {
+  const jeton = await obtenirJetonDrive()
+  await chargerScript('https://apis.google.com/js/api.js')
+  await new Promise((resolve, reject) => {
+    window.gapi.load('picker', { callback: resolve, onerror: () => reject(new Error('Impossible de charger Google Picker.')) })
+  })
+  const picker = window.google.picker
+
+  return new Promise((resolve) => {
+    const vue = new picker.DocsView(picker.ViewId.DOCS)
+      .setMimeTypes(MIMES_VIDEO_PICKER)
+      .setIncludeFolders(true)
+    const builder = new picker.PickerBuilder()
+      .addView(vue)
+      .setOAuthToken(jeton)
+      .setDeveloperKey(API_KEY)
+      .setLocale('fr')
+      .setTitle('Choisis la vidéo à monter')
+      .setCallback((data) => {
+        if (data.action === picker.Action.PICKED) resolve(videoChoisie(data))
+        else if (data.action === picker.Action.CANCEL) resolve(null)
+      })
+    const appId = numeroProjet(CLIENT_ID)
+    if (appId) builder.setAppId(appId)
+    builder.build().setVisible(true)
+  })
+}
+
+// Charge les scripts Google à l'ouverture de l'écran : le clic sur « Choisir
+// dans Google Drive » ouvre alors la connexion sans délai (Safari bloque les
+// fenêtres ouvertes trop longtemps après le clic).
+export function prechargerGoogle() {
+  if (!googlePickerConfigure()) return
+  chargerScript('https://accounts.google.com/gsi/client').catch(() => {})
+  chargerScript('https://apis.google.com/js/api.js').catch(() => {})
+}
