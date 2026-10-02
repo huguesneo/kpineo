@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { Link } from 'react-router-dom'
-import Layout from '../../components/layout/Layout'
+import LayoutV2 from '../../components/v2/LayoutV2'
 import SegmentMode from '../../components/v2/SegmentMode'
 import SetterJournee from './SetterJournee'
 import CloseurAgenda from './CloseurAgenda'
@@ -62,7 +62,7 @@ export default function MonEspace() {
   const ancienneVue = mode === 'close' ? '/closer' : '/setter'
 
   return (
-    <Layout>
+    <LayoutV2>
       {mode === 'sette' && (
         <SetterJournee profile={profile} droite={segment} setterFiles={setterFiles} onCompteur={setCompteurSetter} />
       )}
@@ -87,6 +87,6 @@ export default function MonEspace() {
         <Link to="/scoreboard" className="text-[#9ca3af] hover:text-[#6b7280] underline underline-offset-2">Scoreboard d'équipe</Link>
         <Link to={ancienneVue} className="text-[#9ca3af] hover:text-[#6b7280] underline underline-offset-2">Ancienne vue</Link>
       </p>
-    </Layout>
+    </LayoutV2>
   )
 }

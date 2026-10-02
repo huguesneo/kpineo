@@ -18,7 +18,8 @@ export default function StatuerRdv({ appt, onStatuer }) {
     if (error) setErreur(error)
   }
 
-  const btn = 'text-[13px] font-semibold px-3 py-1.5 rounded-lg bg-white border disabled:opacity-50'
+  // 44 px de haut sur téléphone (cible tactile), compact sur ordinateur
+  const btn = 'text-[13px] font-semibold px-3 py-1.5 min-h-[44px] sm:min-h-0 rounded-lg bg-white border disabled:opacity-50'
 
   if (etape === 'vendu') {
     return (
@@ -40,19 +41,19 @@ export default function StatuerRdv({ appt, onStatuer }) {
         <div className="flex gap-1.5 flex-wrap">
           {OBJECTIONS.map(o => (
             <button key={o} onClick={() => setObjection(o)}
-              className={`text-[13px] font-semibold px-3 py-1.5 rounded-lg border ${objection === o ? 'bg-[#00bbb1] border-[#00bbb1] text-white' : 'bg-white border-[#e5e7eb] text-[#374151] hover:bg-[#f9fafb]'}`}>
+              className={`text-[13px] font-semibold px-3 py-1.5 min-h-[44px] sm:min-h-0 rounded-lg border ${objection === o ? 'bg-[#00bbb1] border-[#00bbb1] text-white' : 'bg-white border-[#e5e7eb] text-[#374151] hover:bg-[#f9fafb]'}`}>
               {o}
             </button>
           ))}
         </div>
         {objection === 'Autre' && (
           <input value={precision} onChange={e => setPrecision(e.target.value)} placeholder="Précise l'objection"
-            className="text-xs px-2 py-1.5 border border-[#e5e7eb] rounded-lg bg-white outline-none focus:border-[#00bbb1]" />
+            className="text-base sm:text-xs px-2 py-1.5 border border-[#e5e7eb] rounded-lg bg-white outline-none focus:border-[#00bbb1]" />
         )}
         <div className="flex gap-1.5 items-center">
           <button disabled={!valide || saving}
             onClick={() => envoyer({ status: 'show', isClosed: false, objection, precision })}
-            className="text-[13px] font-semibold px-3 py-1.5 rounded-lg bg-[#00bbb1] text-white disabled:opacity-50">
+            className="text-[13px] font-semibold px-3 py-1.5 min-h-[44px] sm:min-h-0 rounded-lg bg-[#00bbb1] text-white disabled:opacity-50">
             {saving ? 'Enregistrement…' : 'Enregistrer'}
           </button>
           <button disabled={saving} onClick={() => setEtape('vendu')} className="text-xs font-semibold text-[#6b7280] px-1">Retour</button>

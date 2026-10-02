@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Navigate, useSearchParams, Link } from 'react-router-dom'
-import Layout from '../../components/layout/Layout'
+import LayoutV2 from '../../components/v2/LayoutV2'
 import { useAuth } from '../../context/AuthContext'
 import { useScoreboard } from '../../hooks/v2/useScoreboard'
 import { fmtCAD, fmtHeure } from '../../lib/v2/format'
@@ -155,11 +155,11 @@ export default function Scoreboard() {
     return <div className="min-h-screen bg-[#0e1012] px-6 py-8 sm:px-20 sm:py-16">{corps}</div>
   }
   return (
-    <Layout>
+    <LayoutV2>
       {corps}
       <p className="mt-8 text-xs text-[#9ca3af] text-center">
         <Link to="/scoreboard?tv=1" className="text-[#9ca3af] hover:text-[#6b7280] underline underline-offset-2">Mode télé</Link>
       </p>
-    </Layout>
+    </LayoutV2>
   )
 }

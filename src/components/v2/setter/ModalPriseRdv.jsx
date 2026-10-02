@@ -24,10 +24,11 @@ export default function ModalPriseRdv({ lead, cleSetter, onClose }) {
   const src = cleChoisie ? lienPrendreRdv({ base: BASE_BOOKING_URL, cleSetter: cleChoisie, lead }) : null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-6" role="dialog" aria-modal="true" aria-label={`Prendre un rendez-vous pour ${lead.nom}`}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center sm:p-6" role="dialog" aria-modal="true" aria-label={`Prendre un rendez-vous pour ${lead.nom}`}>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-[94vh] flex flex-col overflow-hidden">
-        <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-[#e5e7eb]">
+      {/* Téléphone : plein écran (100dvh suit la barre d'adresse) ; ordinateur : fenêtre */}
+      <div className="relative bg-white sm:rounded-2xl shadow-2xl w-full max-w-5xl h-[100dvh] sm:h-[94vh] flex flex-col overflow-hidden">
+        <div className="flex items-start justify-between gap-3 px-4 sm:px-5 py-3 sm:py-4 border-b border-[#e5e7eb]">
           <div className="min-w-0">
             <p className="text-[10px] font-bold text-[#00bbb1] uppercase tracking-widest">Rencontre découverte</p>
             <h2 className="text-lg font-black text-[#1a1a1a] truncate">
@@ -38,19 +39,19 @@ export default function ModalPriseRdv({ lead, cleSetter, onClose }) {
             </p>
           </div>
           <button onClick={onClose} aria-label="Fermer"
-            className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-gray-600 flex-shrink-0">
+            className="w-11 h-11 -mr-2 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-700 flex-shrink-0">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
-        <div className="flex-1 min-h-0 flex flex-col px-4 sm:px-6 py-4">
+        <div className="flex-1 min-h-0 flex flex-col px-2 sm:px-6 py-2 sm:py-4">
           {src ? (
             <>
-              <div className="flex-shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+              <div className="flex-shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2 sm:mb-3 bg-amber-50 border border-amber-200 rounded-xl px-3 sm:px-4 py-2 sm:py-3">
                 <div>
-                  <p className="text-sm font-bold text-amber-800">N'oublie pas de choisir avec qui tu veux mettre la rencontre dans le calendrier !</p>
+                  <p className="text-xs sm:text-sm font-bold text-amber-800">N'oublie pas de choisir avec qui tu veux mettre la rencontre dans le calendrier !</p>
                   <p className="text-xs text-amber-600 mt-0.5">
                     Bookée par <span className="font-bold">{setter?.label ?? cleChoisie}</span> · booking source : <span className="font-bold">{cleChoisie}</span>
                   </p>
@@ -76,10 +77,10 @@ export default function ModalPriseRdv({ lead, cleSetter, onClose }) {
             <div className="max-w-md mx-auto py-8 text-center overflow-y-auto">
               <p className="text-xs font-black uppercase tracking-widest text-[#00bbb1] mb-2">Qui envoie cette rencontre ?</p>
               <p className="text-sm text-[#b45309] mb-6">Ton prénom n'est pas dans la liste du Centre de vente : choisis le setter à qui attribuer le rendez-vous.</p>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {SETTERS.map(s => (
                   <button key={s.key} onClick={() => setCleChoisie(s.key)}
-                    className="px-4 py-3 rounded-xl border-2 border-[#e5e7eb] text-sm font-bold text-[#4b5563] hover:border-[#00bbb1] hover:text-[#00bbb1] hover:bg-[#00bbb1]/5">
+                    className="px-4 py-3 min-h-[44px] rounded-xl border-2 border-[#e5e7eb] text-sm font-bold text-[#4b5563] hover:border-[#00bbb1] hover:text-[#00bbb1] hover:bg-[#00bbb1]/5">
                     {s.label}
                   </button>
                 ))}

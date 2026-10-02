@@ -28,7 +28,7 @@ export default function ListeAujourdhui({ jour, now, onStatuer }) {
 
       {jour.epingles.map(({ appt, depuisMs }) => (
         <div key={appt.ghl_id} className="px-4 py-3 bg-[#fffbeb] border-b border-[#fde68a] flex flex-col gap-2.5">
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-x-3 gap-y-1 flex-wrap">
             <span className="text-[13px] font-bold w-14 flex-shrink-0">{fmtHeure(appt.start_time)}</span>
             <span className="text-sm font-semibold flex-1 min-w-0 truncate">{appt.contact_name || 'Sans nom'}</span>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#f59e0b] text-white whitespace-nowrap">À statuer, {fmtDuree(depuisMs)}</span>

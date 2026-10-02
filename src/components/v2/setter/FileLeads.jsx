@@ -42,7 +42,7 @@ function EnteteTri({ libelle, cle, tri, onTri }) {
     : (actif && tri.sens === 'plus' ? 'Le plus de tentatives d’abord (cliquer : le moins d’abord)' : 'Trier par nombre de tentatives')
   return (
     <button onClick={() => onTri(cle)} title={aide}
-      className={`flex items-center gap-1 uppercase tracking-wide text-left hover:text-[#1a1a1a] ${actif ? 'text-[#4f46e5]' : ''}`}>
+      className={`flex items-center gap-1 uppercase tracking-wide text-left hover:text-[#1a1a1a] py-2 xl:py-0 ${actif ? 'text-[#4f46e5]' : ''}`}>
       {libelle}<span aria-hidden="true">{fleche}</span>
     </button>
   )

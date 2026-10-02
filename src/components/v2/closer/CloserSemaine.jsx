@@ -8,6 +8,7 @@ import WeekView from '../../calendar/WeekView'
 import AppointmentDrawer from '../../calendar/AppointmentDrawer'
 import BlockSlotModal from '../../calendar/BlockSlotModal'
 import { SkeletonCard } from '../../shared/Skeleton'
+import { useEstMobile } from '../../../hooks/v2/useEstMobile'
 import Button from '../../shared/Button'
 
 // Onglet « Semaine » : WeekView, AppointmentDrawer et BlockSlotModal existants.
@@ -18,7 +19,11 @@ export default function CloserSemaine({ profile }) {
   const [courant, setCourant] = useState(new Date())
   const debut = startOfWeek(courant, { weekStartsOn: 1 })
   const fin = endOfWeek(courant, { weekStartsOn: 1 })
-  const jours = Array.from({ length: 7 }, (_, i) => addDays(debut, i))
+  // Téléphone : un seul jour (7 colonnes ne tiennent pas sur 390 px), flèches = jour par jour
+  const mobile = useEstMobile()
+  const jours = mobile ? [courant] : Array.from({ length: 7 }, (_, i) => addDays(debut, i))
+  const reculer = () => setCourant(d => (mobile ? addDays(d, -1) : subWeeks(d, 1)))
+  const avancer = () => setCourant(d => (mobile ? addDays(d, 1) : addWeeks(d, 1)))
 
   const { appointments, loading, refetch } = useCloserAppointments(
     profile?.full_name ?? null, format(debut, 'yyyy-MM-dd'), format(fin, 'yyyy-MM-dd'), profile?.ghl_user_id ?? null,
@@ -78,12 +83,14 @@ export default function CloserSemaine({ profile }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <Button variant="secondary" size="sm" onClick={() => setCourant(d => subWeeks(d, 1))} aria-label="Semaine précédente">‹</Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="secondary" size="sm" onClick={reculer} aria-label={mobile ? 'Jour précédent' : 'Semaine précédente'}>‹</Button>
           <Button variant="secondary" size="sm" onClick={() => setCourant(new Date())}>Aujourd'hui</Button>
-          <Button variant="secondary" size="sm" onClick={() => setCourant(d => addWeeks(d, 1))} aria-label="Semaine suivante">›</Button>
+          <Button variant="secondary" size="sm" onClick={avancer} aria-label={mobile ? 'Jour suivant' : 'Semaine suivante'}>›</Button>
           <span className="text-sm font-semibold text-[#1a1a1a] ml-2">
-            {format(debut, 'd MMM', { locale: fr })} → {format(fin, 'd MMM yyyy', { locale: fr })}
+            {mobile
+              ? format(courant, 'EEEE d MMMM', { locale: fr })
+              : <>{format(debut, 'd MMM', { locale: fr })} → {format(fin, 'd MMM yyyy', { locale: fr })}</>}
           </span>
         </div>
         <div className="flex items-center gap-2">
