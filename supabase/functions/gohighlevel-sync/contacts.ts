@@ -75,3 +75,17 @@ export function corpsRechercheModifies(locationId: string, depuisIso: string, se
   if (searchAfter) corps.searchAfter = searchAfter
   return corps
 }
+
+// La liste GHL arrive du plus récent au plus ancien (dateAdded décroissant) et
+// ignore le filtre startDate. On garde les contacts ajoutés depuis `depuisMs` et
+// on signale qu'il faut arrêter dès qu'un contact plus ancien apparaît.
+export function nouveauxDepuis(contacts: Contact[], depuisMs: number) {
+  const gardes: Contact[] = []
+  let fini = false
+  for (const c of contacts) {
+    const t = Date.parse(String(c.dateAdded ?? ''))
+    if (Number.isNaN(t) || t < depuisMs) { fini = true; continue }
+    gardes.push(c)
+  }
+  return { gardes, fini }
+}

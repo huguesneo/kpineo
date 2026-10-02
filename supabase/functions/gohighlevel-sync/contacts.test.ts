@@ -60,3 +60,18 @@ describe('copie des contacts GHL', () => {
     expect(corpsRechercheModifies('LOC', 'x', [5, 'id']).searchAfter).toEqual([5, 'id'])
   })
 })
+
+describe('nouveaux contacts depuis le dernier passage', () => {
+  it('garde les récents et s’arrête au premier plus ancien', async () => {
+    const { nouveauxDepuis } = await import('./contacts')
+    const depuis = Date.parse('2026-10-02T14:00:00Z')
+    const r = nouveauxDepuis([
+      { id: 'a', dateAdded: '2026-10-02T14:47:00Z' },
+      { id: 'b', dateAdded: '2026-10-02T14:01:00Z' },
+      { id: 'c', dateAdded: '2026-10-02T13:59:00Z' },
+    ], depuis)
+    expect(r.gardes.map(c => c.id)).toEqual(['a', 'b'])
+    expect(r.fini).toBe(true)
+    expect(nouveauxDepuis([{ id: 'a', dateAdded: '2026-10-02T15:00:00Z' }], depuis)).toEqual({ gardes: [{ id: 'a', dateAdded: '2026-10-02T15:00:00Z' }], fini: false })
+  })
+})

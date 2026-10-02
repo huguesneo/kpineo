@@ -1,7 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { idsAPurger, paquets } from './purge.ts'
 import { estAppelCron, verdictAcces, jetonBearer } from './auth.ts'
-import { ligneContactComplete, ligneContactModifie, corpsRechercheModifies } from './contacts.ts'
+import { ligneContactComplete, ligneContactModifie, corpsRechercheModifies, nouveauxDepuis } from './contacts.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -39,7 +39,6 @@ async function fetchAndUpsertContacts(
     const params = new URLSearchParams({ locationId, limit: '100' })
     if (cursorTs) params.set('startAfter', cursorTs)
     if (cursorId) params.set('startAfterId', cursorId)
-    if (sinceDate) params.set('startDate', sinceDate)
 
     const res = await fetch(`${GHL_BASE}/contacts/?${params}`, { headers: ghlHeaders(apiKey) })
     if (!res.ok) {
@@ -47,7 +46,13 @@ async function fetchAndUpsertContacts(
       break
     }
     const data = await res.json() as Record<string, unknown>
-    const contacts = (data?.contacts ?? []) as Record<string, unknown>[]
+    const page = (data?.contacts ?? []) as Record<string, unknown>[]
+    // Synchro incrémentale : la liste arrive du plus récent au plus ancien et ignore
+    // startDate ; on s'arrête au premier contact ajouté avant sinceDate (- 15 min).
+    const { gardes, fini } = sinceDate
+      ? nouveauxDepuis(page, Date.parse(sinceDate) - 15 * 60_000)
+      : { gardes: page, fini: false }
+    const contacts = gardes
 
     const maintenant = new Date().toISOString()
     const rows = contacts.map(c => ligneContactComplete(c, locationId, maintenant))
@@ -59,7 +64,7 @@ async function fetchAndUpsertContacts(
     synced += rows.length
 
     const meta = data?.meta as Record<string, unknown>
-    if (contacts.length < 100 || !meta?.nextPageUrl) break
+    if (fini || page.length < 100 || !meta?.nextPageUrl) break
 
     // GHL expose startAfter (timestamp) ET startAfterId directement dans meta
     const nextTs = meta?.startAfter != null ? String(meta.startAfter) : undefined
