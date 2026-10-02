@@ -2,7 +2,7 @@
 
 GHL n'envoie ses événements natifs (`OpportunityStageUpdate`, suppressions…) qu'aux
 apps Marketplace : `ghl-webhook` n'a rien reçu en 90 jours. La source fiable, ce sont
-les **actions Webhook des workflows**. Ces 4 recettes font bouger les écrans v2 en
+les **actions Webhook des workflows**. Ces 3 recettes (workflows 1 à 3) font bouger les écrans v2 en
 temps réel (Supabase Realtime est déjà actif sur `ghl_opportunities` et `ghl_appointments`).
 
 ## Ce qui est déjà en place côté app
@@ -99,7 +99,11 @@ dans le cache jusqu'à la prochaine synchro (tâche `ghl-incremental-sync`, tout
 30 minutes en production). Si un jour un déclencheur existe, envoyer
 `{ "customData": { "type": "AppointmentDelete", "id": "…" } }` supprime la ligne.
 
-## Workflow 4 : « Tag app-tentative-faite ajouté → étape suivante »
+## Workflow 4 : « Tag app-tentative-faite ajouté → étape suivante » (OBSOLÈTE, ne pas créer)
+
+> Retiré le 2 oct. 2026 : le bouton « Pas de réponse » n'existe plus (GHL enregistre
+> lui-même les appels sans réponse). Le tag `app-tentative-faite` n'est plus posé.
+
 
 L'app ne déplace aucune carte. Quand un setter clique « Pas de réponse », elle écrit
 une note (« Tentative n faite depuis l'app par Prénom ») et pose le tag
