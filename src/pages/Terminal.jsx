@@ -112,9 +112,10 @@ function BasePricesEditor({ prices, onSaved }) {
   )
 }
 
-function NewPlanForm({ onCreated }) {
+// prefill (optionnel) : champs préremplis, ex. après une rencontre d'évaluation (espace v2)
+function NewPlanForm({ onCreated, prefill = null }) {
   const { user } = useAuth()
-  const [form, setForm] = useState(emptyForm)
+  const [form, setForm] = useState(() => ({ ...emptyForm(), ...(prefill ?? {}) }))
   const [saving, setSaving] = useState('')
   const [error, setError] = useState('')
   const [showPrices, setShowPrices] = useState(false)
@@ -472,7 +473,9 @@ function PlanRow({ plan, isManager, onAction, highlight }) {
   )
 }
 
-export function TerminalPanel({ showHeader = true }) {
+// prefill : formulaire prérempli (rencontre d'évaluation, espace v2)
+// seulementFormulaire : la nouvelle vente sans la liste des ventes (affichage dans une fenêtre)
+export function TerminalPanel({ showHeader = true, prefill = null, seulementFormulaire = false }) {
   const { isAdmin, isRespVente } = useAuth()
   const isManager = isAdmin || isRespVente
   const [plans, setPlans] = useState([])
@@ -534,10 +537,10 @@ export function TerminalPanel({ showHeader = true }) {
         <p className="text-sm text-[#6b7280]">Prends le paiement, enregistre la carte, Moneris prélève les versements suivants.</p>
       </div>}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-        <NewPlanForm onCreated={onCreated} />
+      <div className={seulementFormulaire ? '' : 'grid grid-cols-1 lg:grid-cols-2 gap-6 items-start'}>
+        <NewPlanForm onCreated={onCreated} prefill={prefill} />
 
-        <div className="space-y-3">
+        {!seulementFormulaire && <div className="space-y-3">
           <div className="flex gap-2">
             {[['open', 'En cours'], ['issues', 'À régler'], ['all', 'Toutes']].map(([k, l]) => (
               <Button key={k} size="sm" variant={filter === k ? 'primary' : 'secondary'} onClick={() => setFilter(k)}>{l}</Button>
@@ -549,7 +552,7 @@ export function TerminalPanel({ showHeader = true }) {
             <PlanRow key={p.id} plan={p} isManager={isManager} highlight={p.id === highlightId}
               onAction={{ refresh: load, toast: showToast, enterCard: setCardPlan }} />
           ))}
-        </div>
+        </div>}
       </div>
 
       {cardPlan && (

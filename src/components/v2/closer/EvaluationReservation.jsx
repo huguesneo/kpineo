@@ -4,12 +4,31 @@ import { EVALUATION } from '../../../lib/v2/salesConfig'
 import { fmtHeure } from '../../../lib/v2/format'
 import { jourDe, moisSuivant } from '../../../lib/v2/creneaux'
 import CalendrierCreneaux from './CalendrierCreneaux'
+import { prefillTerminal, decouperAdresse, codeProvince } from '../../../lib/v2/prefillTerminal'
+import { TerminalPanel } from '../../../pages/Terminal'
+import { canUseTerminal } from '../../../lib/terminal/flag'
+import { useAuth } from '../../../context/AuthContext'
+
+const PROVINCES = ['QC', 'ON', 'NB', 'NS', 'PE', 'NL', 'MB', 'SK', 'AB', 'BC', 'YT', 'NT', 'NU']
+
+// Adresse d'un contact GHL (cache ghl_contacts : colonnes + raw) pour le formulaire
+function adresseDe(c) {
+  const raw = c?.raw ?? {}
+  const { numero, rue } = decouperAdresse(c?.address1 ?? raw.address1 ?? '')
+  return {
+    numero, rue, app: '',
+    ville: c?.city ?? raw.city ?? '',
+    province: codeProvince(c?.state ?? raw.state ?? ''),
+    codePostal: c?.postal_code ?? c?.postalCode ?? raw.postalCode ?? '',
+  }
+}
 
 const MOTIFS = {
   creneau_pris: 'Cette plage vient d’être prise. Les disponibilités sont à jour : choisis-en une autre.',
   ghl_indisponible: 'GoHighLevel ne répond pas pour le moment. Réessaie dans un instant ou utilise le calendrier GHL.',
   contact_refuse: 'GoHighLevel a refusé la mise à jour du contact (courriel ou téléphone invalide ?).',
-  non_autorise: 'Ton compte n’a pas accès à la prise de rendez-vous.',
+  non_autorise: 'Ton compte n’a pas accès à la prise de rendez-vous (rôle closeur, resp_vente ou admin requis).',
+  session_expiree: 'Ta session a expiré : déconnecte-toi puis reconnecte-toi, et réessaie.',
 }
 
 function libelleJour(jour) {
@@ -22,13 +41,21 @@ function libelleJour(jour) {
   }
 }
 
-async function appeler(body) {
+async function appelerUneFois(body) {
   const { data, error } = await supabase.functions.invoke('ghl-eval-book', { body })
   if (error) {
     // Erreur HTTP : le corps porte souvent { motif }
     try { return await error.context.json() } catch { return { ok: false, motif: 'erreur' } }
   }
   return data
+}
+
+// Session expirée (ordinateur en veille…) : on la rafraîchit et on réessaie une fois
+async function appeler(body) {
+  const r = await appelerUneFois(body)
+  if (r?.motif !== 'session_expiree') return r
+  const { error } = await supabase.auth.refreshSession()
+  return error ? r : appelerUneFois(body)
 }
 
 const champCls = 'w-full px-3 py-2.5 sm:py-2 text-base sm:text-sm border border-[#e5e7eb] rounded-lg bg-white outline-none focus:border-[#00bbb1]'
@@ -45,7 +72,7 @@ function RechercheClient({ contactId, onChoisir }) {
       const motif = `%${terme.replace(/[%_,()]/g, ' ')}%`
       const { data } = await supabase
         .from('ghl_contacts')
-        .select('ghl_id, first_name, last_name, email, phone')
+        .select('ghl_id, first_name, last_name, email, phone, address1:raw->>address1, city:raw->>city, state:raw->>state, postal_code:raw->>postalCode')
         .or(`first_name.ilike.${motif},last_name.ilike.${motif},email.ilike.${motif},phone.ilike.${motif}`)
         .order('created_at_ghl', { ascending: false })
         .limit(8)
@@ -106,11 +133,15 @@ export default function EvaluationReservation({
   const [erreur, setErreur] = useState(null)
   const [jour, setJour] = useState(null)
   const [creneau, setCreneau] = useState(null)
+  const { isAdmin, isAdminOrRespVente, hasCloserRole } = useAuth()
+  const terminalPermis = canUseTerminal({ isAdmin, isAdminOrRespVente, hasCloserRole })
   const [form, setForm] = useState({
     prenom: client?.first_name ?? '', nom: client?.last_name ?? '',
     telephone: client?.phone ?? '', courriel: client?.email ?? '',
+    ...adresseDe(client),
     forfait: '', nbPaiements: '',
   })
+  const [paiementOuvert, setPaiementOuvert] = useState(false)
   const [envoi, setEnvoi] = useState(false)
   const [confirme, setConfirme] = useState(null)
 
@@ -133,8 +164,10 @@ export default function EvaluationReservation({
 
   useEffect(() => { setCreneau(null); charger() }, [charger])
 
+  // Adresse complète exigée : le terminal de paiement la reprend
   const complet = creneau && form.prenom.trim() && form.nom.trim() && form.forfait && form.nbPaiements
     && (form.courriel.trim() || form.telephone.trim())
+    && form.numero.trim() && form.rue.trim() && form.ville.trim() && form.codePostal.trim()
 
   async function confirmer() {
     if (!complet || envoi) return
@@ -144,6 +177,7 @@ export default function EvaluationReservation({
       action: 'book', type, userId: membre || undefined, contactId: contactId || undefined, startTime: creneau,
       prenom: form.prenom, nom: form.nom, telephone: form.telephone, courriel: form.courriel,
       forfait: form.forfait, nbPaiements: form.nbPaiements,
+      numero: form.numero, rue: form.rue, app: form.app, ville: form.ville, province: form.province, codePostal: form.codePostal,
     })
     setEnvoi(false)
     if (r?.ok) {
@@ -157,10 +191,15 @@ export default function EvaluationReservation({
 
   const nomMembre = id => EVALUATION.membres.find(m => m.userId === id)?.nom
 
+  // Terminal prérempli à partir du forfait, du nombre de paiements et de la date de l'évaluation
+  const terminalPrerempli = confirme
+    ? prefillTerminal({ forfait: form.forfait, nbPaiements: form.nbPaiements, dateEvaluation: confirme.startTime, client: form })
+    : null
+
   return (
     <>
         {confirme ? (
-          <div className="flex-1 flex flex-col items-center justify-center text-center gap-3 px-6 py-12">
+          <div className="flex-1 min-h-0 overflow-y-auto flex flex-col items-center text-center gap-3 px-4 sm:px-6 py-10">
             <div className="w-12 h-12 rounded-full bg-[#ecfdf5] flex items-center justify-center">
               <svg className="w-6 h-6 text-[#10b981]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
             </div>
@@ -170,7 +209,23 @@ export default function EvaluationReservation({
               {confirme.assignedUserId && nomMembre(confirme.assignedUserId) ? ` avec ${nomMembre(confirme.assignedUserId)}` : ''}.
             </p>
             <p className="text-xs text-[#9ca3af]">Le rendez-vous est dans GoHighLevel ; les confirmations partent comme d'habitude.</p>
-            <button onClick={onTermine} className="mt-2 px-5 py-2.5 rounded-lg bg-[#00bbb1] text-white text-sm font-semibold hover:bg-[#009e95]">{libelleTermine}</button>
+            {terminalPrerempli && terminalPermis && !paiementOuvert && (
+              <button onClick={() => setPaiementOuvert(true)} className="mt-2 px-5 py-2.5 rounded-lg bg-[#00bbb1] text-white text-sm font-semibold hover:bg-[#009e95]">
+                Prendre le paiement
+              </button>
+            )}
+            <button onClick={onTermine}
+              className={terminalPrerempli && terminalPermis && !paiementOuvert
+                ? 'text-xs font-semibold text-[#6b7280] underline underline-offset-2'
+                : 'mt-2 px-5 py-2.5 rounded-lg bg-[#00bbb1] text-white text-sm font-semibold hover:bg-[#009e95]'}>
+              {libelleTermine}
+            </button>
+            {paiementOuvert && terminalPrerempli && (
+              <div className="w-full max-w-xl text-left mt-4">
+                <p className="text-xs font-bold text-[#6b7280] uppercase tracking-wide mb-2">Paiement · prérempli depuis le rendez-vous</p>
+                <TerminalPanel showHeader={false} seulementFormulaire prefill={terminalPrerempli} />
+              </div>
+            )}
           </div>
         ) : (
           <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-4 flex flex-col gap-5">
@@ -239,6 +294,7 @@ export default function EvaluationReservation({
                         ...f,
                         prenom: c?.first_name ?? '', nom: c?.last_name ?? '',
                         telephone: c?.phone ?? '', courriel: c?.email ?? '',
+                        ...adresseDe(c),
                       }))
                     }}
                   />
@@ -249,6 +305,20 @@ export default function EvaluationReservation({
                 </div>
                 <input className={champCls} value={form.telephone} onChange={set('telephone')} placeholder="Téléphone" aria-label="Téléphone" inputMode="tel" />
                 <input className={champCls} value={form.courriel} onChange={set('courriel')} placeholder="Courriel" aria-label="Courriel" type="email" />
+                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,2.5fr)] gap-3">
+                  <input className={champCls} value={form.numero} onChange={set('numero')} placeholder="N° civique" aria-label="Numéro civique" />
+                  <input className={champCls} value={form.rue} onChange={set('rue')} placeholder="Rue" aria-label="Rue" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <input className={champCls} value={form.app} onChange={set('app')} placeholder="App. (facultatif)" aria-label="Appartement" />
+                  <input className={champCls} value={form.ville} onChange={set('ville')} placeholder="Ville" aria-label="Ville" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <select className={champCls} value={form.province} onChange={set('province')} aria-label="Province">
+                    {PROVINCES.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                  <input className={champCls} value={form.codePostal} onChange={set('codePostal')} placeholder="Code postal" aria-label="Code postal" autoCapitalize="characters" />
+                </div>
                 <select className={champCls} value={form.forfait} onChange={set('forfait')} aria-label="Type de forfait">
                   <option value="">Type de forfait…</option>
                   {EVALUATION.forfaits.map(f => <option key={f} value={f}>{f}</option>)}

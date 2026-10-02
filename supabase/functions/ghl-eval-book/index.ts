@@ -39,10 +39,9 @@ const FORFAITS = new Set([
   "Programme d'optimisation métabolique plus 10%",
   "Programme d'optimisation métabolique plus garanti",
   "Programme d'optimisation métabolique plus 10% & garanti",
-  'Forfait métabolique sans entrainement',
   'À la carte',
 ])
-const NB_PAIEMENTS = new Set(['1', '2', '3', '5'])
+const NB_PAIEMENTS = new Set(['1', '3', '5'])
 const ROLES = ['admin', 'resp_vente', 'closer']
 
 function entetes(token: string, version: string) {
@@ -72,13 +71,20 @@ Deno.serve(async (req) => {
 
   try {
     const jeton = String(req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '')
-    if (!jeton) return json({ ok: false, motif: 'non_autorise' }, 401)
+    if (!jeton) return json({ ok: false, motif: 'session_expiree' }, 401)
     const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
     const { data: { user } } = await supabase.auth.getUser(jeton)
-    if (!user) return json({ ok: false, motif: 'non_autorise' }, 401)
+    // Jeton absent ou expiré (l'app envoie alors la clé anon) : pas d'utilisateur
+    if (!user) {
+      console.warn('[ghl-eval-book] refus : session absente ou expirée')
+      return json({ ok: false, motif: 'session_expiree' }, 401)
+    }
     const { data: profil } = await supabase.from('profiles').select('full_name, role, secondary_roles').eq('id', user.id).maybeSingle()
     const roles = [profil?.role, ...((profil?.secondary_roles as string[] | null) ?? [])]
-    if (!roles.some(r => ROLES.includes(String(r)))) return json({ ok: false, motif: 'non_autorise' }, 403)
+    if (!roles.some(r => ROLES.includes(String(r)))) {
+      console.warn(`[ghl-eval-book] refus : ${profil?.full_name ?? user.email} (rôles ${roles.filter(Boolean).join(', ') || 'aucun'})`)
+      return json({ ok: false, motif: 'non_autorise' }, 403)
+    }
 
     const token = Deno.env.get('GHL_API_KEY')
     if (!token) return json({ ok: false, motif: 'config' }, 500)
@@ -108,7 +114,8 @@ Deno.serve(async (req) => {
     }
 
     if (body.action === 'book') {
-      const { contactId, startTime, prenom, nom, telephone, courriel, forfait, nbPaiements } = body
+      const { contactId, startTime, prenom, nom, telephone, courriel, forfait, nbPaiements,
+        numero, rue, app, ville, province, codePostal } = body
       if (!startTime) return json({ ok: false, motif: 'incomplet' }, 400)
       if (!contactId && !String(courriel ?? '').trim() && !String(telephone ?? '').trim()) {
         return json({ ok: false, motif: 'coordonnees_requises' }, 400)
@@ -136,6 +143,13 @@ Deno.serve(async (req) => {
       }
       if (String(courriel ?? '').trim()) contact.email = String(courriel).trim()
       if (String(telephone ?? '').trim()) contact.phone = String(telephone).trim()
+      // Adresse complète (reprise par le terminal de paiement)
+      const ligne = [String(numero ?? '').trim(), String(rue ?? '').trim()].filter(Boolean).join(' ')
+      if (ligne) contact.address1 = String(app ?? '').trim() ? `${ligne}, app. ${String(app).trim()}` : ligne
+      if (String(ville ?? '').trim()) contact.city = String(ville).trim()
+      if (String(province ?? '').trim()) contact.state = String(province).trim()
+      if (String(codePostal ?? '').trim()) contact.postalCode = String(codePostal).trim().toUpperCase()
+      if (ligne || String(codePostal ?? '').trim()) contact.country = 'CA'
       // Contact connu : mise à jour ; sinon création ou contact existant (upsert)
       const rc = contactId
         ? await fetch(`${GHL_BASE}/contacts/${contactId}`, {

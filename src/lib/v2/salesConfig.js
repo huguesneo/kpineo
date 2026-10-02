@@ -121,15 +121,15 @@ export const EVALUATION = {
   ],
   // Champs du formulaire d'évaluation (contact GHL)
   champs: { forfait: 'MmpQg7j8EyzfQ7aYhigw', nbPaiements: '7UixfQ3XzMDT3Yh362QI' },
-  // Valeurs en usage dans GHL (45 derniers jours)
+  // Valeurs en usage dans GHL (« Forfait métabolique sans entrainement » n'est plus utilisé)
   forfaits: [
     "Programme d'optimisation métabolique",
     "Programme d'optimisation métabolique plus 10%",
     "Programme d'optimisation métabolique plus garanti",
     "Programme d'optimisation métabolique plus 10% & garanti",
-    'Forfait métabolique sans entrainement',
     'À la carte',
   ],
-  nbPaiements: ['1', '2', '3', '5'],
+  // Mêmes nombres que les produits du terminal (Forfait 15 semaines NEO - 1, 3 ou 5 paiements)
+  nbPaiements: ['1', '3', '5'],
   horizonJours: 30,
 }
