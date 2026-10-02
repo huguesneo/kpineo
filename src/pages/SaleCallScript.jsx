@@ -19,6 +19,7 @@ import {
 } from '../hooks/useQuizResponse'
 import { useSaleCallNote } from '../hooks/useSaleCallNotes'
 import { EOD_OBJECTIONS, saveRowChangesToEOD } from '../hooks/useCloserEOD'
+import { finRendezVous, showPermis, heureShowPermis, SHOW_CHAMPS_MIN, ficheRemplie } from '../lib/showHoraire'
 
 // ─── Helpers ──────────────────────────────────────────────────
 function fmtTime(iso) {
@@ -208,18 +209,18 @@ function QuizRow({ label, value }) {
 
 // ─── Passage automatique en « show » ──────────────────────────
 // Un show déclenche la commission du setter : on ne le met tout seul que si
-// le closeur a vraiment travaillé l'appel, et jamais par-dessus un statut déjà
-// choisi (no-show, annulé, show).
-const AUTO_SHOW_CHAMPS   = 6          // champs de qualification remplis
-const AUTO_SHOW_AVANT_MS = 5 * 60_000 // tolérance avant l'heure de début
-const AUTO_SHOW_APRES_MS = 8 * 3_600_000 // au-delà, on ne devine plus
+// le closeur a vraiment travaillé l'appel, jamais par-dessus un statut déjà
+// choisi (no-show, annulé, show), et seulement à partir de la fin prévue du
+// rendez-vous — la même heure que pour le bouton Show (src/lib/showHoraire.js).
+const AUTO_SHOW_CHAMPS   = SHOW_CHAMPS_MIN // champs de qualification remplis
+const AUTO_SHOW_APRES_MS = 8 * 3_600_000   // après la fin, on ne devine plus
 
-export function peutPasserEnShowAuto({ champsRemplis, statut, debut, maintenant = Date.now() }) {
+export function peutPasserEnShowAuto({ champsRemplis, statut, debut, fin, maintenant = Date.now() }) {
   if (champsRemplis < AUTO_SHOW_CHAMPS) return false
   if (statut && statut !== 'confirmed' && statut !== 'new' && statut !== 'pending') return false
-  const t = debut ? new Date(debut).getTime() : NaN
-  if (isNaN(t)) return false
-  return maintenant >= t - AUTO_SHOW_AVANT_MS && maintenant <= t + AUTO_SHOW_APRES_MS
+  if (!debut || isNaN(new Date(debut).getTime())) return false
+  const tFin = finRendezVous({ start_time: debut, end_time: fin })
+  return maintenant >= tFin && maintenant <= tFin + AUTO_SHOW_APRES_MS
 }
 
 // ─── Main page ────────────────────────────────────────────────
@@ -344,12 +345,28 @@ export default function SaleCallScript() {
   }
 
   // Passe le rendez-vous en « show » quand la qualification est vraiment
-  // remplie, pendant la fenêtre de l'appel, et jamais par-dessus un statut
+  // remplie, à la fin prévue du rendez-vous, et jamais par-dessus un statut
   // déjà choisi. Une seule fois par ouverture de l'écran.
-  async function tenterShowAuto() {
-    if (autoShowFait.current || !appt?.ghl_id) return
+  // Lit ses données dans une ref : il est aussi appelé par une minuterie, où
+  // les valeurs capturées seraient périmées.
+  const derniers = useRef({})
+  derniers.current = { appt, apptStatus, qual, userId: profile?.id, note: formatNoteForGHL }
+
+  function showAutoPermis(statut) {
+    const { appt, qual } = derniers.current
+    if (autoShowFait.current || !appt?.ghl_id) return false
     const champsRemplis = QUAL_FIELDS.filter(f => qual[f.key]?.trim()).length
-    if (!peutPasserEnShowAuto({ champsRemplis, statut: apptStatus, debut: appt.start_time })) return
+    return peutPasserEnShowAuto({ champsRemplis, statut, debut: appt.start_time, fin: appt.end_time })
+  }
+
+  async function tenterShowAuto() {
+    if (!showAutoPermis(derniers.current.apptStatus)) return
+    const { appt, userId, note } = derniers.current
+
+    // Relire le statut : il a pu être changé ailleurs pendant l'appel.
+    const { data: frais } = await supabase
+      .from('ghl_appointments').select('status').eq('ghl_id', appt.ghl_id).maybeSingle()
+    if (!showAutoPermis(frais?.status ?? derniers.current.apptStatus)) return
 
     autoShowFait.current = true
     const { error } = await supabase.functions.invoke('ghl-update-appointment', {
@@ -357,15 +374,29 @@ export default function SaleCallScript() {
         appointmentId: appt.ghl_id,
         contactId:     appt.contact_id ?? undefined,
         status:        'show',
-        note:          formatNoteForGHL(),
+        note:          note(),
       },
     })
     if (error) { autoShowFait.current = false; return }
 
     setApptStatus('showed')
     setAutoShow(true)
-    await saveRowChangesToEOD(profile?.id, appt, { status: 'show' })
+    await saveRowChangesToEOD(userId, appt, { status: 'show' })
   }
+
+  // À la fin prévue du rendez-vous, si l'écran est encore ouvert. Si la fiche
+  // n'est pas assez remplie à ce moment-là, le prochain champ quitté réessaie.
+  // Relancé quand la note sauvegardée arrive, pour l'écran ouvert après la fin.
+  const [finPassee, setFinPassee] = useState(false)
+  const [showProgramme, setShowProgramme] = useState(false)  // Show cliqué avant la fin
+  useEffect(() => {
+    if (!appt?.start_time) return
+    const delai = finRendezVous(appt) - Date.now()
+    if (isNaN(delai) || delai > 2 ** 31 - 1) return
+    const id = setTimeout(() => { setFinPassee(true); tenterShowAuto() }, Math.max(0, delai) + 1000)
+    return () => clearTimeout(id)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appt?.ghl_id, appt?.start_time, appt?.end_time, savedNote])
 
   // ── Save notes ──
   async function handleSaveNotes() {
@@ -419,6 +450,25 @@ export default function SaleCallScript() {
   // ── Update appointment status ──
   async function handleStatus(uiStatus) {
     if (!appt?.ghl_id || statusSaving) return
+    if (uiStatus === 'show') {
+      // Pas de show sans fiche remplie
+      if (filledCount < SHOW_CHAMPS_MIN) return
+      // Avant la fin prévue : on programme. La fiche est sauvegardée, et le
+      // show part à la fin (minuterie de cet écran, sinon show-auto côté
+      // serveur, qui ne demande qu'une fiche remplie et un statut libre).
+      if (!showPermis(appt)) {
+        setStatusSaving(true)
+        const { error } = await saveNote({
+          userId:        profile?.id,
+          contactId:     contact?.ghl_id ?? appt?.contact_id,
+          contactName,
+          qualification: qual,
+        })
+        setStatusSaving(false)
+        if (!error) setShowProgramme(true)
+        return
+      }
+    }
     setStatusSaving(true)
 
     // Save notes alongside status if any are filled
@@ -783,13 +833,36 @@ export default function SaleCallScript() {
                     </svg>
                   ),
                 },
-              ].map(({ status, label, active, activeStyle, hoverClass, icon }) => (
+              ].map(({ status, label, active, activeStyle, hoverClass, icon }) => {
+                // Show : fiche remplie obligatoire ; avant la fin prévue, le
+                // clic programme le show pour l'heure de fin.
+                const estShow    = status === 'show' && !active
+                const ficheManque = estShow && filledCount < SHOW_CHAMPS_MIN
+                const avantFin   = estShow && !finPassee && !showPermis(appt)
+                // Une fiche remplie et sauvegardée suffit : le show partira de
+                // toute façon à la fin (show-auto). Le clic ne fait que sauvegarder.
+                const programme  = avantFin && !ficheManque && (showProgramme || ficheRemplie(savedNote?.qualification))
+                const bloque     = ficheManque || programme
+                const heure      = heureShowPermis(appt)
+                const titre = ficheManque
+                  ? `Remplir au moins ${SHOW_CHAMPS_MIN} champs de la fiche de qualification (${filledCount}/${SHOW_CHAMPS_MIN})`
+                  : programme ? `Le show sera appliqué à ${heure}, à la fin prévue du rendez-vous`
+                  : avantFin  ? `Programmer le show : il sera appliqué à ${heure}, à la fin prévue du rendez-vous`
+                  : undefined
+                const texte = ficheManque ? `${label} · fiche ${filledCount}/${SHOW_CHAMPS_MIN}`
+                  : programme ? `${label} programmé · ${heure}`
+                  : avantFin  ? `${label} à ${heure}`
+                  : label
+                return (
                 <button
                   key={status}
                   onClick={() => handleStatus(status)}
-                  disabled={statusSaving || active}
+                  disabled={statusSaving || active || bloque}
+                  title={titre}
                   className={`flex flex-col items-center justify-center gap-1.5 py-3 rounded-xl text-xs font-bold border transition-all disabled:cursor-default ${
-                    active ? '' : `bg-white border-[#e5e7eb] text-[#6b7280] ${hoverClass}`
+                    active ? '' : programme ? 'bg-[#10b981]/10 border-[#10b981]/40 text-[#10b981]'
+                    : ficheManque ? 'bg-[#f9fafb] border-[#e5e7eb] text-[#c4c9d1]'
+                    : `bg-white border-[#e5e7eb] text-[#6b7280] ${hoverClass}`
                   }`}
                   style={active ? activeStyle : {}}
                 >
@@ -799,9 +872,10 @@ export default function SaleCallScript() {
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                     </svg>
                   ) : icon}
-                  {label}
+                  {texte}
                 </button>
-              ))}
+                )
+              })}
             </div>
 
             {/* Retour */}

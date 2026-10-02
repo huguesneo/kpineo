@@ -1,10 +1,11 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { format, parseISO, subDays } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import { supabase } from '../../lib/supabase'
 import Card from '../shared/Card'
 import Button from '../shared/Button'
 import { useCloserEOD, EOD_STATUSES, EOD_OBJECTIONS, EOD_FEEDBACK_OPTIONS } from '../../hooks/useCloserEOD'
+import { showPermis, heureShowPermis, champsFicheParRdv, SHOW_CHAMPS_MIN } from '../../lib/showHoraire'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -55,7 +56,7 @@ function InlineSelect({ value, onChange, options, placeholder = '—', className
     >
       <option value="">{placeholder}</option>
       {options.map(o => (
-        <option key={o.value} value={o.value}>{o.label}</option>
+        <option key={o.value} value={o.value} disabled={o.disabled}>{o.label}</option>
       ))}
     </select>
   )
@@ -63,7 +64,7 @@ function InlineSelect({ value, onChange, options, placeholder = '—', className
 
 // ─── Ligne du tableau ─────────────────────────────────────────────────────────
 
-function EODRow({ row, index, onChange }) {
+function EODRow({ row, index, onChange, champsFiche = 0 }) {
   const notClosed = row.is_closed === false || row.is_closed === 'false'
 
   return (
@@ -79,7 +80,13 @@ function EODRow({ row, index, onChange }) {
         <InlineSelect
           value={row.status}
           onChange={v => onChange(index, { status: v })}
-          options={EOD_STATUSES}
+          options={row.status === 'show' ? EOD_STATUSES : EOD_STATUSES.map(s =>
+            s.value !== 'show' ? s
+            // Show : fiche de qualification remplie, et pas avant la fin prévue
+            : champsFiche < SHOW_CHAMPS_MIN ? { ...s, label: `Show · fiche ${champsFiche}/${SHOW_CHAMPS_MIN}`, disabled: true }
+            : !showPermis(row) ? { ...s, label: `Show dès ${heureShowPermis(row)}`, disabled: true }
+            : s
+          )}
         />
       </td>
 
@@ -302,6 +309,15 @@ export default function CloserEODForm({ userId, ghlUserId = null, closerName = n
     save, updateRow, refetch,
   } = useCloserEOD(userId, targetDate, ghlUserId, closerName)
 
+  // Fiches de qualification des rendez-vous du rapport : { ghl_id: champs remplis }
+  const [fiches, setFiches] = useState({})
+  const idsRdv = rows.map(r => r.ghl_appointment_id).join(',')
+  useEffect(() => {
+    let actif = true
+    champsFicheParRdv(supabase, idsRdv.split(',')).then(m => { if (actif) setFiches(m) })
+    return () => { actif = false }
+  }, [idsRdv])
+
   // Copie locale des lignes pour l'édition
   const [localRows,  setLocalRows]  = useState(null)
   const [localNotes, setLocalNotes] = useState('')
@@ -345,6 +361,26 @@ export default function CloserEODForm({ userId, ghlUserId = null, closerName = n
 
     const finalRows  = localRows ?? rows
     const finalNotes = localNotes ?? notes
+
+    // Show seulement après la fin prévue du rendez-vous
+    const showTropTot = finalRows.filter(r => r.status === 'show' && !showPermis(r))
+    if (showTropTot.length > 0) {
+      setSubmitting(false)
+      setGhlError(`Le show se marque à la fin prévue du rendez-vous : ${showTropTot.map(r => `${r.contact_name || 'un prospect'} (dès ${heureShowPermis(r)})`).join(', ')}.`)
+      return
+    }
+
+    // Nouveau show seulement avec une fiche de qualification remplie (les
+    // shows déjà enregistrés avant cette règle restent tels quels)
+    const dejaShow = new Set(rows.filter(r => r.status === 'show').map(r => r.ghl_appointment_id))
+    const showSansFiche = finalRows.filter(r =>
+      r.status === 'show' && !dejaShow.has(r.ghl_appointment_id) && (fiches[r.ghl_appointment_id] ?? 0) < SHOW_CHAMPS_MIN
+    )
+    if (showSansFiche.length > 0) {
+      setSubmitting(false)
+      setGhlError(`Pas de show sans fiche de qualification remplie (au moins ${SHOW_CHAMPS_MIN} champs) : ${showSansFiche.map(r => r.contact_name || 'un prospect').join(', ')}.`)
+      return
+    }
 
     // Objection principale obligatoire dès que ce n'est pas une vente
     const sansObjection = finalRows.filter(r => r.is_closed === false && !r.objection_principale)
@@ -519,7 +555,7 @@ export default function CloserEODForm({ userId, ghlUserId = null, closerName = n
             <tbody>
               {displayRows.map((row, i) =>
                 editing ? (
-                  <EODRow key={row.ghl_appointment_id || i} row={row} index={i} onChange={handleRowChange} />
+                  <EODRow key={row.ghl_appointment_id || i} row={row} index={i} onChange={handleRowChange} champsFiche={fiches[row.ghl_appointment_id] ?? 0} />
                 ) : (
                   <EODRowReadOnly key={row.ghl_appointment_id || i} row={row} />
                 )

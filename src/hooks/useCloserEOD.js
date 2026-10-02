@@ -49,6 +49,7 @@ export function rowFromAppointment(appt) {
     contact_name:       appt.contact_name || '',
     contact_id:         appt.contact_id   || '',
     start_time:         appt.start_time   || '',
+    end_time:           appt.end_time     || '',  // le show ne se marque pas avant
     status:             '',     // '' | 'show' | 'noshow' | 'annule'
     is_closed:          null,   // null | true | false
     rdv_decision:       null,   // null | true | false — affiché seulement si is_closed === false
@@ -205,12 +206,18 @@ export function useCloserEOD(userId, date = null, ghlUserId = null, closerName =
       const savedRows   = data.rows || []
       const knownIds    = new Set(savedRows.map(r => r.ghl_appointment_id))
       const newRows     = appts.filter(a => !knownIds.has(a.ghl_id)).map(makeNewRow)
-      // Enrichir les lignes existantes dont is_closed est encore null
+      // Enrichir les lignes existantes dont is_closed ou le statut est encore
+      // vide (ex. show automatique parti à la fermeture de l'onglet, qui ne
+      // touche que le rendez-vous)
       const enrichedSaved = savedRows.map(r => {
-        if (r.is_closed !== null) return r
+        if (r.is_closed !== null && r.status) return r
         const appt = appts.find(a => a.ghl_id === r.ghl_appointment_id)
         if (!appt) return r
-        return { ...r, is_closed: wonContactIds.has(appt.contact_id) ? true : null }
+        return {
+          ...r,
+          status:    r.status || ghlToEodStatus(appt.status),
+          is_closed: r.is_closed !== null ? r.is_closed : wonContactIds.has(appt.contact_id) ? true : null,
+        }
       })
       const merged      = [...enrichedSaved, ...newRows].sort((a, b) =>
         new Date(a.start_time) - new Date(b.start_time)

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { canUseTerminal } from '../../lib/terminal/flag'
 import { NavLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import { usePendingTasksCount, usePendingApprovalCount } from '../../hooks/useTasks'
@@ -78,6 +79,9 @@ export default function Sidebar() {
   const isAdminOrRespVente = isAdmin || isRespVente
   const isPrimaryCloserOrSetter = profile?.role === 'closer' || profile?.role === 'setter'
   const monEspaceTo = profile?.role === 'closer' ? '/closer' : profile?.role === 'setter' ? '/setter' : '/mon-dossier'
+  // Closer ET setter avec un rôle de vente principal : une entrée par espace
+  // (Closer, Setter) au lieu de « Mon Espace », qui n'ouvrait que le principal.
+  const doubleVente = isPrimaryCloserOrSetter && hasCloserRole && hasSetterRole
   const { count } = usePendingTasksCount(isAdminOrRespVente ? null : profile?.id)
   const { count: approvalCount } = usePendingApprovalCount()
   const horaireAlertCount = useTotalHoraireAlertCount()
@@ -251,7 +255,7 @@ export default function Sidebar() {
           />
         )}
         {/* Closer — rôle secondaire seulement (admin inclus s'il close) */}
-        {!v2Actif && (profile?.secondary_roles ?? []).includes('closer') && (
+        {!v2Actif && ((profile?.secondary_roles ?? []).includes('closer') || doubleVente) && (
           <NavItem
             to="/closer"
             label="Closer"
@@ -263,7 +267,7 @@ export default function Sidebar() {
           />
         )}
         {/* Setter — rôle secondaire seulement (admin inclus s'il set) */}
-        {!v2Actif && (profile?.secondary_roles ?? []).includes('setter') && (
+        {!v2Actif && ((profile?.secondary_roles ?? []).includes('setter') || doubleVente) && (
           <NavItem
             to="/setter"
             label="Setter"
@@ -282,6 +286,18 @@ export default function Sidebar() {
             icon={
               <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+              </svg>
+            }
+          />
+        )}
+        {/* Terminal de paiement — closeurs, admin et resp_vente */}
+        {canUseTerminal({ isAdmin, isAdminOrRespVente, hasCloserRole }) && (
+          <NavItem
+            to="/terminal"
+            label="Terminal de paiement"
+            icon={
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
               </svg>
             }
           />
@@ -310,9 +326,10 @@ export default function Sidebar() {
             }
           />
         )}
-        {/* Mon Espace — membre (incluant resp_vente). En v2, l'ancien espace
-            closer/setter passe par « Mon espace » ; le dossier reste au menu. */}
-        {!isAdmin && !(v2Actif && monEspaceTo !== '/mon-dossier') && (
+        {/* Mon Espace — membre (incluant resp_vente), sauf double rôle de vente
+            (entrées Closer et Setter). En v2, l'ancien espace closer/setter passe
+            par « Mon espace » ; le dossier reste au menu. */}
+        {!isAdmin && !doubleVente && !(v2Actif && monEspaceTo !== '/mon-dossier') && (
           <NavItem
             to={monEspaceTo}
             label={v2Actif ? 'Mon dossier' : 'Mon Espace'}

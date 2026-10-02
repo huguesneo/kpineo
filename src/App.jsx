@@ -26,6 +26,9 @@ import MetaAds from './pages/MetaAds'
 import Performance from './pages/Performance'
 import MaPerformance from './pages/MaPerformance'
 import ReseauxSociaux from './pages/ReseauxSociaux'
+import Terminal from './pages/Terminal'
+import PayerLien from './pages/PayerLien'
+import { TERMINAL_ENABLED, canUseTerminal } from './lib/terminal/flag'
 import { hasSocialAccess } from './lib/socialAccess'
 // Espace de vente v2 (derrière VITE_ESPACE_VENTE_V2)
 import { ESPACE_VENTE_V2 } from './lib/v2/featureFlag'
@@ -87,6 +90,15 @@ function SocialRoute({ children }) {
   return children
 }
 
+// Terminal : closeurs (principal ou secondaire), admin et resp_vente
+function TerminalRoute({ children }) {
+  const { user, loading, isAdmin, isAdminOrRespVente, hasCloserRole } = useAuth()
+  if (loading) return <LoadingScreen />
+  if (!user) return <Navigate to="/login" replace />
+  if (!canUseTerminal({ isAdmin, isAdminOrRespVente, hasCloserRole })) return <Navigate to="/dashboard" replace />
+  return children
+}
+
 function PublicRoute({ children }) {
   const { user, loading } = useAuth()
   if (loading) return <LoadingScreen />
@@ -137,6 +149,10 @@ function AppRoutes() {
       <Route path="/setter-admin" element={<SalesManagerRoute><SetterAdmin /></SalesManagerRoute>} />
       <Route path="/equipe-vente" element={<SalesManagerRoute><EquipeVente /></SalesManagerRoute>} />
       <Route path="/naturopathe"  element={<AdminRoute><EquipeNaturo /></AdminRoute>} />
+
+      {/* Terminal de paiement Moneris */}
+      <Route path="/terminal"      element={<TerminalRoute><Terminal /></TerminalRoute>} />
+      {TERMINAL_ENABLED && <Route path="/payer/:token" element={<PayerLien />} />}
 
       <Route path="*"            element={<Navigate to="/dashboard" replace />} />
     </Routes>

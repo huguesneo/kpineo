@@ -1255,7 +1255,7 @@ function PaymentRow({ payment }) {
 
 // ─── Member Dashboard ─────────────────────────────────────────
 function MemberDashboard() {
-  const { profile } = useAuth()
+  const { profile, hasCloserRole, hasSetterRole } = useAuth()
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [stats, setStats] = useState({ pendingTasks: 0, completedToday: 0, kpiThisMonth: 0 })
@@ -1466,8 +1466,10 @@ function MemberDashboard() {
         </>}
       </div>
 
-      {/* ── Closer : lien vers Mon Espace ── */}
-      {isCloser && (
+      {/* ── Closer : lien vers Mon Espace ──
+          Rôle principal ou secondaire : une personne closer ET setter voit
+          ses deux espaces. */}
+      {hasCloserRole && (
         <Link to="/closer" className="block mb-6">
           <Card className="p-5 flex items-center justify-between hover:border-[#00bbb1]/40 hover:shadow-sm transition-all">
             <div>
@@ -1700,8 +1702,8 @@ function MemberDashboard() {
         </>
       )}
 
-      {/* ── Setter : lien vers Mon Espace ── */}
-      {isSetter && (
+      {/* ── Setter : lien vers Mon Espace (rôle principal ou secondaire) ── */}
+      {hasSetterRole && (
         <Link to="/setter" className="block mb-6">
           <Card className="p-5 flex items-center justify-between hover:border-[#00bbb1]/40 hover:shadow-sm transition-all">
             <div>

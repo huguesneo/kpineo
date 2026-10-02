@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { format, parseISO } from 'date-fns'
 import { fr } from 'date-fns/locale'
 import Layout from '../components/layout/Layout'
+import EspaceVenteRoles from '../components/shared/EspaceVenteRoles'
 import Header from '../components/layout/Header'
 import Card from '../components/shared/Card'
 import Button from '../components/shared/Button'
@@ -264,10 +265,7 @@ export default function Setter() {
         <div className="flex-1 min-w-0">
           <p className="font-black text-[#1a1a1a] text-lg leading-tight">{profile.full_name}</p>
           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-            <span className="text-[10px] font-bold text-[#6366f1] bg-[#6366f1]/10 px-2 py-0.5 rounded-full">Setter</span>
-            {(profile.secondary_roles ?? []).map(r => (
-              <span key={r} className="text-[10px] font-bold text-[#6b7280] bg-gray-100 px-2 py-0.5 rounded-full capitalize">{r}</span>
-            ))}
+            <EspaceVenteRoles profile={profile} actif="setter" />
             {profile.is_active && (
               <span className="text-[10px] font-bold text-[#10b981] bg-[#10b981]/10 px-2 py-0.5 rounded-full">Actif</span>
             )}
