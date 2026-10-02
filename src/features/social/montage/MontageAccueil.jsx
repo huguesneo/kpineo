@@ -203,7 +203,7 @@ function FileAttente({ jobs, positions, noms, enLigne }) {
 
 export default function MontageAccueil() {
   const { user } = useAuth()
-  const { jobs, noms, loading, error, reload } = useMontageJobs()
+  const { jobs, noms, loading, error, reload, direct } = useMontageJobs()
   const agent = useAgentStatus()
   const positions = positionsFile(jobs)
   const enLigne = !agent.error && isAgentEnLigne(agent.status?.dernier_signal, agent.maintenant)
@@ -232,10 +232,25 @@ export default function MontageAccueil() {
 
       {!agent.loading && !enLigne && (
         <Card className="p-4 mb-6 border-amber-200 bg-amber-50">
-          <p className="text-sm font-semibold text-amber-800">Le Mac de montage est hors ligne.</p>
+          <p className="text-sm font-semibold text-amber-800">
+            {agent.error ? "Impossible de savoir si le Mac de montage est en ligne." : 'Le Mac de montage est hors ligne.'}
+          </p>
           <p className="text-sm text-amber-700 mt-0.5">
             Tu peux quand même préparer une vidéo : elle attendra dans la file et le montage partira dès que le Mac sera de retour.
           </p>
+        </Card>
+      )}
+
+      {!direct && !error && (
+        <Card className="p-4 mb-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-[#374151]">
+              La mise à jour en direct est interrompue. Les statuts affichés peuvent dater de quelques instants.
+            </p>
+            <button onClick={reload} className="px-4 py-2 rounded-lg text-sm font-semibold bg-white border border-gray-200 hover:bg-gray-50 text-gray-700">
+              Actualiser
+            </button>
+          </div>
         </Card>
       )}
 

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { CLE_DOSSIER_BRUT_ID, CLE_DOSSIER_BRUT_NOM, lireDossierBrut } from '../../../lib/montageVideo'
 
@@ -15,6 +15,8 @@ export function useMontageJobs() {
   const [noms, setNoms] = useState({})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [direct, setDirect] = useState(true)
+  const coupe = useRef(false)
 
   const reload = useCallback(async () => {
     setLoading(true)
@@ -43,7 +45,17 @@ export function useMontageJobs() {
         const row = payload.new
         setJobs(prev => trierParDate([row, ...prev.filter(j => j.id !== row.id)]))
       })
-      .subscribe()
+      .subscribe((etat) => {
+        // Reconnexion après une coupure : on recharge pour ne rien manquer.
+        if (etat === 'SUBSCRIBED') {
+          if (coupe.current) reload()
+          coupe.current = false
+          setDirect(true)
+        } else if (etat === 'CHANNEL_ERROR' || etat === 'TIMED_OUT') {
+          coupe.current = true
+          setDirect(false)
+        }
+      })
     return () => { supabase.removeChannel(channel) }
   }, [reload])
 
@@ -60,7 +72,7 @@ export function useMontageJobs() {
     return () => { annule = true }
   }, [courriels])
 
-  return { jobs, noms, loading, error, reload }
+  return { jobs, noms, loading, error, reload, direct }
 }
 
 // Heartbeat de l'agent (ligne unique de video_agent_status), en direct.
