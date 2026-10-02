@@ -115,7 +115,9 @@ Deno.serve(async (req) => {
     const locationId = String(payload.locationId ?? (body.location as Record<string, unknown>)?.id ?? Deno.env.get('GHL_LOCATION_ID') ?? '')
 
     console.log(`[GHL Webhook] appel reçu — type: ${eventType || '∅'} · id: ${String(payload.id ?? '∅')} · source: ${viaWorkflow ? 'workflow' : 'natif'}`)
-    console.log(`[GHL Webhook] ${eventType} — payload: ${JSON.stringify(body).slice(0, 400)}`)
+    // Jamais les valeurs du payload dans les journaux : GHL y joint tous les champs
+    // du contact (coordonnées, montants, et parfois des données de carte).
+    console.log(`[GHL Webhook] ${eventType} — champs reçus : ${Object.keys(body).length}`)
 
     // ── Suppression d'opportunité ──────────────────────────────
     if (eventType === 'OpportunityDelete') {

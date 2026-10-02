@@ -5,6 +5,13 @@ apps Marketplace : `ghl-webhook` n'a rien reçu en 90 jours. La source fiable, c
 les **actions Webhook des workflows**. Ces 3 recettes (workflows 1 à 3) font bouger les écrans v2 en
 temps réel (Supabase Realtime est déjà actif sur `ghl_opportunities` et `ghl_appointments`).
 
+## État au 2 oct. 2026 : les workflows 1 à 3 sont créés et fonctionnent
+
+Vérifié dans les journaux de `ghl-webhook` (24 h) : 150 changements d'étape, 25 statuts de
+RDV et 23 RDV créés reçus de GHL, tous acceptés (bon secret) ; 2 échecs passagers de
+Supabase, rattrapés par la synchro de 30 min. Depuis le 2 oct., la fonction n'écrit plus
+les valeurs du payload dans ses journaux (GHL y joint tous les champs du contact).
+
 ## Ce qui est déjà en place côté app
 
 - `ghl-webhook` (déployée le 22 sept. 2026, version 9) accepte le payload de workflow :
