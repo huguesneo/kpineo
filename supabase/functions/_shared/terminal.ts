@@ -155,7 +155,11 @@ async function markPaid(db: DB, plan: Plan, inst: Installment, paymentId: string
 
 // ── Abonnement Moneris pour les versements restants ───────────
 
+// Le pare-feu de Moneris bloque (403 « The request is blocked ») les abonnements qui contiennent
+// cette URL de rappel. Désactivée par défaut : la synchro quotidienne (pg_cron) suffit.
+// Mettre MONERIS_CALLBACK=on pour la réactiver.
 function webhookUrl(): string | undefined {
+  if (Deno.env.get('MONERIS_CALLBACK') !== 'on') return undefined
   const base = Deno.env.get('SUPABASE_URL')
   const secret = Deno.env.get('MONERIS_CRON_SECRET')
   if (!base || !secret) return undefined
