@@ -377,7 +377,7 @@ function CardEntryModal({ plan, onClose, onDone }) {
 
 // ── Liste des ventes ─────────────────────────────────────────
 
-function PlanRow({ plan, isManager, onAction, highlight }) {
+function PlanRow({ plan, isManager, isSupervisor, onAction, highlight }) {
   const [open, setOpen] = useState(highlight)
   const [busy, setBusy] = useState('')
   const [link, setLink] = useState('')
@@ -397,7 +397,8 @@ function PlanRow({ plan, isManager, onAction, highlight }) {
     try { await navigator.clipboard.writeText(url); onAction.toast('Lien copié. Envoie-le au client (valide 7 jours).') } catch { /* copie manuelle */ }
   })
   const cancel = () => run('cancel', async () => {
-    await callTerminal({ action: 'cancel_plan', planId: plan.id }); onAction.refresh()
+    const r = await callTerminal({ action: 'cancel_plan', planId: plan.id }); onAction.refresh()
+    onAction.toast(r.tagged ? 'Programme annulé. Tag « statut-client-annuler » ajouté dans GHL.' : 'Programme annulé. Attention : le tag GHL n’a pas pu être ajouté, fais-le à la main.', !r.tagged)
   })
   const retrySubscription = () => run('sub', async () => {
     const r = await callTerminal({ action: 'retry_subscription', planId: plan.id })
@@ -458,10 +459,10 @@ function PlanRow({ plan, isManager, onAction, highlight }) {
             )}
             {needsCard && <Button size="sm" onClick={() => onAction.enterCard(plan)}>Entrer la carte</Button>}
             {needsCard && <Button size="sm" variant="secondary" loading={busy === 'link'} onClick={makeLink}>Lien pour le client</Button>}
-            {!['completed', 'canceled'].includes(plan.status) && (
-              <Button size="sm" variant="ghost" loading={busy === 'cancel'}
-                onClick={() => { if (window.confirm('Annuler les versements à venir de cette vente ?')) cancel() }}>
-                Annuler la vente
+            {isSupervisor && !['completed', 'canceled'].includes(plan.status) && (
+              <Button size="sm" variant="danger" loading={busy === 'cancel'}
+                onClick={() => { if (window.confirm('Annuler le programme ? Les prochains paiements seront arrêtés chez Moneris et le client recevra le tag « statut-client-annuler » dans GHL.')) cancel() }}>
+                Annuler le programme
               </Button>
             )}
           </div>
@@ -473,8 +474,9 @@ function PlanRow({ plan, isManager, onAction, highlight }) {
 }
 
 export function TerminalPanel({ showHeader = true }) {
-  const { isAdmin, isRespVente } = useAuth()
-  const isManager = isAdmin || isRespVente
+  const { isAdmin, isRespVente, user } = useAuth()
+  const isSupervisor = ['hugues@neoperformance.ca', 'info@neoperformance.ca'].includes((user?.email ?? '').toLowerCase())
+  const isManager = isAdmin || isRespVente || isSupervisor
   const [plans, setPlans] = useState([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('open')
@@ -546,7 +548,7 @@ export function TerminalPanel({ showHeader = true }) {
           {loading && <p className="text-sm text-[#6b7280]">Chargement...</p>}
           {!loading && visible.length === 0 && <p className="text-sm text-[#6b7280]">Aucune vente.</p>}
           {visible.map(p => (
-            <PlanRow key={p.id} plan={p} isManager={isManager} highlight={p.id === highlightId}
+            <PlanRow key={p.id} plan={p} isManager={isManager} isSupervisor={isSupervisor} highlight={p.id === highlightId}
               onAction={{ refresh: load, toast: showToast, enterCard: setCardPlan }} />
           ))}
         </div>
