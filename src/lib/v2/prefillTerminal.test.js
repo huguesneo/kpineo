@@ -55,3 +55,16 @@ describe('préremplissage du terminal', () => {
     expect(codeProvince('')).toBe('QC')
   })
 })
+
+describe('produits du terminal', () => {
+  it('chaque forfait de l’évaluation donne un produit qui existe dans le terminal', async () => {
+    const { TERMINAL_PRODUCTS } = await import('../../../supabase/functions/_shared/schedule.js')
+    const { EVALUATION } = await import('./salesConfig.js')
+    for (const forfait of EVALUATION.forfaits) {
+      for (const n of EVALUATION.nbPaiements) {
+        const p = prefillTerminal({ forfait, nbPaiements: n, dateEvaluation: '2026-10-05T14:00:00Z', client: {} })
+        expect(TERMINAL_PRODUCTS).toContain(p.productName)
+      }
+    }
+  })
+})

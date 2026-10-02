@@ -411,7 +411,8 @@ export default function CentreVente() {
       )}
 
       {/* Terminal de paiement : après avoir pris le rendez-vous, le closeur prend le paiement */}
-      {view === 'evaluations' && canUseTerminal({ isAdmin, isAdminOrRespVente: isAdmin || isRespVente, hasCloserRole }) && (
+      {/* v2 : la réservation dans l'app ouvre elle-même le terminal prérempli ; celui-ci reste pour le calendrier GHL */}
+      {view === 'evaluations' && (!ESPACE_VENTE_V2 || evalSecours) && canUseTerminal({ isAdmin, isAdminOrRespVente: isAdmin || isRespVente, hasCloserRole }) && (
         <div className="mt-8">
           <div className="mb-4">
             <h2 className="text-xl font-bold text-[#1a1a1a]">Prendre le paiement</h2>

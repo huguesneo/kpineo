@@ -141,7 +141,8 @@ export default function EvaluationReservation({
     ...adresseDe(client),
     forfait: '', nbPaiements: '',
   })
-  const [paiementOuvert, setPaiementOuvert] = useState(false)
+  // Le terminal prérempli s'ouvre dès la confirmation (demande de Hugues)
+  const [paiementOuvert, setPaiementOuvert] = useState(true)
   const [envoi, setEnvoi] = useState(false)
   const [confirme, setConfirme] = useState(null)
 
@@ -223,7 +224,7 @@ export default function EvaluationReservation({
                 : 'mt-2 px-5 py-2.5 rounded-lg bg-[#00bbb1] text-white text-sm font-semibold hover:bg-[#009e95]'}>
               {libelleTermine}
             </button>
-            {paiementOuvert && terminalPrerempli && (
+            {paiementOuvert && terminalPrerempli && terminalPermis && (
               <div className="w-full max-w-xl text-left mt-4">
                 <p className="text-xs font-bold text-[#6b7280] uppercase tracking-wide mb-2">Paiement · prérempli depuis le rendez-vous</p>
                 <TerminalPanel showHeader={false} seulementFormulaire prefill={terminalPrerempli} />
