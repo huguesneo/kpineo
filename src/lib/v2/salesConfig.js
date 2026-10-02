@@ -102,3 +102,34 @@ export const SOURCES_CHAUDES = [/\bvsl?\b/i, /quiz/i]
 export function lienFicheGHL(contactId) {
   return `https://app.gohighlevel.com/v2/location/${GHL_LOCATION_ID}/contacts/detail/${contactId}`
 }
+
+// ── Rencontre d'évaluation (prise de rendez-vous intégrée, closeurs) ─────────
+// Calendriers round robin « optimisé selon la disponibilité » (vérifié le 2 oct. 2026)
+export const EVALUATION = {
+  types: [
+    { cle: 'clinique',  libelle: 'Évaluation en clinique', calendarId: 'nF4GjzBPg0JJu7aSdi4d', duree: 60, enLigne: false },
+    { cle: 'ligne',     libelle: 'Évaluation en ligne',    calendarId: 'EN1rRFnOcotGonaMAV3N', duree: 60, enLigne: true },
+    { cle: 'ouverture', libelle: 'Ouverture de dossier',   calendarId: '7BpembfPxvDHewFh51EN', duree: 15, enLigne: true },
+  ],
+  // Membres des trois calendriers (userId GHL)
+  membres: [
+    { userId: '8h1d4Xjwbv0XXuFA1m9k', nom: 'Brice' },
+    { userId: 'PqbFLm1W2ErWQpBUOHRL', nom: 'Thibault' },
+    { userId: 'LSAWdBBxee2VD7YkPZyB', nom: 'Tamara' },
+    { userId: 'qwjs0d2A8frAz2rguIja', nom: 'Jessica' },
+    { userId: '8f13uqX2I4N2ovK6Y4ck', nom: 'Hugues' },
+  ],
+  // Champs du formulaire d'évaluation (contact GHL)
+  champs: { forfait: 'MmpQg7j8EyzfQ7aYhigw', nbPaiements: '7UixfQ3XzMDT3Yh362QI' },
+  // Valeurs en usage dans GHL (45 derniers jours)
+  forfaits: [
+    "Programme d'optimisation métabolique",
+    "Programme d'optimisation métabolique plus 10%",
+    "Programme d'optimisation métabolique plus garanti",
+    "Programme d'optimisation métabolique plus 10% & garanti",
+    'Forfait métabolique sans entrainement',
+    'À la carte',
+  ],
+  nbPaiements: ['1', '2', '3', '5'],
+  horizonJours: 30,
+}

@@ -20,6 +20,9 @@ import {
 import { useSaleCallNote } from '../hooks/useSaleCallNotes'
 import { EOD_OBJECTIONS, saveRowChangesToEOD } from '../hooks/useCloserEOD'
 import { finRendezVous, showPermis, heureShowPermis, SHOW_CHAMPS_MIN, ficheRemplie } from '../lib/showHoraire'
+// Espace de vente v2 : prise de rendez-vous d'évaluation intégrée à l'app
+import { ESPACE_VENTE_V2 } from '../lib/v2/featureFlag'
+import ModalEvaluation from '../components/v2/closer/ModalEvaluation'
 
 // ─── Helpers ──────────────────────────────────────────────────
 function fmtTime(iso) {
@@ -907,10 +910,19 @@ export default function SaleCallScript() {
         <div className="h-8" />
       </div>
 
-      {booking && (
+      {/* v2 : évaluation réservée dans l'app (secours : calendrier GHL ci-dessous) */}
+      {booking === 'eval' && ESPACE_VENTE_V2 && (contact?.ghl_id ?? appt?.contact_id) && (
+        <ModalEvaluation
+          client={contact}
+          contactId={contact?.ghl_id ?? appt?.contact_id}
+          onClose={() => setBooking(null)}
+          onSecours={() => setBooking('eval-ghl')}
+        />
+      )}
+      {booking && !(booking === 'eval' && ESPACE_VENTE_V2 && (contact?.ghl_id ?? appt?.contact_id)) && (
         <BookingModal
-          titre={BOOKINGS[booking].titre}
-          tabs={BOOKINGS[booking].tabs}
+          titre={BOOKINGS[booking === 'eval-ghl' ? 'eval' : booking].titre}
+          tabs={BOOKINGS[booking === 'eval-ghl' ? 'eval' : booking].tabs}
           onClose={() => setBooking(null)}
           client={contact}
         />

@@ -47,3 +47,6 @@
   et l'accordéon `SetterTaskBoard` (non touchés dans cette branche, volontairement).
 
 - **Marie-Michèle dans le workflow GHL** : la clé `manuel_marie-michele` est ajoutée au Centre de vente (2 oct.), mais GHL ne l’a jamais reçue. Ajouter une branche au workflow qui lit `booking_source` (champ contact `fb3QUZzqmOjGuzFKBGMn`) : `manuel_marie-michele` → setter « Marie-Michèle NEO », type « Manuel ». Kassy (`manuel_kassy`) est déjà reconnue.
+
+- **Tester la rencontre d’évaluation intégrée** (Hugues) : un RDV « tout membre disponible » (vérifier que GHL l’assigne à quelqu’un), un RDV avec un membre précis, un RDV en ligne (lien Meet créé ?) et un en clinique (adresse affichée ?). Vérifier aussi que les workflows d’évaluation se déclenchent sur « Customer Booked Appointment » et pas sur une soumission de formulaire.
+- **Phase 2** : terminal Moneris dans la fenêtre d’évaluation.
