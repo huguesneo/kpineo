@@ -291,15 +291,22 @@ export async function getPayment(id: string): Promise<PaymentInfo | null> {
   }
 }
 
-// Paiements créés depuis une date, liés à un abonnement donné (secours quand
-// l'abonnement ne liste pas ses paiements). Lecture seule.
-export async function listSubscriptionPaymentIds(subscriptionId: string, createdFromIso: string): Promise<{ ids: string[]; status: number }> {
-  const ids: string[] = []
-  const { status, data } = await call('GET', `/payments?created_from=${encodeURIComponent(createdFromIso)}&limit=100`)
-  if (status < 200 || status >= 300) return { ids, status }
-  for (const p of (Array.isArray(data.data) ? data.data : []) as Json[]) {
-    const sub = (p.subscription ?? {}) as Json
-    if (String(sub.subscriptionId ?? '') === subscriptionId && p.paymentId) ids.push(String(p.paymentId))
+// Paiements récents (Moneris limite à 20 par appel). Lecture seule.
+export interface RecentPayment { paymentId: string; subscriptionId: string; paymentMethodId: string; amountCents: number; status: string; createdAt: string }
+export async function listRecentPayments(createdFromIso: string): Promise<{ items: RecentPayment[]; status: number }> {
+  const from = createdFromIso.replace(/\.\d{3}Z$/, 'Z')
+  const { status, data } = await call('GET', `/payments?created_from=${encodeURIComponent(from)}&limit=20`)
+  if (status < 200 || status >= 300) {
+    console.error('[listPayments]', status, JSON.stringify(data).slice(0, 400))
+    return { items: [], status }
   }
-  return { ids, status }
+  const items = ((Array.isArray(data.data) ? data.data : []) as Json[]).map(p => ({
+    paymentId: String(p.paymentId ?? ''),
+    subscriptionId: String(((p.subscription ?? {}) as Json).subscriptionId ?? ''),
+    paymentMethodId: String(((p.paymentMethod ?? {}) as Json).paymentMethodId ?? ''),
+    amountCents: Number(((p.amount ?? {}) as Json).amount ?? 0),
+    status: String(p.paymentStatus ?? ''),
+    createdAt: String(p.createdAt ?? ''),
+  })).filter(p => p.paymentId)
+  return { items, status }
 }
