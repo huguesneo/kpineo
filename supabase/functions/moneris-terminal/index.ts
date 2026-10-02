@@ -48,11 +48,12 @@ Deno.serve(async (req) => {
     const loadPlan = async (planId: unknown) => {
       const { data } = await db.from('payment_plans').select('id, closer_id, status, moneris_subscription_id').eq('id', String(planId)).maybeSingle()
       if (!data) return null
-      if (!isManager && data.closer_id !== profile.id) return null
+      if (!isManager && data.closer_id !== profile?.id) return null
       return data
     }
 
     if (action === 'create_plan') {
+      if (!profile) return json({ error: 'Ton compte n’a pas de profil dans l’app : impossible de créer une vente' }, 403)
       const product = String(body.productName ?? '')
       if (!TERMINAL_PRODUCTS.includes(product)) return json({ error: 'Produit invalide' }, 400)
       const first = String(body.clientFirstName ?? '').trim()
