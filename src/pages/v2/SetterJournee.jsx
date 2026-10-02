@@ -49,6 +49,7 @@ const FILES = [
     couleur: '#f59e0b', compteurBg: '#fffbeb', compteurColor: '#b45309', rdvLabel: 'RDV',
     videTitre: 'Tout est confirmé', videTexte: 'Les RDV des prochaines 24 h sont confirmés.',
     triInitial: null, // par heure du RDV ; Âge et Tentatives restent cliquables
+    sansReservation: true, // le RDV existe déjà : seulement la fiche GHL
     rdv: (l, now) => ({ texte: fmtRdvRelatif(l.rdvRef?.start, now), couleur: '#1a1a1a' }),
   },
   {
@@ -78,11 +79,7 @@ export default function SetterJournee({ profile, droite = null, setterFiles, onC
   const { files, raw, loading, error, refetch } = setterFiles
   const { locks, lock, unlock } = useLeadLocks(profile?.id)
   const stats = useSetterDayStats(profile)
-  const actions = useSetterActions({
-    profile, lock, unlock,
-    onCallLogged: d => stats.setCalls(c => Math.max(0, c + d)),
-    onDone: () => { stats.refetchCalls(); refetch() },
-  })
+  const actions = useSetterActions({ profile, lock, unlock })
 
   // Horloge : âges, « pris depuis X min »
   const [now, setNow] = useState(Date.now())
@@ -116,7 +113,14 @@ export default function SetterJournee({ profile, droite = null, setterFiles, onC
     <div>
       <EnteteEspace profile={profile} droite={droite} />
 
-      <BandeauJour stats={stats} rdvBookes={rdvBookes} aConfirmer={files.aConfirmer.length} />
+      <BandeauJour stats={stats} rdvBookes={rdvBookes} aConfirmer={files.aConfirmer.length} nouveaux={files.nouveauxLeads} />
+
+      {!actions.cleSetter && (
+        <div className="mb-4 px-4 py-3 rounded-xl border border-[#fde68a] bg-[#fffbeb] text-sm text-[#92400e]">
+          Ton prénom n'est pas dans la liste des setters du Centre de vente : un rendez-vous pris ici
+          ne te serait pas attribué (pas de show-up payé). Demande à un admin de t'ajouter avant de booker.
+        </div>
+      )}
 
       {error && (
         <div className="mb-4 px-4 py-3 rounded-xl border border-[#fecaca] bg-[#fef2f2] text-sm text-[#b91c1c]">

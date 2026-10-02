@@ -45,3 +45,6 @@
 - `MetaAds.jsx` est exclu du lint tant qu'il n'est pas nettoyé.
 - Quand la v2 sera adoptée : retirer les tâches `setter_shared_tasks`, `ghl-setter-task`
   et l'accordéon `SetterTaskBoard` (non touchés dans cette branche, volontairement).
+
+- **Kassy n’est pas dans la liste des setters du Centre de vente** (`SETTERS` dans `src/pages/CentreVente.jsx`) : le bouton « Prendre un rendez-vous » ne peut pas lui attribuer ses bookings. L’ajouter (clé `manuel_kassy`) et vérifier que le workflow GHL qui lit `booking_source` la reconnaît.
+- **Vérifier dans GHL que la page de réservation préremplit bien le lead** avec `first_name`, `last_name`, `email`, `phone` dans l’URL.

@@ -73,6 +73,9 @@ export function carteLead({ contactId, nom, source, creeLe, stageId = null, opp 
     contactId,
     opportunityId: setterOpp?.ghl_id ?? null,
     nom: String(nom ?? '').trim() || 'Sans nom',
+    // Coordonnées (carte GHL) pour préremplir la prise de rendez-vous
+    email: setterOpp?.raw?.contact?.email || null,
+    telephone: setterOpp?.raw?.contact?.phone || null,
     source: source || null,
     sourceChaude: isSourceChaude(source),
     creeLe: creeLe ?? null,

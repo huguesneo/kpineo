@@ -6,9 +6,10 @@ import { canUseTerminal } from '../lib/terminal/flag'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const BASE_BOOKING_URL = 'https://api.leadconnectorhq.com/widget/booking/ucyJmhYKKDDm7U5JmaJ8'
+export const BASE_BOOKING_URL = 'https://api.leadconnectorhq.com/widget/booking/ucyJmhYKKDDm7U5JmaJ8'
 
-const SETTERS = [
+// Exportée pour l'espace de vente v2 (bouton « Prendre un rendez-vous »)
+export const SETTERS = [
   { key: 'manuel_thibault', label: 'Thibault' },
   { key: 'manuel_brice',    label: 'Brice' },
   { key: 'manuel_lyliane',  label: 'Lyliane' },

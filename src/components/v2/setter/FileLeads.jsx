@@ -3,7 +3,7 @@ import { fmtAge, styleSource } from '../../../lib/v2/format'
 import { verrouAutre } from '../../../hooks/v2/useLeadLocks'
 import { trierLeads, triSuivant, TRI_DEFAUT } from '../../../lib/v2/setterFiles'
 
-const COLONNES = 'xl:grid-cols-[184px_96px_52px_78px_140px_80px_minmax(0,1fr)_286px]'
+const COLONNES = 'xl:grid-cols-[minmax(0,1.4fr)_96px_52px_78px_minmax(0,1fr)_96px_300px]'
 const LIMITE = { desktop: 10, mobile: 3 }
 
 const IconeExterne = (
@@ -13,10 +13,9 @@ const IconeExterne = (
 )
 
 // Tentatives faites (0 à 4) : pastilles + « n/4 ». null hors pipeline de tentatives.
-function tentativesFaites(lead, etat) {
+function tentativesFaites(lead) {
   if (lead.tentative == null) return null
-  const faites = Math.min(4, Math.max(0, lead.tentative - 1) + (etat === 'nr-attente' || etat === 'nr' ? 1 : 0))
-  return faites
+  return Math.min(4, Math.max(0, lead.tentative - 1))
 }
 
 // Nom du lead : ouvre sa fiche GoHighLevel (et prend le lead 15 min), 🔥 si chaud
@@ -74,26 +73,17 @@ function PastilleSource({ source }) {
 }
 
 // Zone d'actions selon l'état de la ligne
-function Actions({ lead, etat, erreur, pris, note, actions, mobile = false }) {
-  const h = mobile ? 'h-11' : 'py-1.5'
+function Actions({ lead, etat, pris, actions, file, mobile = false }) {
   const fiche = (
     <button
       onClick={() => actions.ouvrirFiche(lead)}
       title="Fiche GHL"
       className={mobile
-        ? 'h-11 flex items-center justify-center rounded-lg border border-[#e5e7eb] bg-white text-[#6b7280]'
+        ? 'h-11 w-11 flex-shrink-0 flex items-center justify-center rounded-lg border border-[#e5e7eb] bg-white text-[#6b7280]'
         : 'inline-flex items-center gap-1 text-[13px] font-semibold text-[#6b7280] px-2 py-1.5 rounded-lg whitespace-nowrap hover:bg-[#f3f4f6] hover:text-[#1a1a1a]'}
     >
       {!mobile && 'Fiche GHL'}{IconeExterne}
     </button>
-  )
-  const annuler = (
-    <button onClick={() => actions.annuler(lead)} className={`text-xs font-semibold text-[#6b7280] px-1 ${mobile ? 'min-h-[44px]' : 'py-1'}`}>
-      Annuler
-    </button>
-  )
-  const pastille = (texte, cls) => (
-    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap ${cls}`}>{texte}</span>
   )
 
   if (pris) {
@@ -107,57 +97,45 @@ function Actions({ lead, etat, erreur, pris, note, actions, mobile = false }) {
     )
   }
 
-  if (etat) {
-    const contenu = {
-      'nr-attente': <>{pastille('Tentative notée, envoi à GHL…', 'text-[#4b5563] bg-[#f3f4f6]')}{annuler}</>,
-      nr: pastille('Tentative envoyée à GHL', 'text-[#4b5563] bg-[#f3f4f6]'),
-      booke: <>{pastille(mobile ? 'Booké' : 'Booké, en attente du RDV GHL', 'text-[#047857] bg-[#ecfdf5]')}{annuler}</>,
-      erreur: <>{pastille(erreur ?? 'Erreur', 'text-[#b91c1c] bg-[#fef2f2]')}{annuler}</>,
-    }[etat]
+  if (etat === 'reservation') {
     return (
       <div className={`flex items-center ${mobile ? 'justify-between' : 'justify-end'} gap-1.5`}>
-        <span className="flex items-center gap-1.5">{contenu}</span>
+        <span className="text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap text-[#047857] bg-[#ecfdf5]">
+          {mobile ? 'Réservation ouverte' : 'Réservation ouverte, en attente du RDV GHL'}
+        </span>
+        <button onClick={() => actions.annuler(lead)} className={`text-xs font-semibold text-[#6b7280] px-1 ${mobile ? 'min-h-[44px]' : 'py-1'}`}>
+          Annuler
+        </button>
         {!mobile && fiche}
       </div>
     )
   }
 
-  const boutons = (
-    <>
-      <button onClick={() => actions.pasDeReponse(lead, note)}
-        className={`text-[13px] font-semibold px-2.5 ${h} rounded-lg bg-white text-[#374151] border border-[#e5e7eb] whitespace-nowrap hover:bg-[#f9fafb]`}>
-        Pas de réponse
-      </button>
-      <button onClick={() => actions.booke(lead)}
-        className={`text-[13px] font-semibold px-3 ${h} rounded-lg bg-[#00bbb1] text-white border border-[#00bbb1] hover:bg-[#009e95]`}>
-        Booké
-      </button>
-    </>
-  )
-  if (mobile) {
-    return (
-      <div className="flex flex-col gap-1.5">
-        <div className="grid grid-cols-[1fr_1fr_44px] gap-2">{boutons}{fiche}</div>
-        {erreur && <p className="text-xs font-semibold text-[#b91c1c]">{erreur}</p>}
-      </div>
-    )
+  // « À confirmer » : le RDV existe déjà, pas de prise de rendez-vous
+  if (file.sansReservation) {
+    return <div className={`flex items-center ${mobile ? '' : 'justify-end'}`}>{fiche}</div>
   }
+
+  const prendre = (
+    <button onClick={() => actions.prendreRdv(lead)}
+      title="Ouvre la rencontre découverte avec le lead et ton nom de setter préremplis"
+      className={`text-[13px] font-semibold px-3 ${mobile ? 'h-11 flex-1' : 'py-1.5'} rounded-lg bg-[#00bbb1] text-white border border-[#00bbb1] whitespace-nowrap hover:bg-[#009e95]`}>
+      Prendre un rendez-vous
+    </button>
+  )
   return (
-    <div className="flex items-center justify-end gap-1.5">
-      {erreur && <span className="text-xs font-semibold text-[#b91c1c] whitespace-nowrap">{erreur}</span>}
-      {boutons}{fiche}
+    <div className={`flex items-center ${mobile ? '' : 'justify-end'} gap-2`}>
+      {prendre}{fiche}
     </div>
   )
 }
 
 function LigneLead({ lead, file, userId, locks, actions, now }) {
-  const [note, setNote] = useState('')
   const etat = actions.etats[lead.key]
-  const erreur = actions.erreurs[lead.key]
   const pris = verrouAutre(locks, lead.contactId, userId, now)
-  const faites = tentativesFaites(lead, etat)
+  const faites = tentativesFaites(lead)
   const rdv = file.rdv(lead, now)
-  const fond = pris ? '#f9fafb' : etat === 'booke' ? '#f6fdf9' : '#fcfcfd'
+  const fond = pris ? '#f9fafb' : etat === 'reservation' ? '#f6fdf9' : '#fcfcfd'
   const couleurNom = pris ? '#9ca3af' : '#1a1a1a'
 
   return (
@@ -170,15 +148,7 @@ function LigneLead({ lead, file, userId, locks, actions, now }) {
         <Tentatives faites={faites} />
         <span className="text-[13px] font-semibold whitespace-nowrap truncate" style={{ color: rdv.couleur }} title={rdv.texte}>{rdv.texte}</span>
         <span className="text-[13px] text-[#1a1a1a] truncate" title={lead.closeur ?? ''}>{lead.closeur ?? '—'}</span>
-        <input
-          value={note}
-          onChange={e => setNote(e.target.value)}
-          placeholder="Note courte"
-          aria-label={`Note pour ${lead.nom}`}
-          disabled={!!etat || !!pris}
-          className="w-full text-xs px-2 py-1.5 border border-[#e5e7eb] rounded-lg bg-white outline-none focus:border-[#00bbb1] disabled:bg-[#f9fafb]"
-        />
-        <Actions lead={lead} etat={etat} erreur={erreur} pris={pris} note={note} actions={actions} />
+        <Actions lead={lead} etat={etat} pris={pris} actions={actions} file={file} />
       </div>
 
       {/* Mobile et tablette : carte sur trois lignes */}
@@ -193,7 +163,7 @@ function LigneLead({ lead, file, userId, locks, actions, now }) {
           <span>·</span><span>{lead.closeur ?? '—'}</span>
           <span>·</span><span>{fmtAge(lead.ageHeures)}</span>
         </div>
-        <Actions lead={lead} etat={etat} erreur={erreur} pris={pris} note={note} actions={actions} mobile />
+        <Actions lead={lead} etat={etat} pris={pris} actions={actions} file={file} mobile />
       </div>
     </>
   )
@@ -207,7 +177,7 @@ export default function FileLeads({ file, leads, userId, locks, actions, now }) 
   const [tri, setTri] = useState(file.triInitial === undefined ? TRI_DEFAUT : file.triInitial)
   const changerTri = cle => setTri(t => triSuivant(t, cle))
   const tries = useMemo(() => (tri ? trierLeads(leads, tri) : leads), [leads, tri])
-  const ouverts = leads.filter(l => !['nr-attente', 'nr', 'booke'].includes(actions.etats[l.key])).length
+  const ouverts = leads.filter(l => actions.etats[l.key] !== 'reservation').length
   const limiteDesktop = toutVoir ? Infinity : LIMITE.desktop
   const limiteMobile = toutVoir ? Infinity : LIMITE.mobile
 
@@ -257,7 +227,7 @@ export default function FileLeads({ file, leads, userId, locks, actions, now }) 
             <EnteteTri libelle="Âge" cle="age" tri={tri} onTri={changerTri} />
             <EnteteTri libelle="Tentatives" cle="tentatives" tri={tri} onTri={changerTri} />
             <span>{file.rdvLabel}</span>
-            <span>Closeur</span><span>Note</span><span className="text-right">Actions</span>
+            <span>Closeur</span><span className="text-right">Actions</span>
           </div>
           {tries.map((lead, i) => (
             // Mobile : les 3 premiers, grand écran : les 10 premiers (tout après « Voir »)

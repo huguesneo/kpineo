@@ -9,28 +9,19 @@ function Tuile({ titre, children, accent = false }) {
   )
 }
 
-// Bandeau du jour : appels faits, RDV bookés, show-ups du mois, commission du mois
-export default function BandeauJour({ stats, rdvBookes, aConfirmer }) {
-  const { calls, objectifs, showupCount, commission, commissionLoading, showupsMissing, monthlyBonus } = stats
-  const pct = objectifs.calls > 0 ? Math.min(100, Math.round((calls / objectifs.calls) * 100)) : null
+// Bandeau du jour : nouveaux leads, RDV bookés, show-ups du mois, commission du mois.
+// (« Appels faits » retiré : GHL enregistre lui-même les appels sans réponse.)
+export default function BandeauJour({ stats, rdvBookes, aConfirmer, nouveaux = [] }) {
+  const { objectifs, showupCount, commission, commissionLoading, showupsMissing, monthlyBonus } = stats
+  const chauds = nouveaux.filter(l => l.chaud).length
 
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-7">
-      <Tuile titre="Appels faits">
-        <div className="flex items-baseline gap-1.5">
-          <span className="text-xl sm:text-2xl font-black">{calls}</span>
-          {objectifs.calls > 0 && <span className="text-sm text-[#9ca3af]">/ {objectifs.calls}</span>}
-        </div>
-        {pct != null ? (
-          <div className="flex items-center gap-2 mt-1">
-            <div className="flex-1 bg-[#f3f4f6] rounded-full h-2">
-              <div className="h-2 rounded-full bg-[#6366f1] transition-[width] duration-500" style={{ width: `${pct}%` }} />
-            </div>
-            <span className="text-xs font-bold text-[#6366f1] w-9 text-right">{pct}%</span>
-          </div>
-        ) : (
-          <p className="text-xs font-semibold text-[#6b7280]">Depuis l'app, aujourd'hui</p>
-        )}
+      <Tuile titre="Nouveaux leads">
+        <p className="text-xl sm:text-2xl font-black">{nouveaux.length}</p>
+        <p className="text-xs font-semibold text-[#6b7280]">
+          {chauds > 0 ? `dont ${chauds} 🔥 chaud${chauds > 1 ? 's' : ''}` : 'Aucun chaud à relancer'}
+        </p>
       </Tuile>
 
       <Tuile titre="RDV bookés aujourd'hui">
