@@ -1,13 +1,15 @@
 import { useState, useCallback } from 'react'
-import { BASE_BOOKING_URL, SETTERS } from '../../pages/CentreVente'
+import { SETTERS } from '../../pages/CentreVente'
 import { lienFicheGHL } from '../../lib/v2/salesConfig'
-import { cleBookingSetter, lienPrendreRdv } from '../../lib/v2/booking'
+import { cleBookingSetter } from '../../lib/v2/booking'
 
 // Actions du setter sur un lead. L'app ne déplace aucune carte.
 // « Pas de réponse » a été retiré : GHL enregistre lui-même les appels sans réponse.
 // etats : { [lead.key]: 'reservation' }
 export function useSetterActions({ profile, lock, unlock }) {
   const [etats, setEtats] = useState({})
+  // Lead dont la fenêtre « Prendre un rendez-vous » est ouverte
+  const [rdvEnCours, setRdvEnCours] = useState(null)
   // Clé booking_source du setter connecté (null : absent de la liste du Centre de vente)
   const cleSetter = cleBookingSetter(profile?.full_name, SETTERS)
 
@@ -17,14 +19,15 @@ export function useSetterActions({ profile, lock, unlock }) {
     return n
   })
 
-  // « Prendre un rendez-vous » : rencontre découverte avec le setter (attribution)
-  // et le lead préremplis, comme le Centre de vente. Prend le lead 15 min.
+  // « Prendre un rendez-vous » : ouvre la fenêtre de réservation dans l'app
+  // (rencontre découverte, setter et lead préremplis). Prend le lead 15 min.
   const prendreRdv = useCallback(async (lead) => {
-    // Ouvrir avant tout await : sinon le navigateur bloque la fenêtre
-    window.open(lienPrendreRdv({ base: BASE_BOOKING_URL, cleSetter, lead }), '_blank', 'noopener')
+    setRdvEnCours(lead)
     setEtat(lead.key, 'reservation')
     await lock?.(lead.contactId)
-  }, [lock, cleSetter])
+  }, [lock])
+
+  const fermerRdv = useCallback(() => setRdvEnCours(null), [])
 
   const annuler = useCallback((lead) => {
     setEtat(lead.key, null)
@@ -37,5 +40,5 @@ export function useSetterActions({ profile, lock, unlock }) {
     await lock?.(lead.contactId)
   }, [lock])
 
-  return { etats, erreurs: {}, cleSetter, prendreRdv, annuler, ouvrirFiche }
+  return { etats, erreurs: {}, cleSetter, prendreRdv, rdvEnCours, fermerRdv, annuler, ouvrirFiche }
 }

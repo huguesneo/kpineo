@@ -100,9 +100,10 @@ function Actions({ lead, etat, pris, actions, file, mobile = false }) {
   if (etat === 'reservation') {
     return (
       <div className={`flex items-center ${mobile ? 'justify-between' : 'justify-end'} gap-1.5`}>
-        <span className="text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap text-[#047857] bg-[#ecfdf5]">
-          {mobile ? 'Réservation ouverte' : 'Réservation ouverte, en attente du RDV GHL'}
-        </span>
+        <button onClick={() => actions.prendreRdv(lead)} title="Rouvrir le calendrier de réservation"
+          className="text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap text-[#047857] bg-[#ecfdf5] hover:bg-[#d1fae5]">
+          {mobile ? 'Rouvrir le calendrier' : 'En attente du RDV GHL · rouvrir'}
+        </button>
         <button onClick={() => actions.annuler(lead)} className={`text-xs font-semibold text-[#6b7280] px-1 ${mobile ? 'min-h-[44px]' : 'py-1'}`}>
           Annuler
         </button>
@@ -118,7 +119,7 @@ function Actions({ lead, etat, pris, actions, file, mobile = false }) {
 
   const prendre = (
     <button onClick={() => actions.prendreRdv(lead)}
-      title="Ouvre la rencontre découverte avec le lead et ton nom de setter préremplis"
+      title="Ouvre la rencontre découverte dans l’app, avec le lead et ton nom de setter préremplis"
       className={`text-[13px] font-semibold px-3 ${mobile ? 'h-11 flex-1' : 'py-1.5'} rounded-lg bg-[#00bbb1] text-white border border-[#00bbb1] whitespace-nowrap hover:bg-[#009e95]`}>
       Prendre un rendez-vous
     </button>

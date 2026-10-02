@@ -3,6 +3,7 @@ import EnteteEspace from '../../components/v2/EnteteEspace'
 import Replie from '../../components/v2/Replie'
 import BandeauJour from '../../components/v2/setter/BandeauJour'
 import FileLeads from '../../components/v2/setter/FileLeads'
+import ModalPriseRdv from '../../components/v2/setter/ModalPriseRdv'
 import SetterDashboardView from '../../components/closer/SetterDashboardView'
 import SetterEODForm from '../../components/eod/SetterEODForm'
 import { useLeadLocks } from '../../hooks/v2/useLeadLocks'
@@ -115,10 +116,12 @@ export default function SetterJournee({ profile, droite = null, setterFiles, onC
 
       <BandeauJour stats={stats} rdvBookes={rdvBookes} aConfirmer={files.aConfirmer.length} nouveaux={files.nouveauxLeads} />
 
+      <ModalPriseRdv lead={actions.rdvEnCours} cleSetter={actions.cleSetter} onClose={actions.fermerRdv} />
+
       {!actions.cleSetter && (
         <div className="mb-4 px-4 py-3 rounded-xl border border-[#fde68a] bg-[#fffbeb] text-sm text-[#92400e]">
-          Ton prénom n'est pas dans la liste des setters du Centre de vente : un rendez-vous pris ici
-          ne te serait pas attribué (pas de show-up payé). Demande à un admin de t'ajouter avant de booker.
+          Ton prénom n'est pas dans la liste des setters du Centre de vente : à la prise de rendez-vous,
+          il faudra choisir à qui l'attribuer. Demande à un admin de t'ajouter à la liste.
         </div>
       )}
 
