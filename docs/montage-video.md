@@ -1,6 +1,6 @@
 # Module Montage vidéo : progression
 
-Branche `feat/montage-video`, feature flag `VITE_MONTAGE_VIDEO` (pas encore créé).
+Branche `feat/montage-video`, feature flag `VITE_MONTAGE_VIDEO` (désactivé par défaut, jamais activé dans Netlify pour l'instant).
 Plan de référence : `PROMPT-CLAUDE-CODE-MONTAGE-VIDEO-2026-10-01.md` (hors dépôt).
 
 ## État au 2 octobre 2026
@@ -11,7 +11,7 @@ Plan de référence : `PROMPT-CLAUDE-CODE-MONTAGE-VIDEO-2026-10-01.md` (hors dé
 | 1a | Tables Supabase, RLS, bucket des aperçus | **Fait, appliqué en production (soma-hq) le 2 oct.** |
 | **1a-bis** | **Ajouts pour l'agent : `session_id`, `nom_source`, `format`, `sous_titres`, lien template → montage, `video_config`** | **Fait, testé, appliqué en production le 2 oct.** |
 | **1b** | **Agent vidéo (`video-neo/agent/`, branche `feat/agent-hub`) : file, heartbeat, six tâches, simulation, launchd** | **Fait, testé en simulation. Service pas encore installé (Hugues)** |
-| 1c | Sous-menus Réseaux sociaux (Analyse et pub + Montage vidéo), redirection de `/reseaux-sociaux`, pastille Mac en ligne, file d'attente | À faire |
+| **1c** | **Sous-menus Réseaux sociaux (Analyse et pub + Montage vidéo), redirection de `/reseaux-sociaux`, accueil, pastille Mac en ligne, file d'attente, configuration du dossier Brut** | **Fait, testé (logique), derrière le flag** |
 | 2 | Upload résumable Drive, Google Picker, galerie de templates, prompt, lancement du premier montage | À faire |
 | 3 | Éditeur : aperçu (vidéo du bucket), fil des réponses, sous-titres éditables, versions, Terminer | À faire |
 | 4 | Templates proposés et approbation par Hugues, variantes | À faire (côté agent : prêt) |
@@ -69,7 +69,7 @@ Additive, se rejoue sans erreur :
 - `video_jobs` : `session_id` (session Claude, écrite par l'agent seulement), `nom_source` (nom du fichier dans Brut), `format` (`'9:16'` par défaut, `4:5`, `1:1`).
 - `video_versions.sous_titres` (jsonb : `{ video, motsParLigne, dureeMs, mots: [{ texte, debutMs, finMs }] }`).
 - `video_templates.job_id`, `numero_version`.
-- `video_config (cle, valeur jsonb, updated_at)` : lecture `has_montage_access()`, écriture `is_hugues()`. Ex. `drive_brut_id` (dossier Brut choisi une fois avec le Picker, phase 2).
+- `video_config (cle, valeur jsonb, updated_at)` : lecture `has_montage_access()`, écriture `is_hugues()`. Clés `dossier_brut_id` et `dossier_brut_nom` (dossier Brut choisi une fois avec le Picker, page de configuration de la phase 1c).
 
 ## Application en production (2 oct. 2026)
 
@@ -102,11 +102,63 @@ Tests (sans clé ni coût, jamais en production) :
 - Vérifiés à la main sur le Mac : rendu Remotion réel d'un aperçu 540 x 960 depuis le worktree, transcription Whisper réelle.
 - Pas encore testé : un vrai montage par Claude (demande la clé et coûte des crédits).
 
+## Phase 1c : menu, accueil, configuration (hub)
+
+Tout est derrière `VITE_MONTAGE_VIDEO=true`. Flag absent ou autre valeur : menu et route `/reseaux-sociaux` exactement comme avant.
+
+Fichiers :
+- `src/lib/montageVideoAccess.js` : ajout de `MONTAGE_VIDEO_ENABLED`, `canUseMontageVideo(email)` (flag + liste) et `canConfigureMontageVideo(email)` (flag + Hugues).
+- `src/lib/montageVideo.js` : logique pure (Mac en ligne si dernier signal < 90 s, positions de file, statuts en français, lecture de `video_config`, lien Drive).
+- `src/lib/googlePicker.js` : Google Identity Services + Picker (portée `drive.file`, `setAppId` = numéro du projet pour que l'app ait accès au dossier choisi).
+- `src/features/social/montage/` : `MontageAccueil.jsx`, `MontageNouvelle.jsx` (étape 1, vide), `MontageConfiguration.jsx`, `useMontageVideo.js` (requêtes et temps réel).
+- `src/App.jsx`, `src/components/layout/Sidebar.jsx` : routes et groupe de menu.
+- `src/lib/montageVideo.test.js` : 18 tests.
+
+Routes avec le flag actif :
+
+| URL | Écran | Accès |
+|---|---|---|
+| `/reseaux-sociaux` | Redirige vers `/reseaux-sociaux/analyse` | |
+| `/reseaux-sociaux/analyse` | Analyse et pub (l'écran Réseaux sociaux actuel, inchangé) | `socialAccess` |
+| `/reseaux-sociaux/montage` | Accueil Montage vidéo | `montageVideoAccess` |
+| `/reseaux-sociaux/montage/nouvelle` | Étape 1, la vidéo (vide jusqu'à la phase 2) | `montageVideoAccess` |
+| `/reseaux-sociaux/montage/configuration` | Dossier Brut | Hugues seulement |
+
+Décisions :
+- Avec le flag, « Réseaux sociaux » est toujours un groupe ; « Montage vidéo » n'y apparaît que pour la liste `montageVideoAccess`. Une personne de cette liste qui n'est pas dans `socialAccess` verrait le groupe avec Montage vidéo seulement.
+- Position dans la file calculée dans le hub : montages `en_file` triés par `created_at` (puis `id`). Les montages en transcription, montage ou rendu sont affichés « En cours » avec leur progression. `position_file` écrit par l'agent n'est pas utilisé par l'écran.
+- Temps réel : `video_jobs` (insertion, mise à jour, suppression appliquées à la liste) et `video_agent_status`. La pastille est recalculée toutes les 5 s, donc elle passe hors ligne même sans nouvel événement. Si le canal coupe, un bandeau propose d'actualiser et la liste se recharge à la reconnexion.
+- Auteur : nom du profil (`profiles.email`), sinon le courriel.
+- Lien Drive : la vidéo finale si `lien_drive_export` est une URL ; sinon la vidéo source (`fichier_drive_id`) ; un chemin `NEO vidéo/Out/…` est affiché en texte (retrouvé par l'API Drive en phase 3).
+- Clés `video_config` : `dossier_brut_id` et `dossier_brut_nom` (et non `drive_brut_id`, jamais utilisé). Si le dossier choisi ne s'appelle pas « Brut », il est enregistré quand même, avec un avertissement.
+
+### Activer le flag en local
+
+Dans `.env.local` à la racine du hub (ignoré par git) :
+
+```bash
+VITE_MONTAGE_VIDEO=true
+VITE_GOOGLE_CLIENT_ID=198971596729-7oiapdbhnl80uh9r0ufsh47dv0jakdgr.apps.googleusercontent.com
+VITE_GOOGLE_API_KEY=<clé Picker, voir section 9 du plan>
+```
+
+Puis `npm run dev` et ouvrir `http://localhost:5173` (seule origine locale autorisée par Google). Ne pas ajouter `VITE_MONTAGE_VIDEO` dans Netlify avant la fin des tests.
+
+### Tester à la main (6 points)
+
+1. **Flag désactivé** : sans `VITE_MONTAGE_VIDEO`, le menu montre « Réseaux sociaux » comme avant et `/reseaux-sociaux` ouvre l'écran habituel. `/reseaux-sociaux/montage` renvoie au tableau de bord.
+2. **Menu** : avec le flag, « Réseaux sociaux » s'ouvre sur « Analyse et pub » et « Montage vidéo ». `/reseaux-sociaux` redirige vers Analyse et pub, identique à avant. Le menu de gauche reste visible dans Montage vidéo. Connecté avec un compte hors liste (ex. un closeur), aucun des deux n'apparaît et l'URL directe renvoie au tableau de bord.
+3. **Pastille** : agent arrêté, « Mac hors ligne » et le bandeau jaune. Démarrer l'agent (`npm run simule` dans `video-neo/agent`, ou le service) : « Mac en ligne » en moins de 30 s, sans recharger. L'arrêter : « hors ligne » environ 90 s plus tard.
+4. **Liste et file** : sans montage, l'état vide s'affiche avec « Nouvelle vidéo ». Dans l'éditeur SQL de Supabase, page du hub ouverte : `insert into video_jobs (titre, prompt) values ('Essai 1','test'), ('Essai 2','test');` les deux apparaissent sans recharger, « 1er » et « 2e » dans la file (auteur vide, normal depuis l'éditeur SQL). Puis `update video_jobs set statut='montage', progression=40, etape='Essai' where titre='Essai 1';` : Essai 1 passe « En cours » à 40 % et Essai 2 devient « 1er ». Supprimer ensuite : `delete from video_jobs where titre like 'Essai %';` (agent arrêté, pour qu'il ne prenne rien).
+5. **Configuration** (connecté comme hugues@) : le bouton « Configuration » est visible sur l'accueil (pas pour info@, dont l'URL directe ramène à l'accueil). « Non configuré » au départ. « Choisir le dossier dans Google Drive », se connecter, choisir `NEO vidéo/Brut` : « Dossier Brut configuré : Brut ».
+6. **Nouvelle vidéo** : le bouton mène à l'étape 1 (écran vide pour l'instant) et « Retour aux montages » revient à l'accueil.
+
+Vérifié : 18 tests de logique, build Vite, ESLint sans remarque sur les fichiers touchés, colonnes interrogées présentes en production (lecture seule). Pas vérifié dans un navigateur connecté (demande un compte de la liste) : c'est l'objet des 6 points ci-dessus.
+
 ## Reste à faire
 
 - Hugues : installer le service (`bash agent/launchd/installer.sh --essai`, puis sans `--essai`) après avoir fusionné `feat/agent-hub` dans `main` de video-neo ; premier vrai montage pour valider Claude de bout en bout.
-- Hub 1c : sous-menus, redirection, pastille Mac en ligne (`now() - dernier_signal > 90 s`), file d'attente (`position_file`).
-- Hub 2 : upload résumable vers Brut (`drive_brut_id` dans `video_config`), Google Picker, `nom_source` = nom du fichier, galerie de templates, création du montage + tâche `montage`.
+- Hub 2 : upload résumable vers Brut (`dossier_brut_id` dans `video_config`), Google Picker, `nom_source` = nom du fichier, galerie de templates, création du montage + tâche `montage`.
 - Hub 3 : éditeur (aperçu par URL signée, `reponse_agent`, bande de sous-titres depuis `sous_titres`, versions, Terminer, lien d'export).
 - Hub 4 : proposition de template avec `job_id` et `numero_version`, approbation par Hugues, menu Variantes.
 - `lien_drive_export` est un chemin dans Drive, pas une URL : le hub pourra retrouver le fichier par l'API Drive (phase 3).
