@@ -31,7 +31,7 @@ function CarteTemplate({ template, choisi, onChoisir, onApercu }) {
           Voir l&apos;aperçu
         </button>
       ) : (
-        <p className="mt-3 text-xs text-[#9ca3af]">Aperçu pas encore disponible</p>
+        <p className="mt-3 text-xs text-[#9ca3af]">L&apos;aperçu n&apos;est pas encore disponible</p>
       )}
     </div>
   )

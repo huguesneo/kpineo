@@ -12,7 +12,7 @@ Plan de référence : `PROMPT-CLAUDE-CODE-MONTAGE-VIDEO-2026-10-01.md` (hors dé
 | **1a-bis** | **Ajouts pour l'agent : `session_id`, `nom_source`, `format`, `sous_titres`, lien template → montage, `video_config`** | **Fait, testé, appliqué en production le 2 oct.** |
 | **1b** | **Agent vidéo (`video-neo/agent/`, branche `feat/agent-hub`) : file, heartbeat, six tâches, simulation, launchd** | **Fait, testé en simulation. Service pas encore installé (Hugues)** |
 | **1c** | **Sous-menus Réseaux sociaux (Analyse et pub + Montage vidéo), redirection de `/reseaux-sociaux`, accueil, pastille Mac en ligne, file d'attente, configuration du dossier Brut** | **Fait, testé (logique), derrière le flag** |
-| 2 | Upload résumable Drive, Google Picker, galerie de templates, prompt, lancement du premier montage | À faire |
+| **2a-2b** | **Upload résumable vers Brut, Google Picker (vidéos), copie dans Brut, galerie de templates, prompt, lancement (montage + tâche), aperçu et progression dans la liste** | **Fait, testé (logique), derrière le flag** |
 | 3 | Éditeur : aperçu (vidéo du bucket), fil des réponses, sous-titres éditables, versions, Terminer | À faire |
 | 4 | Templates proposés et approbation par Hugues, variantes | À faire (côté agent : prêt) |
 
@@ -155,10 +155,59 @@ Puis `npm run dev` et ouvrir `http://localhost:5173` (seule origine locale autor
 
 Vérifié : 18 tests de logique, build Vite, ESLint sans remarque sur les fichiers touchés, colonnes interrogées présentes en production (lecture seule). Pas vérifié dans un navigateur connecté (demande un compte de la liste) : c'est l'objet des 6 points ci-dessus.
 
+## Phase 2a et 2b : dépôt de la vidéo et lancement (hub)
+
+Toujours derrière `VITE_MONTAGE_VIDEO=true`. Aucune fonction existante du hub modifiée ; aucune logique de montage dans le hub (il crée le montage et la tâche, l'agent fait le reste).
+
+Fichiers :
+- `src/lib/montageUpload.js` : nom de fichier sûr, validation (mp4, mov, m4v, 10 Go au plus), débit et temps restant, `EnvoiResumable` (upload résumable Drive v3 par morceaux de 8 Mio, reprise, Annuler). Transport injecté.
+- `src/lib/googleDrive.js` : transport XHR (progression de chaque morceau), accès au dossier Brut, lecture d'un fichier, copie côté Drive, examen d'un fichier choisi dans le Picker.
+- `src/lib/googlePicker.js` : ajouts seulement (`obtenirJetonDrive` avec jeton gardé en mémoire, `choisirVideoDrive`, `prechargerGoogle`, `jetonDriveEnMemoire`). `choisirDossierDrive` n'a pas changé.
+- `src/lib/montageVideo.js` : ajouts (règle template/prompt, titre, ligne `video_jobs`, première tâche, messages d'erreur, dernière tâche par montage, chemin du dernier aperçu).
+- `src/features/social/montage/` : `MontageNouvelle.jsx` (les deux étapes), `EtapeVideo.jsx`, `EtapeDirection.jsx`, `useEnvoiVideo.js` (états de l'étape 1), `useMontageVideo.js` (templates, lancement, URL signée, dernières tâches), `MontageAccueil.jsx` (aperçu, progression, erreurs).
+- Tests : `montageUpload.test.js` (20, dont un faux serveur Drive), `googleDrive.test.js` (9), `montageLancement.test.js` (9).
+
+Étape 1, la vidéo :
+- Glisser-déposer ou « Choisir un fichier » : validation, puis envoi direct dans Brut (`dossier_brut_id`), octet pour octet. Barre avec pourcentage, octets, vitesse (moyenne sur 8 s) et temps restant.
+- Coupure : jusqu'à 6 nouveaux essais (1 à 30 s), chaque fois en demandant à Drive combien d'octets il a reçus. Ensuite « En pause » : reprise automatique au retour du réseau (`online`) ou bouton « Reprendre maintenant », même session Drive (rien n'est renvoyé). Session expirée : nouvel envoi complet. Annuler : coupe l'envoi ; une session inachevée ne crée aucun fichier dans Drive. Quitter la page pendant l'envoi demande une confirmation.
+- « Choisir dans Google Drive » (Picker, vidéos seulement) : si le fichier est déjà dans Brut, il est utilisé tel quel (`nom_source` = son nom) ; sinon le hub propose « Copier dans Brut » (copie côté Drive sous un nom sûr, sans retéléchargement).
+- Dossier Brut non configuré : lien vers Configuration pour hugues@, sinon « Demande à Hugues ».
+- Compte Google sans accès au dossier Brut (cas de info@ : `drive.file` donne l'accès par compte) : message et bouton « Autoriser le dossier Brut », qui ouvre le Picker des dossiers ; le dossier choisi doit être celui configuré.
+- Titre : le nom d'origine sans l'extension, modifiable (120 caractères au plus). Il sert de nom au dossier `Out/<titre>/`.
+
+Étape 2, la direction : galerie des templates `approuve` (aperçu par URL signée d'une heure, ouvert au clic dans une fenêtre), état vide « Aucun template pour l'instant, décris ce que tu veux », champ prompt (obligatoire sans template, vérifié dans l'écran en plus du CHECK). « Lancer le montage » reste désactivé tant que la vidéo n'est pas dans Brut.
+
+Lancement : insertion dans `video_jobs` (`titre`, `fichier_drive_id`, `nom_source`, `template_id`, `prompt`, `format` = `9:16`), puis tâche `montage` dans `video_taches`, puis retour à la liste. En cas d'erreur (RLS, réseau, template plus approuvé), message clair et « Réessayer » : la vidéo n'est pas renvoyée et, si le montage a déjà été créé, seule la tâche est recréée (pas de doublon).
+
+Liste des montages : « Voir l'aperçu (vN) » quand une version existe (`version_courante > 0`) : URL signée d'une heure vers la dernière version qui a un aperçu, ouverte dans un nouvel onglet. Étape et progression en direct (barre) pour un montage en cours. Erreur de l'agent : celle du montage s'il est en erreur, sinon celle de sa dernière tâche si elle a échoué (un refus de l'agent laisse le montage en file sans le marquer en erreur). Ce n'est qu'un dépannage avant l'éditeur (phase 3).
+
+Décisions :
+- **Nom dans Brut** : sans espaces, parenthèses, accents ni caractères spéciaux, **suivi de la date et de l'heure** (`Ete_au_chalet_2026-10-02_1405.mov`). Sans ce suffixe, deux `IMG_1234.MOV` auraient le même nom dans Brut et Drive pour ordinateur renommerait l'un des deux sur le Mac : l'agent pourrait monter la mauvaise vidéo.
+- **Tâche `montage` avec `payload` vide** : à la première ronde, l'agent lit `video_jobs.prompt` et y ajoute `payload.prompt`. Mettre le prompt aux deux endroits le donnerait deux fois à Claude.
+- **Limite de taille : 10 Go.** Une vidéo plus lourde est refusée avant l'envoi.
+- Les morceaux (PUT) partent sans jeton : l'adresse de session Drive suffit. Seule l'ouverture de la session demande un jeton, ce qui évite d'être bloqué par l'expiration du jeton (1 h) pendant un long envoi.
+- Après un glisser-déposer, la fenêtre de connexion Google serait bloquée par le navigateur : sans jeton en mémoire, un bouton « Se connecter et envoyer » demande le clic.
+- Fichier choisi dans Brut avec le Picker : son nom n'est pas changé (`nom_source` = nom actuel).
+
+Vérifié : 38 nouveaux tests de logique (122 au total qui passent), build Vite, ESLint (règles recommandées React) sans remarque sur les fichiers du module, colonnes utilisées présentes en production (lecture seule, soma-hq). Les 2 fichiers de tests des commissions échouaient déjà avant (photo de référence `scripts/baseline` absente du worktree). Le dépôt n'a pas de configuration ESLint sur cette branche (`npm run lint` échoue avant toute vérification) : la vérification a été faite avec une configuration temporaire hors dépôt. Pas vérifié dans un navigateur connecté à Google : c'est l'objet des 8 points ci-dessous.
+
+### Tester à la main (8 points)
+
+Prérequis : `.env.local` comme en phase 1c, `npm run dev`, connecté au hub comme hugues@, dossier Brut configuré.
+
+1. **Dossier non configuré** : dans l'éditeur SQL, `delete from video_config where cle like 'dossier_brut%';` puis ouvrir « Nouvelle vidéo » : message avec lien vers Configuration (info@ : « Demande à Hugues »). Reconfigurer ensuite le dossier Brut dans Configuration.
+2. **Validation** : glisser un .jpg ou un .avi : message « Format non accepté » ; rien ne part vers Drive.
+3. **Envoi** : glisser une vraie vidéo .mov de quelques centaines de Mo (nom avec espaces, accents et parenthèses). Se connecter si demandé. Vérifier pourcentage, vitesse, temps restant ; à la fin, « Vidéo envoyée » et `Brut/<nom sûr avec date>`. Dans Google Drive : même taille au octet près que l'original, nom sûr. Le titre proposé est le nom d'origine.
+4. **Coupure** : pendant un envoi, couper le Wi-Fi 30 s : la barre passe « En pause » (ou ralentit) puis reprend seule au retour du réseau, sans repartir de zéro. Le fichier final dans Drive a la bonne taille et se lit.
+5. **Annuler** : lancer un envoi, cliquer « Annuler » : retour au dépôt, aucun fichier dans Brut.
+6. **Google Drive** : « Choisir dans Google Drive », choisir une vidéo hors de Brut : « Copier dans Brut » crée la copie dans Brut (rapide, sans retéléchargement). Choisir ensuite une vidéo déjà dans Brut : « déjà dans le dossier Brut ». Au téléphone, le texte sur l'app Google Drive est visible sous la zone de dépôt.
+7. **Direction et lancement** : galerie vide avec « Aucun template pour l'instant, décris ce que tu veux ». « Lancer le montage » sans prompt : message sous le champ. Écrire un prompt, lancer : retour à la liste, le montage apparaît en file. Dans l'éditeur SQL : une ligne `video_jobs` (bon `nom_source`, `format` 9:16) et une tâche `montage` `en_attente`, `payload` `{}`. Pour l'erreur réseau : couper le Wi-Fi avant de cliquer, message clair, rallumer, « Réessayer » : un seul montage créé.
+8. **Liste** : agent démarré (`npm run simule` dans `video-neo/agent`) : l'étape et la barre avancent sans recharger, puis « Voir l'aperçu (v1) » ouvre l'aperçu dans un nouvel onglet. Pour une erreur : `update video_jobs set statut='erreur', erreur='Essai d''erreur' where titre='<titre>';` agent arrêté : le message apparaît sous le titre sans recharger.
+
 ## Reste à faire
 
 - Hugues : installer le service (`bash agent/launchd/installer.sh --essai`, puis sans `--essai`) après avoir fusionné `feat/agent-hub` dans `main` de video-neo ; premier vrai montage pour valider Claude de bout en bout.
-- Hub 2 : upload résumable vers Brut (`dossier_brut_id` dans `video_config`), Google Picker, `nom_source` = nom du fichier, galerie de templates, création du montage + tâche `montage`.
+- Hugues : partager `NEO vidéo/Brut` (en modification) avec info@ ; à son premier envoi, info@ cliquera une fois « Autoriser le dossier Brut ».
 - Hub 3 : éditeur (aperçu par URL signée, `reponse_agent`, bande de sous-titres depuis `sous_titres`, versions, Terminer, lien d'export).
 - Hub 4 : proposition de template avec `job_id` et `numero_version`, approbation par Hugues, menu Variantes.
 - `lien_drive_export` est un chemin dans Drive, pas une URL : le hub pourra retrouver le fichier par l'API Drive (phase 3).
