@@ -4,13 +4,14 @@ import { tacheDemande, delaiRenouvellement } from '../../../lib/montageEditeur'
 import { tacheCorrection, erreurBase } from '../../../lib/montageSousTitres'
 import { tacheRestaurer, tacheTerminer } from '../../../lib/montageFin'
 import { tacheVariante } from '../../../lib/montageVariantes'
+import { ligneAjoutClip } from '../../../lib/montageClips'
 import { urlSigneeApercu } from './useMontageVideo'
 
 const COLONNES_JOB =
   'id, titre, cree_par, statut, etape, progression, created_at, updated_at, erreur, format, version_courante, template_id, prompt, lien_drive_export, variante_de'
 const COLONNES_VERSION = 'id, job_id, numero, chemin_apercu, prompt, reponse_agent, auteur, created_at, sous_titres'
 const COLONNES_TACHE = 'id, job_id, type, payload, statut, cree_par, erreur, created_at'
-const COLONNES_CLIP = 'id, job_id, ordre, role, nom, nom_source, duree_s'
+const COLONNES_CLIP = 'id, job_id, ordre, role, nom, nom_source, duree_s, remplace_ordre, ajoute_en_version'
 const COLONNES_VARIANTE = 'id, titre, statut, format, version_courante, created_at, variante_de'
 const POLLING_MS = 3000
 
@@ -143,6 +144,15 @@ export function useMontageEditeur(jobId) {
   const terminer = useCallback(() => creerTache(tacheTerminer(jobId)), [creerTache, jobId])
   const creerVariante = useCallback((choix) => creerTache(tacheVariante(jobId, choix)), [creerTache, jobId])
 
+  // Ajoute ou remplace un clip après la v1 (la base donne l'ordre et refuse
+  // pendant un rendu final). Renvoie la ligne créée. Aucune ronde ne part.
+  const ajouterClip = useCallback(async (choix) => {
+    const { data, error: err } = await supabase.from('video_clips').insert(ligneAjoutClip(jobId, clips, choix)).select(COLONNES_CLIP).single()
+    if (err) throw err
+    setClips(prev => [...prev.filter(c => c.id !== data.id), data])
+    return data
+  }, [jobId, clips])
+
   // Montage d'origine d'une variante : son titre pour le lien.
   const varianteDe = job?.variante_de ?? null
   useEffect(() => {
@@ -155,7 +165,7 @@ export function useMontageEditeur(jobId) {
 
   return {
     job, versions, taches, clips, variantes, origine, loading, error, introuvable, direct, reload,
-    envoyer, corriger, restaurer, terminer, creerVariante,
+    envoyer, corriger, restaurer, terminer, creerVariante, ajouterClip,
   }
 }
 

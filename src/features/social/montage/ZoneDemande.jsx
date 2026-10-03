@@ -1,11 +1,20 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Button from '../../../components/shared/Button'
 import { validerDemande, messageErreurEnvoi, LONGUEUR_MAX_DEMANDE } from '../../../lib/montageEditeur'
 
 // Champ « Qu'est-ce que tu veux changer ? » et bouton Envoyer. Désactivés tant
 // qu'une tâche du montage attend ou tourne (etat vient de etatEnvoi).
-export default function ZoneDemande({ etat, enLigne, onEnvoyer }) {
+// ajoutTexte { texte, tour } : phrase ajoutée au champ (clip ajouté ou
+// remplacé), sans rien envoyer.
+export default function ZoneDemande({ etat, enLigne, onEnvoyer, ajoutTexte }) {
   const [texte, setTexte] = useState('')
+  const champ = useRef(null)
+
+  useEffect(() => {
+    if (!ajoutTexte?.texte) return
+    setTexte(t => (t.trim() ? `${t.trimEnd()}\n${ajoutTexte.texte}` : ajoutTexte.texte))
+    champ.current?.focus()
+  }, [ajoutTexte])
   const [envoi, setEnvoi] = useState({ enCours: false, erreur: null })
   const [tentative, setTentative] = useState(false)
 
@@ -41,6 +50,7 @@ export default function ZoneDemande({ etat, enLigne, onEnvoyer }) {
       <label htmlFor="demande-montage" className="sr-only">Qu'est-ce que tu veux changer ?</label>
       <textarea
         id="demande-montage"
+        ref={champ}
         value={texte}
         onChange={e => setTexte(e.target.value)}
         onKeyDown={touche}

@@ -21,6 +21,7 @@ import { RestaurerVersion, BoutonTerminer, BandeauExport } from './FinMontage'
 import { ProposerTemplate } from './TemplatesMontage'
 import { useTemplatesDuMontage } from './useMontageTemplates'
 import { messagesTemplates } from '../../../lib/montageTemplates'
+import { etatAjoutClip } from '../../../lib/montageClips'
 import { CreerVariante, LienOrigine, ListeVariantes } from './VariantesMontage'
 
 function Retour() {
@@ -58,7 +59,7 @@ export default function MontageEditeur() {
 function Editeur({ jobId }) {
   const {
     job, versions, taches, clips, variantes, origine, loading, error, introuvable, direct, reload,
-    envoyer, corriger, restaurer, terminer, creerVariante,
+    envoyer, corriger, restaurer, terminer, creerVariante, ajouterClip,
   } = useMontageEditeur(jobId)
   const agent = useAgentStatus()
   const propositions = useTemplatesDuMontage(jobId)
@@ -108,6 +109,9 @@ function Editeur({ jobId }) {
     setBrouillons({ numero: null, textes: {} })
   }, [corriger])
   const sauter = useCallback((secondes) => setSaut({ secondes, tour: Date.now() }), [])
+  // Phrase mise dans la demande après l'ajout ou le remplacement d'un clip.
+  const [phraseClip, setPhraseClip] = useState(null)
+  const ajouterPhrase = useCallback((texte) => setPhraseClip({ texte, tour: Date.now() }), [])
 
   if (loading && !job) {
     return <Message titre="Chargement du montage..." texte="Un instant." />
@@ -247,7 +251,13 @@ function Editeur({ jobId }) {
             )}
             {clips.length > 0 && (
               <Card className="p-4">
-                <ClipsMontage clips={clips} />
+                <ClipsMontage
+                  clips={clips}
+                  ajout={etatAjoutClip({ job, taches, clips })}
+                  onAjouter={ajouterClip}
+                  onPhrase={ajouterPhrase}
+                  versionsAjout={!job.variante_de}
+                />
               </Card>
             )}
           </div>
@@ -260,7 +270,7 @@ function Editeur({ jobId }) {
             <FilConversation messages={messages} noms={noms} job={job} />
           </div>
           <div className="border-t border-[#e5e7eb] p-4">
-            <ZoneDemande etat={etat} enLigne={enLigne} onEnvoyer={envoyer} />
+            <ZoneDemande etat={etat} enLigne={enLigne} onEnvoyer={envoyer} ajoutTexte={phraseClip} />
           </div>
         </Card>
       </div>

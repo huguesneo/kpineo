@@ -134,19 +134,18 @@ function BarreEnvoi({ progression, interrompu }) {
   )
 }
 
-// Étape 1, les vidéos : liste ordonnée des clips, et ajout d'un clip par dépôt
-// (upload résumable vers Brut) ou choix dans Drive. Un clip prêt dans Brut
-// rejoint la liste (MontageNouvelle) et la zone de dépôt revient.
-// verrouille : le montage est déjà créé (lancement à réessayer), les clips ne
-// changent plus.
-export default function EtapeVideo({ envoi, clips = [], actionsClips, erreurClips, verrouille, titre, setTitre, erreurTitre }) {
+// Ajout d'un clip dans Brut : zone de dépôt (fichier ou Picker), envoi
+// résumable, copie dans Brut, puis « prêt » (envoi.resultat). Sert à l'étape 1
+// et à l'éditeur (ajouter ou remplacer un clip après la v1).
+// nbClips : clips déjà là (10 au plus) ; verrouille : plus d'ajout.
+export function EnvoiClip({ envoi, nbClips = 0, verrouille, ajout = nbClips > 0 }) {
   const {
     etat, message, fichier, fichierDrive, progression, resultat,
     choisirFichier, demarrer, reprendre, annuler, recommencer, choisirDansDrive, copierDansBrut, autoriserBrut,
   } = envoi
   const [enCours, setEnCours] = useState(false)
   const nomOrigine = fichier?.name || fichierDrive?.nom
-  const plein = clips.length >= MAX_CLIPS
+  const plein = nbClips >= MAX_CLIPS
   const envoiActif = etat !== 'choix' && etat !== 'erreur' && etat !== 'pret'
 
   async function avecAttente(fn) {
@@ -155,17 +154,13 @@ export default function EtapeVideo({ envoi, clips = [], actionsClips, erreurClip
   }
 
   return (
-    <div className="space-y-5">
-      {actionsClips && (
-        <ListeClips clips={clips} {...actionsClips} desactive={envoiActif || verrouille} erreur={erreurClips} />
-      )}
-
+    <>
       {(etat === 'choix' || etat === 'erreur') && !verrouille && (plein ? (
         <p className="text-sm text-[#6b7280]">{MAX_CLIPS} clips au plus : retire un clip pour en ajouter un autre.</p>
       ) : (
         <>
           {etat === 'erreur' && message && <Avis type="erreur">{message}</Avis>}
-          <ZoneDepot onFichier={choisirFichier} onDrive={() => avecAttente(choisirDansDrive)} desactive={enCours} ajout={clips.length > 0} />
+          <ZoneDepot onFichier={choisirFichier} onDrive={() => avecAttente(choisirDansDrive)} desactive={enCours} ajout={ajout} />
         </>
       ))}
 
@@ -183,7 +178,7 @@ export default function EtapeVideo({ envoi, clips = [], actionsClips, erreurClip
           </div>
           {etat !== 'envoi' && etat !== 'copie' && etat !== 'verification' && (
             <button onClick={recommencer} className="text-sm font-semibold text-[#6b7280] hover:text-[#1a1a1a]">
-              {clips.length ? 'Annuler cet ajout' : 'Changer de vidéo'}
+              {ajout ? 'Annuler cet ajout' : 'Changer de vidéo'}
             </button>
           )}
         </div>
@@ -250,6 +245,25 @@ export default function EtapeVideo({ envoi, clips = [], actionsClips, erreurClip
           <p className="mt-1 text-xs break-all">Brut/{resultat.nomSource}</p>
         </Avis>
       )}
+    </>
+  )
+}
+
+// Étape 1, les vidéos : liste ordonnée des clips, et ajout d'un clip par dépôt
+// (upload résumable vers Brut) ou choix dans Drive. Un clip prêt dans Brut
+// rejoint la liste (MontageNouvelle) et la zone de dépôt revient.
+// verrouille : le montage est déjà créé (lancement à réessayer), les clips ne
+// changent plus.
+export default function EtapeVideo({ envoi, clips = [], actionsClips, erreurClips, verrouille, titre, setTitre, erreurTitre }) {
+  const envoiActif = !['choix', 'erreur', 'pret'].includes(envoi.etat)
+
+  return (
+    <div className="space-y-5">
+      {actionsClips && (
+        <ListeClips clips={clips} {...actionsClips} desactive={envoiActif || verrouille} erreur={erreurClips} />
+      )}
+
+      <EnvoiClip envoi={envoi} nbClips={clips.length} verrouille={verrouille} />
 
       {(clips.length > 0 || envoiActif) && (
         <div>

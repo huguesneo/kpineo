@@ -22,6 +22,7 @@ Plan de référence : `PROMPT-CLAUDE-CODE-MONTAGE-VIDEO-2026-10-01.md` (hors dé
 | **4-départ** | **Templates de départ « Pub 0929 » et « Entrevue mythe 0924 » (approuvés, aperçus), colonne `style_enregistre`, montage parti de la composition de départ du style** | **Fait, testé, appliqué en production le 3 oct.** |
 | **10a** | **Templates proposés depuis l'éditeur, écran Templates, approbation et refus motivé par Hugues, archivage ; galerie limitée aux styles enregistrés** | **Fait, testé (logique, composants, RLS), derrière le flag. Migration `20261003d` appliquée en production le 3 oct. Agent inchangé** |
 | **10b** | **Variantes (autre hook, format 4:5 ou 1:1) depuis l'éditeur, lien « Variante de » et liste des variantes, lecteur au ratio du montage** | **Fait, testé (logique, composants, RLS), derrière le flag. Migration `20261003e` appliquée en production le 3 oct. Agent : doit écrire `variante_de` (voir étape 10b)** |
+| **Clips 3** | **Ajouter un clip (B-roll ou Principal oublié) ou remplacer un clip après la v1, depuis le panneau « Clips » de l'éditeur ; aucun clip effacé ; phrase pré-remplie dans la demande** | **Fait, testé (logique, composants, RLS), derrière le flag. Migration `20261003f` appliquée en production le 3 oct. Agent inchangé : le remplacement passe par la phrase de la demande en attendant le filtre côté agent (voir Clips, partie 3)** |
 
 Prérequis vérifié : `public.is_hugues()` existe en production.
 
@@ -466,7 +467,7 @@ Avec un Postgres local vide (jamais un projet Supabase, le script refuse), migra
 PGHOST=/chemin/socket PGPORT=5432 PGUSER=postgres supabase/tests/montage_video/run.sh
 ```
 
-Résultat attendu : `PASS: 191  FAIL: 0` (migrations e, f et 20261003a, puis les templates de départ, puis l'éditeur, puis les clips, puis les templates proposés, puis les variantes). Sur le Mac : `brew install postgresql@17`, puis un Postgres jetable (`initdb`, `pg_ctl ... -o "-k '' -p 54329"`) et `PGHOST=localhost PGPORT=54329`.
+Résultat attendu : `PASS: 218  FAIL: 0` (migrations e, f et 20261003a, puis les templates de départ, puis l'éditeur, puis les clips (20261003c puis 20261003f), puis les templates proposés, puis les variantes). Sur le Mac : `brew install postgresql@17`, puis un Postgres jetable (`initdb`, `pg_ctl ... -o "-k '' -p 54329"`) et `PGHOST=localhost PGPORT=54329`.
 
 ## Étape 10a : templates proposés et approbation (3 oct. 2026)
 
@@ -545,3 +546,46 @@ Tests : `montageVariantes.test.js` (19 : payloads des trois types, validation, t
 1. **Autre hook (test réel, agent réel, coûte un appel Claude)** : sur un montage en v2 (version actuelle affichée), « Créer une variante », « Autre hook », écrire un hook, Créer. Bouton et champ désactivés (« attend son tour »), le fil montre « Créer une variante (autre hook : « … ») ». SQL : tâche `variante`, `payload` `{"hook":"…"}`. Le nouveau montage `<titre> (variante hook)` apparaît dans la liste et arrive à sa v1 avec la nouvelle ouverture ; l'original reste en v2. Les liens « Variante de » n'apparaîtront qu'une fois l'agent modifié (`variante_de`).
 2. **Format 4:5** : même chose avec « Format 4:5 » sans consigne. Dans l'éditeur de la variante, le lecteur est en 4:5 (pas étiré, pas dans un cadre 9:16), avec « Format 4:5 » sous le titre. Sur la variante, « Créer une variante » ne propose plus 4:5.
 3. **Liens** (après l'ajout de `variante_de` dans l'agent, ou en SQL sur une variante de test : `update video_jobs set variante_de='<origine>' where id='<variante>';`) : « Variante de <origine> » dans l'éditeur et la liste, panneau « Variantes (1) » dans l'éditeur de l'origine, « Variante : <titre> » sous l'origine dans la liste.
+
+## Clips, partie 3 : ajouter ou remplacer un clip après la v1 (3 oct. 2026)
+
+Toujours derrière `VITE_MONTAGE_VIDEO=true`. **Agent inchangé.**
+
+Besoin : après la v1, l'équipe doit pouvoir ajouter un B-roll, ajouter un clip Principal oublié, ou remplacer un clip. Règle : **aucun clip n'est jamais modifié ni supprimé**, pour que Restaurer une ancienne version continue de marcher (les fichiers de `public/videos` sont hors git dans video-neo et l'agent ne les efface jamais).
+
+Migration `20261003f_montage_video_clips_apres_v1.sql` (additive, se rejoue ; appliquée sur soma-hq le 3 oct. sous le nom `montage_video_clips_apres_v1`. Vérifié après : 2 colonnes vides sur les 9 clips existants, trigger `video_clips_insert` seul, politiques inchangées, lecture et création seulement) :
+- `video_clips.remplace_ordre` : sur le **nouveau** clip, l'ordre du clip qu'il remplace. L'ancien clip ne change pas ; « remplacé » se déduit de cette colonne. Un ordre plutôt qu'un id : l'agent recopie toutes les colonnes sauf `id` dans une variante (`copierClipsVariante`), et l'ordre y reste juste.
+- `video_clips.ajoute_en_version` : version actuelle au moment de l'ajout (vide pour les clips du lancement).
+- La fonction `video_clips_avant_insert` est réécrite (le trigger ne change pas). Hub, montage sans version : comme avant, et les deux colonnes sont forcées à vide. Hub, montage qui a une version :
+  - refus pendant un rendu final : statut `rendu`, ou tâche `terminer` en attente ou en cours ;
+  - un montage **terminé** accepte l'ajout (le hub permet déjà une nouvelle ronde après Terminer) ;
+  - l'ordre est donné par la base (le suivant) ; 10 clips au plus, **remplacés compris** ;
+  - `remplace_ordre` doit désigner un clip de ce montage qui n'est pas déjà remplacé ;
+  - il reste au moins un clip Principal non remplacé ;
+  - `duree_s` forcée à vide.
+- Droits inchangés : `has_montage_access()` (hugues@ et info@). Toujours ni modification ni suppression depuis le hub. L'agent (service_role) n'est pas concerné.
+
+Hub :
+- `src/lib/montageClips.js` : `remplacements`, `clipsActifs`, `etatAjoutClip` (caché avant la v1, désactivé pendant un rendu final ou à 10 clips, avertissement pour un montage terminé : « Le fichier exporté reste la vN, il faudra Terminer de nouveau. »), `ligneAjoutClip`, `phraseAjoutClip`, `messageErreurClip`.
+- Panneau « Clips » de l'éditeur (`ClipsMontage`) : « + Ajouter un clip » sous la liste et « Remplacer » sur chaque clip encore utilisé. Le panneau `AjoutClip` reprend l'envoi de l'étape 1 (fichier ou Picker vers Brut, copie dans Brut ; composant `EnvoiClip` sorti de `EtapeVideo`), puis le rôle (Principal ou B-roll, celui du clip remplacé par défaut) et le nom. Un clip remplacé reste affiché, grisé et barré, avec « Remplacé par le clip N » ; le nouveau montre « Remplace le clip M · ajouté après la vK » (sans « ajouté après » dans une variante).
+- **Aucune ronde ne part.** Une phrase est ajoutée au champ de demande, modifiable :
+  - B-roll : « Ajoute le B-roll « X » (clip 4) là où il sert le mieux le propos. »
+  - Principal : « Ajoute le clip 4 « X » (Principal) à la fin de la vidéo, après le clip 1 « Y ». Coupe-le et transcris-le comme les autres clips Principal, puis mets à jour les sous-titres. » (position à corriger dans la demande si besoin)
+  - Remplacement : « Remplace le clip 2 « Y » par le clip 4 « X » : mets ce B-roll à sa place et n'utilise plus le clip 2. » (+ la phrase de transcription si c'est un Principal)
+
+Ce que l'agent voit, sans changement de son code (vérifié dans `agent/src/clips.ts`, `taches.ts`, `prompts.ts`) :
+- À chaque ronde, il relit **toutes** les lignes de `video_clips` du montage, sans filtre (service_role), copie depuis Brut les clips absents du Mac, écrit leur durée et donne le tableau des clips à Claude dès qu'il y a 2 clips ou plus.
+- **B-roll ajouté** : pris en compte.
+- **Principal ajouté** : copié et listé, mais la transcription Whisper automatique ne se fait qu'à la ronde 1 ; aux rondes suivantes, c'est Claude qui coupe, transcrit et assemble, guidé par la phrase. Probable, pas garanti.
+- **Clip remplacé** : l'ancien clip reste dans le tableau avec son rôle. Seule la phrase de la demande dit à Claude de ne plus l'utiliser. **Étape agent à faire** : dans `lireClips`, ignorer les clips dont l'ordre est le `remplace_ordre` d'un autre clip du même montage (et ne pas les recopier).
+- Un clip ajouté pendant qu'une demande attend dans la file est pris par cette ronde-là, sans la phrase (elle n'est pas encore envoyée) : mieux vaut ajouter le clip quand l'agent a fini.
+- Après un Restaurer vers une version d'avant le remplacement, le clip reste marqué « remplacé » dans le hub alors que la version restaurée l'utilise encore (le fichier est toujours là, l'aperçu marche) ; la ronde suivante dira de ne plus l'utiliser si la phrase est envoyée.
+
+Tests : `montageClips.test.js` (22, dont 10 nouveaux : actifs et remplacés, états, rendu, Terminer, terminé, 10 clips, ligne, trois phrases, erreurs), `clips.test.jsx` (18, dont 4 nouveaux : boutons après la v1, clip remplacé barré, variante, rendu, avant la v1). `40_tests_clips.sql` section 13b (28 : ordre donné par la base, durée et version forcées, remplacement, ancien clip intact, double remplacement, clip inconnu, dernier Principal, Principal ajouté, ni modification ni suppression, lancement inchangé, hors liste, non connecté, rendu, Terminer en attente, montage terminé, 11e clip, copie par l'agent). `run.sh` → `PASS: 218  FAIL: 0`. Hub : 460 tests qui passent (les 2 fichiers des commissions échouent toujours, `scripts/baseline/inputs.json` absent). Build sans remarque (pas de configuration ESLint dans le dépôt).
+
+### Tester à la main (4 points)
+
+1. **B-roll** : sur un montage en v1 ou plus, « + Ajouter un clip », déposer une vidéo, B-roll, « Ajouter ce clip ». Le clip apparaît à la fin (« ajouté après la vN ») et la phrase est dans la demande, rien n'est parti. Envoyer : à la ronde suivante, le B-roll est utilisé.
+2. **Remplacer** : « Remplacer » sur un clip. L'ancien reste, grisé et barré ; SQL : `select ordre, nom, remplace_ordre, ajoute_en_version from video_clips where job_id='<id>' order by ordre;`. Envoyer la phrase, vérifier que la nouvelle version n'utilise plus l'ancien clip.
+3. **Garde-fous** : pendant « Terminer et exporter », les boutons sont grisés (« Un rendu final est en cours… ») ; sur un montage terminé, l'avertissement « Le fichier exporté reste la vN, il faudra Terminer de nouveau. » s'affiche dans le panneau.
+4. **Restaurer** : après un remplacement, restaurer une version d'avant : l'aperçu se fait, rien n'est effacé.

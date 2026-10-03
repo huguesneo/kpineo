@@ -131,6 +131,41 @@ describe('ClipsMontage (éditeur, lecture seule)', () => {
   it('aucun clip : rien', () => {
     expect(renderToStaticMarkup(<ClipsMontage clips={[]} />)).toBe('')
   })
+
+  const apresV1 = [
+    { id: 'c1', ordre: 1, role: 'principal', nom: 'Entrevue', remplace_ordre: null, ajoute_en_version: null },
+    { id: 'c2', ordre: 2, role: 'broll', nom: 'Cuisine', remplace_ordre: null, ajoute_en_version: null },
+    { id: 'c3', ordre: 3, role: 'broll', nom: 'Cuisine 2', remplace_ordre: 2, ajoute_en_version: 2 },
+  ]
+  const permis = { visible: true, desactive: false, raison: null, avertissement: null }
+
+  it('après la v1 : « Ajouter un clip » et « Remplacer » sur les clips encore utilisés', () => {
+    const html = renderToStaticMarkup(<ClipsMontage clips={apresV1} ajout={permis} onAjouter={() => {}} onPhrase={() => {}} />)
+    expect(html).toContain('+ Ajouter un clip')
+    expect(html.match(/>Remplacer</g)).toHaveLength(2)
+    expect(html).toContain('data-remplace="oui"')
+    expect(html).toContain('line-through')
+    expect(html).toContain('Remplacé par le clip 3')
+    expect(html).toContain('Remplace le clip 2 · ajouté après la v2')
+  })
+
+  it('variante : pas de « ajouté après la vN »', () => {
+    const html = renderToStaticMarkup(<ClipsMontage clips={apresV1} ajout={permis} onAjouter={() => {}} versionsAjout={false} />)
+    expect(html).toContain('Remplace le clip 2')
+    expect(html).not.toContain('ajouté après')
+  })
+
+  it('pendant un rendu final : boutons désactivés, raison affichée', () => {
+    const ajout = { visible: true, desactive: true, raison: 'Un rendu final est en cours : attends la fin pour ajouter ou remplacer un clip.', avertissement: null }
+    const html = renderToStaticMarkup(<ClipsMontage clips={apresV1} ajout={ajout} onAjouter={() => {}} />)
+    expect(html).toContain('Un rendu final est en cours')
+    expect(html.match(/<button[^>]*disabled=""/g)).toHaveLength(3)
+  })
+
+  it('avant la v1 : lecture seule', () => {
+    const html = renderToStaticMarkup(<ClipsMontage clips={apresV1} ajout={{ visible: false }} onAjouter={() => {}} />)
+    expect(html).not.toContain('<button')
+  })
 })
 
 describe('FileAttente (accueil)', () => {
