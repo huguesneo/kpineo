@@ -1,6 +1,7 @@
 // Logique de l'éditeur de montage (phase 3a), sans dépendance à React ni à
 // Supabase (testée dans montageEditeur.test.js).
 import { annulationDemandee, texteAnnulationTardive } from './montageAnnulation'
+import { estSupprime, RAISON_CORBEILLE } from './montageCorbeille'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -37,6 +38,8 @@ export function derniereTache(taches) {
 // videPermis : à la première ronde, « Relancer le montage » part sans texte.
 export function etatEnvoi({ job, taches }) {
   if (!job) return { desactive: true, raison: 'Chargement du montage...', videPermis: false }
+  // Corbeille : ni demande, ni variante, ni rendu (la base refuse aussi).
+  if (estSupprime(job)) return { desactive: true, raison: RAISON_CORBEILLE, videPermis: false }
   const active = tacheActive(taches)
   if (annulationDemandee(active)) {
     return { desactive: true, raison: "Annulation en cours : tu pourras écrire une nouvelle demande quand le Mac aura arrêté.", videPermis: false }

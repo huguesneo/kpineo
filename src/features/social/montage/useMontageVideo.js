@@ -4,15 +4,33 @@ import {
   CLE_DOSSIER_BRUT_ID, CLE_DOSSIER_BRUT_NOM, lireDossierBrut, premiereTacheMontage, cheminDernierApercu, derniereTacheParJob,
 } from '../../../lib/montageVideo'
 import { lignesClips } from '../../../lib/montageClips'
+import { separerCorbeille } from '../../../lib/montageCorbeille'
 
 const COLONNES_JOB =
-  'id, titre, cree_par, statut, etape, progression, created_at, updated_at, fichier_drive_id, nom_source, lien_drive_export, erreur, format, version_courante, variante_de'
+  'id, titre, cree_par, statut, etape, progression, created_at, updated_at, fichier_drive_id, nom_source, lien_drive_export, erreur, format, version_courante, variante_de, supprime_le, supprime_par'
 
 function trierParDate(jobs) {
   return [...jobs].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
 }
 
+// Met un montage à la corbeille (public.video_supprimer_montage, migration
+// 20261003h). Renvoie 'supprime' ou 'deja_supprime'.
+export async function supprimerMontage(id) {
+  const { data, error } = await supabase.rpc('video_supprimer_montage', { p_id: id })
+  if (error) throw error
+  return data
+}
+
+// Sort un montage de la corbeille. Renvoie 'restaure' ou 'pas_supprime'.
+export async function restaurerMontage(id) {
+  const { data, error } = await supabase.rpc('video_restaurer_montage', { p_id: id })
+  if (error) throw error
+  return data
+}
+
 // Montages + noms des auteurs, mis à jour en direct (Realtime sur video_jobs).
+// jobs : hors corbeille (liste, file, variantes) ; corbeille : les supprimés ;
+// tous : les deux (pour « Variante de … » vers un montage supprimé).
 export function useMontageJobs() {
   const [jobs, setJobs] = useState([])
   const [noms, setNoms] = useState({})
@@ -62,8 +80,13 @@ export function useMontageJobs() {
     return () => { supabase.removeChannel(channel) }
   }, [reload])
 
-  // cree_par est un courriel : on affiche le nom du profil quand il existe.
-  const courriels = [...new Set(jobs.map(j => j.cree_par).filter(Boolean))].sort().join(',')
+  // Après Supprimer / Restaurer : la ligne change tout de suite, le temps réel confirme.
+  const remplacer = useCallback((job) => {
+    setJobs(prev => prev.map(j => (j.id === job.id ? job : j)))
+  }, [])
+
+  // cree_par et supprime_par sont des courriels : on affiche le nom du profil quand il existe.
+  const courriels = [...new Set(jobs.flatMap(j => [j.cree_par, j.supprime_par]).filter(Boolean))].sort().join(',')
   useEffect(() => {
     if (!courriels) return
     let annule = false
@@ -75,7 +98,8 @@ export function useMontageJobs() {
     return () => { annule = true }
   }, [courriels])
 
-  return { jobs, noms, loading, error, reload, direct }
+  const { actifs, corbeille } = separerCorbeille(jobs)
+  return { jobs: actifs, corbeille, tous: jobs, noms, loading, error, reload, direct, remplacer }
 }
 
 // Heartbeat de l'agent (ligne unique de video_agent_status), en direct.

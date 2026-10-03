@@ -10,11 +10,15 @@ import { canConfigureMontageVideo } from '../../../lib/montageVideoAccess'
 import {
   isAgentEnLigne, statutMontage, positionsFile, rangFr, lienDriveMontage, STATUTS_EN_TRAITEMENT, erreurAgent,
 } from '../../../lib/montageVideo'
-import { useMontageJobs, useAgentStatus, useDernieresTaches, ouvrirDernierApercu } from './useMontageVideo'
+import {
+  useMontageJobs, useAgentStatus, useDernieresTaches, ouvrirDernierApercu, supprimerMontage, restaurerMontage,
+} from './useMontageVideo'
 import PastilleMac, { dateFr } from './PastilleMac'
 import { LienExport } from './FinMontage'
 import { LienOrigine, LiensVariantes } from './VariantesMontage'
 import { variantesDe } from '../../../lib/montageVariantes'
+import { origineDe, apresCorbeille } from '../../../lib/montageCorbeille'
+import { BoutonSupprimer, ListeCorbeille } from './CorbeilleMontage'
 
 function EtatVide({ titre, texte, action }) {
   return (
@@ -88,7 +92,9 @@ function BoutonApercu({ job }) {
   )
 }
 
-export function ListeMontages({ jobs, noms, loading, error, reload, positions, taches }) {
+// tous : montages corbeille comprise (pour « Variante de … montage supprimé ») ;
+// onSupprimer : bouton « Supprimer » sur chaque ligne.
+export function ListeMontages({ jobs, noms, loading, error, reload, positions, taches, tous = jobs, onSupprimer = null }) {
   if (loading && jobs.length === 0) return <div className="p-5"><SkeletonTable rows={3} /></div>
   if (error) {
     return (
@@ -122,13 +128,15 @@ export function ListeMontages({ jobs, noms, loading, error, reload, positions, t
             <th className="px-5 py-3">Auteur</th>
             <th className="px-5 py-3">Date</th>
             <th className="px-5 py-3">Google Drive</th>
+            {onSupprimer && <th className="px-5 py-3"><span className="sr-only">Actions</span></th>}
           </tr>
         </thead>
         <tbody>
           {jobs.map(job => {
             const statut = statutMontage(job.statut)
             const position = positions[job.id]
-            const origine = job.variante_de ? (jobs.find(j => j.id === job.variante_de) ?? { id: job.variante_de }) : null
+            const origine = origineDe(job, tous)
+            const variantes = variantesDe(job.id, jobs)
             return (
               <tr key={job.id} className="border-b border-[#f0f0f2] last:border-0 align-top">
                 <td className="px-5 py-4">
@@ -136,7 +144,7 @@ export function ListeMontages({ jobs, noms, loading, error, reload, positions, t
                     {job.titre}
                   </Link>
                   <LienOrigine origine={origine} compact />
-                  <LiensVariantes variantes={variantesDe(job.id, jobs)} />
+                  <LiensVariantes variantes={variantes} />
                   {erreurAgent(job, taches[job.id]) && (
                     <p className="text-xs text-red-600 mt-1 max-w-md">{erreurAgent(job, taches[job.id])}</p>
                   )}
@@ -160,6 +168,11 @@ export function ListeMontages({ jobs, noms, loading, error, reload, positions, t
                 <td className="px-5 py-4 text-[#374151]">{noms[job.cree_par] || job.cree_par}</td>
                 <td className="px-5 py-4 text-[#6b7280] whitespace-nowrap">{dateFr(job.created_at)}</td>
                 <td className="px-5 py-4"><LienDrive job={job} /></td>
+                {onSupprimer && (
+                  <td className="px-5 py-4 min-w-[9rem]">
+                    <BoutonSupprimer job={job} taches={[taches[job.id]]} nbVariantes={variantes.length} onSupprimer={onSupprimer} />
+                  </td>
+                )}
               </tr>
             )
           })}
@@ -211,11 +224,23 @@ export function FileAttente({ jobs, positions, noms, enLigne }) {
 
 export default function MontageAccueil() {
   const { user } = useAuth()
-  const { jobs, noms, loading, error, reload, direct } = useMontageJobs()
+  const { jobs, corbeille, tous, noms, loading, error, reload, direct, remplacer } = useMontageJobs()
+  const [vue, setVue] = useState('montages')
   const agent = useAgentStatus()
   const taches = useDernieresTaches()
   const positions = positionsFile(jobs)
   const enLigne = !agent.error && isAgentEnLigne(agent.status?.dernier_signal, agent.maintenant)
+
+  async function supprimer(job) {
+    const code = await supprimerMontage(job.id)
+    remplacer(apresCorbeille(job, code, { email: user?.email || '' }))
+  }
+  async function restaurer(job) {
+    const code = await restaurerMontage(job.id)
+    remplacer(apresCorbeille(job, code))
+  }
+  const ongletClasse = (actif) => `px-3 py-1.5 rounded-md text-sm font-semibold transition-colors ${
+    actif ? 'bg-white text-[#1a1a1a] shadow-sm' : 'text-[#6b7280] hover:text-[#1a1a1a]'}`
 
   return (
     <Layout>
@@ -274,8 +299,20 @@ export default function MontageAccueil() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2">
-          <h2 className="text-base font-bold text-[#1a1a1a] px-5 pt-5 pb-3">Montages</h2>
-          <ListeMontages jobs={jobs} noms={noms} loading={loading} error={error} reload={reload} positions={positions} taches={taches} />
+          <div className="flex flex-wrap items-center justify-between gap-2 px-5 pt-5 pb-3">
+            <h2 className="text-base font-bold text-[#1a1a1a]">{vue === 'corbeille' ? 'Corbeille' : 'Montages'}</h2>
+            <div className="inline-flex rounded-lg bg-gray-100 p-1" role="tablist" aria-label="Vue">
+              <button type="button" role="tab" aria-selected={vue === 'montages'} onClick={() => setVue('montages')} className={ongletClasse(vue === 'montages')}>
+                Montages
+              </button>
+              <button type="button" role="tab" aria-selected={vue === 'corbeille'} onClick={() => setVue('corbeille')} className={ongletClasse(vue === 'corbeille')}>
+                Corbeille{corbeille.length > 0 ? ` (${corbeille.length})` : ''}
+              </button>
+            </div>
+          </div>
+          {vue === 'corbeille' && !error
+            ? <ListeCorbeille corbeille={corbeille} noms={noms} onRestaurer={restaurer} />
+            : <ListeMontages jobs={jobs} tous={tous} noms={noms} loading={loading} error={error} reload={reload} positions={positions} taches={taches} onSupprimer={supprimer} />}
         </Card>
         <Card className="self-start">
           <h2 className="text-base font-bold text-[#1a1a1a] px-5 pt-5 pb-3">File d'attente</h2>

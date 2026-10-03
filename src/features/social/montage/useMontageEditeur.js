@@ -6,14 +6,15 @@ import { tacheRestaurer, tacheTerminer } from '../../../lib/montageFin'
 import { tacheVariante } from '../../../lib/montageVariantes'
 import { ligneAjoutClip } from '../../../lib/montageClips'
 import { COLONNES_ANNULATION } from '../../../lib/montageAnnulation'
-import { urlSigneeApercu } from './useMontageVideo'
+import { estSupprime, apresCorbeille } from '../../../lib/montageCorbeille'
+import { urlSigneeApercu, supprimerMontage, restaurerMontage } from './useMontageVideo'
 
 const COLONNES_JOB =
-  'id, titre, cree_par, statut, etape, progression, created_at, updated_at, erreur, format, version_courante, template_id, prompt, lien_drive_export, variante_de'
+  'id, titre, cree_par, statut, etape, progression, created_at, updated_at, erreur, format, version_courante, template_id, prompt, lien_drive_export, variante_de, supprime_le, supprime_par'
 const COLONNES_VERSION = 'id, job_id, numero, chemin_apercu, prompt, reponse_agent, auteur, created_at, sous_titres'
 const COLONNES_TACHE = `id, job_id, type, payload, statut, cree_par, erreur, created_at, ${COLONNES_ANNULATION}`
 const COLONNES_CLIP = 'id, job_id, ordre, role, nom, nom_source, duree_s, remplace_ordre, ajoute_en_version'
-const COLONNES_VARIANTE = 'id, titre, statut, format, version_courante, created_at, variante_de'
+const COLONNES_VARIANTE = 'id, titre, statut, format, version_courante, created_at, variante_de, supprime_le'
 const POLLING_MS = 3000
 
 function remplacer(liste, row) {
@@ -167,6 +168,17 @@ export function useMontageEditeur(jobId) {
   const restaurer = useCallback((numero) => creerTache(tacheRestaurer(jobId, numero)), [creerTache, jobId])
   const terminer = useCallback(() => creerTache(tacheTerminer(jobId)), [creerTache, jobId])
   const creerVariante = useCallback((choix) => creerTache(tacheVariante(jobId, choix)), [creerTache, jobId])
+  // Corbeille : le montage change tout de suite (bandeau, boutons), le temps réel confirme.
+  const supprimer = useCallback(async (email) => {
+    const code = await supprimerMontage(jobId)
+    setJob(prev => (prev ? apresCorbeille(prev, code, { email }) : prev))
+    return code
+  }, [jobId])
+  const restaurerCorbeille = useCallback(async () => {
+    const code = await restaurerMontage(jobId)
+    setJob(prev => (prev ? apresCorbeille(prev, code) : prev))
+    return code
+  }, [jobId])
 
   // Ajoute ou remplace un clip après la v1 (la base donne l'ordre et refuse
   // pendant un rendu final). Renvoie la ligne créée. Aucune ronde ne part.
@@ -182,13 +194,18 @@ export function useMontageEditeur(jobId) {
   useEffect(() => {
     if (!varianteDe) { setOrigine(null); return }
     let annule = false
-    supabase.from('video_jobs').select('id, titre').eq('id', varianteDe).maybeSingle()
-      .then(({ data }) => { if (!annule) setOrigine(data ?? { id: varianteDe, titre: null }) })
+    supabase.from('video_jobs').select('id, titre, supprime_le').eq('id', varianteDe).maybeSingle()
+      .then(({ data }) => {
+        if (!annule) setOrigine(data ? { id: data.id, titre: data.titre, supprime: estSupprime(data) } : { id: varianteDe, titre: null, supprime: false })
+      })
     return () => { annule = true }
   }, [varianteDe])
 
   return {
-    job, versions, taches, clips, variantes, origine, loading, error, introuvable, direct, reload,
+    job, versions, taches, clips, origine,
+    // Les variantes dans la corbeille ne sont plus listées.
+    variantes: variantes.filter(v => !estSupprime(v)),
+    supprimer, restaurerCorbeille, loading, error, introuvable, direct, reload,
     envoyer, corriger, restaurer, terminer, creerVariante, ajouterClip, annuler,
   }
 }

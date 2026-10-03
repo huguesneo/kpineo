@@ -1,6 +1,7 @@
 // Clips d'un montage (principal et b-roll), sans dépendance à React ni à
 // Supabase (testée dans montageClips.test.js). Miroir de video_clips
 // (20261003c_montage_video_clips.sql).
+import { estSupprime, RAISON_CORBEILLE } from './montageCorbeille'
 
 export const MAX_CLIPS = 10
 export const ROLES_CLIP = {
@@ -122,6 +123,7 @@ export const RAISON_RENDU_CLIPS = 'Un rendu final est en cours : attends la fin 
 // Retourne { visible, desactive, raison, avertissement }.
 export function etatAjoutClip({ job, taches, clips }) {
   if (!job || !(job.version_courante > 0)) return { visible: false, desactive: true, raison: null, avertissement: null }
+  if (estSupprime(job)) return { visible: true, desactive: true, raison: RAISON_CORBEILLE, avertissement: null }
   const rendu = job.statut === 'rendu'
     || (taches || []).some(t => t.type === 'terminer' && ['en_attente', 'en_cours'].includes(t.statut))
   if (rendu) return { visible: true, desactive: true, raison: RAISON_RENDU_CLIPS, avertissement: null }

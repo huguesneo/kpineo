@@ -100,7 +100,8 @@ export function CreerVariante({ job, taches, version, onCreer, ouvertInitial = f
   )
 }
 
-// « Variante de <montage d'origine> » (éditeur et liste).
+// « Variante de <montage d'origine> » (éditeur et liste). Origine dans la
+// corbeille : « (montage supprimé) », le lien ouvre le montage pour le restaurer.
 export function LienOrigine({ origine, compact = false }) {
   if (!origine?.id) return null
   return (
@@ -109,6 +110,7 @@ export function LienOrigine({ origine, compact = false }) {
       <Link to={`/reseaux-sociaux/montage/${origine.id}`} className="font-semibold text-[#00bbb1] hover:underline">
         {origine.titre || 'un autre montage'}
       </Link>
+      {origine.supprime && <span data-origine="supprimee"> (montage supprimé)</span>}
     </p>
   )
 }

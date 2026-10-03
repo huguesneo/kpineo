@@ -681,3 +681,34 @@ Le module n'est visible que pour `hugues@neoperformance.ca` et `info@neoperforma
 Tests (`montageVideo.test.js`, base simulée) : info@ et hugues@ voient l'entrée et ouvrent la route ; un autre compte n'a pas l'entrée et la route le renvoie à `/dashboard` ; erreur ou panne de la base = pas d'accès ; chargement et déconnexion ; flag éteint. Hub : 492 tests qui passent (les 2 fichiers des commissions échouent toujours, `scripts/baseline/inputs.json` absent). Build sans remarque.
 
 Tester à la main : connecté comme info@, « Montage vidéo » est dans le menu ; avec un autre compte (ex. un closeur), pas d'entrée, et `/reseaux-sociaux/montage` ramène au tableau de bord.
+
+## Corbeille : supprimer et restaurer un montage (3 oct. 2026)
+
+Suppression douce seulement : un montage supprimé va dans la corbeille et peut être restauré. Rien n'est effacé, rien à faire côté agent.
+
+### Base : migration `20261003h_montage_video_corbeille.sql`
+
+Additive, se rejoue. Aucune fonction ni aucun trigger existant réécrit.
+
+- `video_jobs.supprime_le`, `supprime_par` : dans la corbeille depuis quand, mis par qui. Index partiel `video_jobs_corbeille_idx`. Un montage créé depuis le hub naît avec ces colonnes vides (trigger `video_jobs_corbeille`). Le hub ne peut pas les écrire directement (`video_jobs_avant_update` : seul le titre change).
+- `video_supprimer_montage(id)` (SECURITY DEFINER, `has_montage_access()`) : `'supprime'` ou `'deja_supprime'`. Refusé avec « Annule d'abord la demande en cours » si une tâche du montage est en attente ou en cours. Ne touche ni aux clips, ni aux versions, ni aux tâches, ni à la branche git, ni aux aperçus, ni aux exports Drive.
+- `video_restaurer_montage(id)` : `'restaure'` ou `'pas_supprime'`.
+- Garde-fou `video_refuse_si_corbeille()` (triggers `video_taches_corbeille` et `video_clips_corbeille`) : depuis le hub, aucune tâche (demande, variante, Terminer, restauration de version…) ni aucun clip sur un montage dans la corbeille. `FOR SHARE` évite une course avec une suppression en cours. L'agent (service_role) n'est pas concerné.
+- Variantes : `variante_de` reste en place. La variante d'un montage supprimé reste dans la liste.
+- Tests SQL 24 à 27 (`80_tests_corbeille.sql`, branché dans `run.sh`).
+
+### Hub
+
+- `src/lib/montageCorbeille.js` (logique pure, `montageCorbeille.test.js`) et `CorbeilleMontage.jsx` (bouton Supprimer, Restaurer, vue Corbeille, bandeau de l'éditeur ; `corbeille.test.jsx`).
+- Accueil : `useMontageJobs` renvoie `jobs` (hors corbeille : liste, file, liens de variantes), `corbeille` et `tous`. Onglets « Montages » / « Corbeille (n) ». Bouton « Supprimer » sur chaque ligne, avec une confirmation qui dit que les exports Drive ne sont pas touchés et que les variantes restent. Il est désactivé quand la dernière tâche du montage attend ou tourne.
+- Éditeur : bouton « Supprimer » sous Terminer (retour à la liste après). Un montage dans la corbeille, ouvert par son adresse, affiche le bandeau « Ce montage est dans la corbeille » avec Restaurer. La demande, la variante, Terminer, la restauration de version, la proposition de template, les corrections de sous-titres et l'ajout de clip sont désactivés (`etatEnvoi` et `etatAjoutClip`).
+- « Variante de … » : « (montage supprimé) » quand l'origine est dans la corbeille. Les variantes supprimées ne sont plus listées dans l'éditeur. Écran Templates : le montage source affiche « (montage supprimé) ».
+- **Ordre de mise en ligne : la migration avant le hub.** Le hub lit `supprime_le` : sans la migration, la liste des montages ne se charge plus.
+
+### Tester à la main (5 points)
+
+1. Supprimer un montage fini depuis la liste : la confirmation mentionne Drive, le montage passe dans « Corbeille (1) » et disparaît de la liste et de la file. Le fichier dans Drive est toujours là.
+2. Montage avec une demande en attente : « Supprimer » est grisé avec « Annule d'abord la demande en cours ». Après l'annulation, il redevient possible.
+3. Ouvrir un montage supprimé par son adresse : bandeau corbeille, champ de demande, variante, Terminer et ajout de clip désactivés. Restaurer : tout revient, avec ses versions et ses clips.
+4. Supprimer l'origine d'une variante : la variante reste dans la liste, avec « Variante de … (montage supprimé) ».
+5. Supprimer depuis l'éditeur : retour à la liste, le montage est dans la corbeille.

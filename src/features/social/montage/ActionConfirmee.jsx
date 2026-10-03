@@ -5,8 +5,11 @@ import { messageErreurEnvoi } from '../../../lib/montageEditeur'
 // Bouton qui ouvre une confirmation sur place (ce que fait l'action, Annuler
 // ou Confirmer) avant de créer la tâche. etat = { desactive, raison } ;
 // ouvertInitial sert aux tests (rendu côté serveur, sans clic).
+// varianteConfirmer : 'danger' pour une action qui retire quelque chose ;
+// messageErreur : traduit l'erreur (par défaut, celle de l'envoi d'une tâche).
 export default function ActionConfirmee({
   libelle, titre, texte, libelleConfirmer, etat, onConfirmer, variante = 'secondary', ouvertInitial = false,
+  varianteConfirmer = 'primary', messageErreur = messageErreurEnvoi,
 }) {
   const [ouvert, setOuvert] = useState(ouvertInitial)
   const [envoi, setEnvoi] = useState({ enCours: false, erreur: null })
@@ -20,7 +23,7 @@ export default function ActionConfirmee({
       setOuvert(false)
       setEnvoi({ enCours: false, erreur: null })
     } catch (err) {
-      setEnvoi({ enCours: false, erreur: messageErreurEnvoi(err) })
+      setEnvoi({ enCours: false, erreur: messageErreur(err) })
     }
   }
 
@@ -32,7 +35,7 @@ export default function ActionConfirmee({
         {envoi.erreur && <p className="text-xs text-red-600 mt-2">{envoi.erreur}</p>}
         <div className="flex flex-wrap justify-end gap-2 mt-3">
           <Button type="button" variant="secondary" size="sm" onClick={() => setOuvert(false)} disabled={envoi.enCours}>Annuler</Button>
-          <Button type="button" size="sm" onClick={confirmer} loading={envoi.enCours}>{libelleConfirmer}</Button>
+          <Button type="button" variant={varianteConfirmer} size="sm" onClick={confirmer} loading={envoi.enCours}>{libelleConfirmer}</Button>
         </div>
       </div>
     )

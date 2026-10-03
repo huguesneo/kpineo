@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import Layout from '../../../components/layout/Layout'
 import Card from '../../../components/shared/Card'
 import Badge from '../../../components/shared/Badge'
@@ -25,6 +25,8 @@ import { useTemplatesDuMontage } from './useMontageTemplates'
 import { messagesTemplates } from '../../../lib/montageTemplates'
 import { etatAjoutClip } from '../../../lib/montageClips'
 import { CreerVariante, LienOrigine, ListeVariantes } from './VariantesMontage'
+import { BoutonSupprimer, BandeauCorbeille } from './CorbeilleMontage'
+import { estSupprime } from '../../../lib/montageCorbeille'
 
 function Retour() {
   return (
@@ -61,13 +63,14 @@ export default function MontageEditeur() {
 function Editeur({ jobId }) {
   const {
     job, versions, taches, clips, variantes, origine, loading, error, introuvable, direct, reload,
-    envoyer, corriger, restaurer, terminer, creerVariante, ajouterClip, annuler,
+    envoyer, corriger, restaurer, terminer, creerVariante, ajouterClip, annuler, supprimer, restaurerCorbeille,
   } = useMontageEditeur(jobId)
   const { user } = useAuth()
+  const navigate = useNavigate()
   const agent = useAgentStatus()
   const propositions = useTemplatesDuMontage(jobId)
   const enLigne = !agent.error && isAgentEnLigne(agent.status?.dernier_signal, agent.maintenant)
-  const noms = useNoms([job?.cree_par, ...versions.map(v => v.auteur), ...taches.map(t => t.cree_par), ...propositions.templates.map(t => t.propose_par)])
+  const noms = useNoms([job?.cree_par, job?.supprime_par, ...versions.map(v => v.auteur), ...taches.map(t => t.cree_par), ...propositions.templates.map(t => t.propose_par)])
 
   // Version choisie dans la bande (null = suivre la dernière). Quand une
   // nouvelle version arrive, le lecteur passe dessus.
@@ -116,6 +119,11 @@ function Editeur({ jobId }) {
   const [phraseClip, setPhraseClip] = useState(null)
   const ajouterPhrase = useCallback((texte) => setPhraseClip({ texte, tour: Date.now() }), [])
   // Demande annulée avant que le Mac la commence : son texte revient dans le champ.
+  // Supprimer : le montage passe dans la corbeille, retour à la liste.
+  const supprimerMontage = useCallback(async () => {
+    await supprimer(user?.email || '')
+    navigate('/reseaux-sociaux/montage')
+  }, [supprimer, user?.email, navigate])
   const annulerTache = useCallback(async (tache) => {
     const code = await annuler(tache)
     const texte = code === 'annulee' ? texteARemettre(tache) : null
@@ -165,8 +173,11 @@ function Editeur({ jobId }) {
         <div className="flex flex-col items-end gap-2">
           <PastilleMac {...agent} compacte />
           <BoutonTerminer job={job} taches={taches} versions={versions} onTerminer={terminer} />
+          <BoutonSupprimer job={job} taches={taches} nbVariantes={variantes.length} onSupprimer={supprimerMontage} />
         </div>
       </div>
+
+      {estSupprime(job) && <BandeauCorbeille job={job} noms={noms} onRestaurer={restaurerCorbeille} />}
 
       <BandeauExport job={job} versions={versions} taches={taches} />
 

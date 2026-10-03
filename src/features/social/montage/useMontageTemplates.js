@@ -78,10 +78,11 @@ export function useTemplates() {
     const ids = [...new Set((data ?? []).map(t => t.job_id).filter(Boolean))]
     if (ids.length) {
       const [j, v] = await Promise.all([
-        supabase.from('video_jobs').select('id, titre').in('id', ids),
+        supabase.from('video_jobs').select('id, titre, supprime_le').in('id', ids),
         supabase.from('video_versions').select('job_id, numero, chemin_apercu').in('job_id', ids),
       ])
-      if (j.data) setJobs(Object.fromEntries(j.data.map(x => [x.id, x.titre])))
+      // Montage source dans la corbeille : son titre l'indique.
+      if (j.data) setJobs(Object.fromEntries(j.data.map(x => [x.id, x.supprime_le ? `${x.titre} (montage supprimé)` : x.titre])))
       if (v.data) setVersions(v.data)
     }
     lireTachesStyle().then(setTachesStyle).catch(() => {})
