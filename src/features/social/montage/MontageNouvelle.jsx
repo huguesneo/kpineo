@@ -70,14 +70,14 @@ export default function MontageNouvelle() {
     if (!pret || erreurTitre || erreurDirection) return
     setLancement(l => ({ ...l, enCours: true, erreur: null }))
     try {
-      await lancerMontage(nouveauMontage({
+      const jobId = await lancerMontage(nouveauMontage({
         titre,
         fichierDriveId: envoi.resultat.fichierDriveId,
         nomSource: envoi.resultat.nomSource,
         templateId,
         prompt,
       }), lancement.jobId)
-      navigate('/reseaux-sociaux/montage')
+      navigate(`/reseaux-sociaux/montage/${jobId}`)
     } catch (e) {
       setLancement({ enCours: false, erreur: messageErreurLancement(e), jobId: e?.jobId ?? lancement.jobId })
     }

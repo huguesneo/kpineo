@@ -13,7 +13,8 @@ Plan de référence : `PROMPT-CLAUDE-CODE-MONTAGE-VIDEO-2026-10-01.md` (hors dé
 | **1b** | **Agent vidéo (`video-neo/agent/`, branche `feat/agent-hub`) : file, heartbeat, six tâches, simulation, launchd** | **Fait, testé en simulation. Service pas encore installé (Hugues)** |
 | **1c** | **Sous-menus Réseaux sociaux (Analyse et pub + Montage vidéo), redirection de `/reseaux-sociaux`, accueil, pastille Mac en ligne, file d'attente, configuration du dossier Brut** | **Fait, testé (logique), derrière le flag** |
 | **2a-2b** | **Upload résumable vers Brut, Google Picker (vidéos), copie dans Brut, galerie de templates, prompt, lancement (montage + tâche), aperçu et progression dans la liste** | **Fait, testé (logique), derrière le flag** |
-| 3 | Éditeur : aperçu (vidéo du bucket), fil des réponses, sous-titres éditables, versions, Terminer | À faire |
+| **3a** | **Éditeur : lecteur 9:16 (aperçu du bucket), fil de conversation, demande « Qu'est-ce que tu veux changer ? », bande des versions, Mac en ligne, temps réel** | **Fait, testé (logique, composants, RLS), derrière le flag** |
+| 3b et suite | Sous-titres éditables, restaurer une version, Terminer et lien d'export | À faire |
 | **4-départ** | **Templates de départ « Pub 0929 » et « Entrevue mythe 0924 » (approuvés, aperçus), colonne `style_enregistre`, montage parti de la composition de départ du style** | **Fait, testé, appliqué en production le 3 oct.** |
 | 4 | Templates proposés et approbation par Hugues, variantes | À faire (côté agent : prêt) |
 
@@ -237,10 +238,62 @@ Vérifié en lecture seule en production : les 2 templates (comme hugues@, avec 
 
 - Hugues : installer le service (`bash agent/launchd/installer.sh --essai`, puis sans `--essai`) après avoir fusionné `feat/agent-hub` dans `main` de video-neo ; premier vrai montage pour valider Claude de bout en bout.
 - Hugues : partager `NEO vidéo/Brut` (en modification) avec info@ ; à son premier envoi, info@ cliquera une fois « Autoriser le dossier Brut ».
-- Hub 3 : éditeur (aperçu par URL signée, `reponse_agent`, bande de sous-titres depuis `sous_titres`, versions, Terminer, lien d'export).
+- Hub 3b et suite : bande de sous-titres éditable depuis `sous_titres` (tâche `correction_sous_titres`), restaurer une version (tâche `restaurer`), Terminer et lien d'export. L'éditeur 3a est en place.
 - Hub 4 : proposition de template avec `job_id` et `numero_version`, approbation par Hugues, menu Variantes.
 - Premier vrai montage avec un template de départ (demande la clé Anthropic) : vérifier que Claude copie bien `Pub0929.tsx` ou `Pub0924.tsx`.
 - `lien_drive_export` est un chemin dans Drive, pas une URL : le hub pourra retrouver le fichier par l'API Drive (phase 3).
+
+## Phase 3a : éditeur de montage (hub)
+
+Toujours derrière `VITE_MONTAGE_VIDEO=true`. Rien de changé dans l'agent ni dans la base (aucune migration) : l'agent gérait déjà un nouveau tour sur un montage existant et les politiques permettaient déjà au module de créer la tâche.
+
+Contrat vérifié dans `video-neo/agent/src/taches.ts` (fonction `montage`) : tâche `montage` sur un montage existant, `payload` = `{ "prompt": "..." }`, obligatoire dès que `version_courante >= 1` (sinon refus « Écris ce que tu veux changer dans le montage. »). L'agent rouvre la branche `montage/<job_id>`, reprend la session Claude (`session_id`), crée la version n+1 avec `prompt`, `reponse_agent` et `auteur` = `cree_par` de la tâche, puis remet `erreur` à vide. À la version 0 (première ronde ratée), un `payload` vide relance avec `video_jobs.prompt` et un prompt écrit s'y ajoute.
+
+Fichiers :
+- `src/lib/montageEditeur.js` : logique pure (tâche envoyée, tâche active, état du champ, version affichée, fil de conversation, renouvellement de l'URL signée, messages d'erreur).
+- `src/features/social/montage/MontageEditeur.jsx` : la page `/reseaux-sociaux/montage/:jobId`.
+- `useMontageEditeur.js` : montage, versions et tâches en direct (temps réel filtré sur le montage, polling 3 s si le canal n'est pas abonné), envoi de la demande, noms des auteurs, URL signée renouvelée.
+- `LecteurApercu.jsx`, `FilConversation.jsx`, `BandeVersions.jsx`, `ZoneDemande.jsx`.
+- `PastilleMac.jsx` : la pastille de l'accueil, sortie dans son propre fichier pour servir aux deux écrans (accueil inchangé à l'écran).
+- `MontageAccueil.jsx` : le titre d'un montage ouvre l'éditeur. `MontageNouvelle.jsx` : « Lancer le montage » ouvre l'éditeur du nouveau montage (avant : la liste).
+- `src/App.jsx` : route `/reseaux-sociaux/montage/:jobId` (accès `montageVideoAccess`).
+
+Écran :
+- En haut : titre, statut, version actuelle, pastille Mac. Mac hors ligne (signal de plus de 90 s) : bandeau « Le Mac de montage est hors ligne, ta demande sera traitée à son retour. ». Montage en erreur : bandeau rouge avec le message de l'agent.
+- Au centre : lecteur 9:16 de la version affichée. Sans version prête : statut, étape et barre de progression. Pendant une nouvelle ronde, l'ancienne version reste lisible avec « Nouvelle version en préparation · étape · % » au-dessus.
+- À droite : fil (demande de l'utilisateur, puis réponse de l'agent, avec auteur, date et version). La demande en cours apparaît à la fin avec son état ; une demande refusée ou échouée apparaît avec l'erreur de l'agent. En bas : « Qu'est-ce que tu veux changer ? » et Envoyer (Ctrl + Entrée).
+- Sous le lecteur : bande v1, v2, v3… Cliquer affiche cette version sans rien modifier ; « Actuelle » marque `version_courante`.
+- Téléphone : lecteur, puis bande des versions, puis fil.
+
+Décisions :
+- **Champ désactivé tant qu'une tâche du montage est `en_attente` ou `en_cours`**, quel que soit son type, avec un message (« attend son tour » ou « l'agent travaille »). Désactivé aussi pour un montage `termine`. Mac hors ligne : le champ reste actif (la demande attend dans la file).
+- **Relancer après une erreur** : dès que plus aucune tâche n'est active, on peut renvoyer une demande. À la version 0, le bouton devient « Relancer le montage » et part sans texte (`payload` vide).
+- La tâche créée est ajoutée à l'écran dès la réponse de l'insertion, sans attendre le temps réel, pour que le champ se désactive aussitôt.
+- **Nouvelle version** : le lecteur passe dessus, même si une autre version était choisie dans la bande.
+- **URL signée** d'une heure, renouvelée 5 min avant l'expiration ; la lecture reprend où elle en était. Si la vidéo ne se charge plus, une nouvelle URL est demandée (au plus toutes les 10 s).
+- Bande : numéros seulement, pas de miniatures (il faudrait une URL signée et un chargement vidéo par version).
+- Pas de lien vers l'éditeur depuis la file d'attente de l'accueil (seulement depuis le titre dans la liste).
+
+Tests :
+- `src/lib/montageEditeur.test.js` (24) : contrat de la tâche, états désactivés, version affichée, fil, URL signée, messages d'erreur.
+- `src/features/social/montage/editeur.test.jsx` (18) : fil, bande des versions (clic, version courante, version sans aperçu), états désactivés de la zone de demande, pastille Mac (30 s en ligne, 91 s hors ligne). Rendu par `react-dom/server` : le hub n'a ni jsdom ni Testing Library, aucune dépendance ajoutée.
+- `supabase/tests/montage_video/30_tests_editeur.sql` (12) : lecture des versions et de l'aperçu, envoi d'une demande en trichant sur statut, auteur et erreur (forcés), pas de modification de `version_courante`, refus pour hors liste et non connecté. `run.sh` → `PASS: 117  FAIL: 0`.
+- Hub : `npm test` → 244 tests qui passent ; les 2 fichiers des commissions échouent toujours (photo de référence absente). Build Vite et ESLint (configuration temporaire hors dépôt) sans remarque.
+
+Pas vérifié dans un navigateur connecté : c'est l'objet des points ci-dessous.
+
+### Tester à la main (8 points)
+
+Prérequis : `.env.local` comme en phase 1c, `npm run dev`, `http://localhost:5173`, connecté comme hugues@ ou info@. Agent en simulation : `npm run simule` dans `video-neo/agent`.
+
+1. **Arrivée** : lancer un nouveau montage (étape 2) : l'éditeur s'ouvre directement, lecteur remplacé par « En file d'attente » puis l'étape et la barre qui avancent, sans recharger. Depuis la liste, cliquer le titre d'un montage ouvre aussi l'éditeur.
+2. **Version 1** : à la fin, le lecteur joue l'aperçu v1, la bande montre « v1 Actuelle », le fil montre le prompt (s'il y en a un) puis la réponse de l'agent.
+3. **Nouveau tour** : écrire « Musique plus forte », Envoyer. Le champ et le bouton se désactivent tout de suite avec « attend son tour », puis « l'agent travaille » ; la demande apparaît dans le fil avec l'étape et le pourcentage. Quand v2 arrive : le lecteur passe sur v2, « Actuelle » passe sur v2, le champ se réactive. Dans l'éditeur SQL : la tâche a `payload` `{"prompt":"Musique plus forte"}`.
+4. **Bande** : cliquer v1 : le lecteur joue v1, rien ne change dans la base (`version_courante` reste 2, aucune tâche créée).
+5. **Mac hors ligne** : arrêter l'agent, attendre environ 90 s : pastille « Mac hors ligne » et bandeau, sans recharger. Une demande envoyée reste « attend son tour » ; redémarrer l'agent : elle est traitée.
+6. **Erreur** : agent arrêté, `update video_jobs set statut='erreur', erreur='Essai d''erreur' where titre='<titre>';` : bandeau rouge avec le message. Une demande peut être renvoyée. Un refus de l'agent (ex. tâche `montage` sans prompt insérée à la main sur un montage qui a une version) apparaît dans le fil en rouge, et le champ redevient actif.
+7. **Téléphone** (ou fenêtre étroite) : lecteur en haut, bande des versions dessous, puis le fil et le champ.
+8. **Accès** : un compte hors liste qui ouvre `/reseaux-sociaux/montage/<id>` revient au tableau de bord ; une adresse inventée (`/reseaux-sociaux/montage/abc`) affiche « Montage introuvable ».
 
 ## Tester la migration en local
 
@@ -250,4 +303,4 @@ Avec un Postgres local vide (jamais un projet Supabase, le script refuse), migra
 PGHOST=/chemin/socket PGPORT=5432 PGUSER=postgres supabase/tests/montage_video/run.sh
 ```
 
-Résultat attendu : `PASS: 105  FAIL: 0` (migrations e, f et 20261003a, puis les templates de départ). Sur le Mac : `brew install postgresql@17`, puis un Postgres jetable (`initdb`, `pg_ctl ... -o "-k '' -p 54329"`) et `PGHOST=localhost PGPORT=54329`.
+Résultat attendu : `PASS: 117  FAIL: 0` (migrations e, f et 20261003a, puis les templates de départ, puis l'éditeur). Sur le Mac : `brew install postgresql@17`, puis un Postgres jetable (`initdb`, `pg_ctl ... -o "-k '' -p 54329"`) et `PGHOST=localhost PGPORT=54329`.

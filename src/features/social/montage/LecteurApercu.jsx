@@ -1,0 +1,89 @@
+import { useRef } from 'react'
+import { statutMontage, STATUTS_EN_TRAITEMENT } from '../../../lib/montageVideo'
+
+function Cadre({ children }) {
+  return (
+    <div className="mx-auto w-full max-w-[340px] aspect-[9/16] rounded-xl overflow-hidden bg-[#111827] flex items-center justify-center">
+      {children}
+    </div>
+  )
+}
+
+// Aucune version prête : statut, étape et progression du montage.
+export function EtatProgression({ job, enLigne }) {
+  const statut = statutMontage(job?.statut)
+  const progression = job?.progression ?? 0
+  const enTraitement = STATUTS_EN_TRAITEMENT.includes(job?.statut)
+  return (
+    <Cadre>
+      <div className="w-full px-6 text-center text-white" data-etat="progression">
+        <p className="text-sm font-semibold">{statut.label}</p>
+        {job?.statut === 'erreur' ? (
+          <p className="text-xs text-red-300 mt-2">Le montage n'a pas pu être fait. Le détail est dans le fil à droite.</p>
+        ) : (
+          <>
+            <p className="text-xs text-white/70 mt-1">
+              {enTraitement ? (job?.etape || 'Préparation') : enLigne ? "En attente de l'agent" : 'En attente du retour du Mac'}
+            </p>
+            <div className="mt-4 h-2 rounded-full bg-white/15 overflow-hidden">
+              <div className="h-full bg-[#00bbb1] transition-all" style={{ width: `${enTraitement ? progression : 0}%` }} />
+            </div>
+            <p className="text-xs text-white/70 mt-2 tabular-nums">{enTraitement ? `${progression} %` : 'Aucune version pour l\'instant'}</p>
+          </>
+        )}
+      </div>
+    </Cadre>
+  )
+}
+
+// Lecteur 9:16 de l'aperçu (URL signée). Quand l'URL est renouvelée pour la
+// même version, la lecture reprend où elle en était.
+export default function LecteurApercu({ numero, url, erreur, onErreurChargement }) {
+  const video = useRef(null)
+  const position = useRef({ numero: null, t: 0, enPause: true })
+
+  function memoriser() {
+    const v = video.current
+    if (v) position.current = { numero, t: v.currentTime, enPause: v.paused }
+  }
+
+  function reprendre() {
+    const v = video.current
+    const p = position.current
+    if (!v || p.numero !== numero || !p.t) return
+    v.currentTime = p.t
+    if (!p.enPause) v.play().catch(() => {})
+  }
+
+  if (erreur) {
+    return (
+      <Cadre>
+        <div className="px-6 text-center">
+          <p className="text-sm text-red-300">{erreur}</p>
+          <button type="button" onClick={onErreurChargement} className="mt-3 text-sm font-semibold text-[#00bbb1] hover:underline">Réessayer</button>
+        </div>
+      </Cadre>
+    )
+  }
+  if (!url) {
+    return <Cadre><p className="text-sm text-white/70">Chargement de l'aperçu v{numero}...</p></Cadre>
+  }
+  return (
+    <Cadre>
+      <video
+        key={numero}
+        ref={video}
+        src={url}
+        controls
+        playsInline
+        preload="metadata"
+        className="w-full h-full object-contain bg-black"
+        onTimeUpdate={memoriser}
+        onPause={memoriser}
+        onLoadedMetadata={reprendre}
+        onError={onErreurChargement}
+        aria-label={`Aperçu de la version ${numero}`}
+      />
+    </Cadre>
+  )
+}
