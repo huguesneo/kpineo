@@ -10,6 +10,7 @@ import { useCloserEODMissedBadge } from '../../hooks/useCloserEOD'
 import { useNaturoPerfAccess } from '../../hooks/useNaturoPerformance'
 import { hasSocialAccess } from '../../lib/socialAccess'
 import { MONTAGE_VIDEO_ENABLED, canUseMontageVideo } from '../../lib/montageVideoAccess'
+import { ESPACE_VENTE_V2 } from '../../lib/v2/featureFlag'
 
 const NEO_LOGO = 'https://assets.cdn.filesafe.space/YG2spvWJqnD75L3V95UJ/media/6941c9327109a899ec69b43c.png'
 
@@ -95,6 +96,10 @@ export default function Sidebar() {
   )
   const tachesBadge = baseTachesBadge + eodMissed
 
+  // Espace de vente v2 : « Mon espace » remplace Closer, Setter et Calendrier
+  // dans le menu (ces pages restent routables et joignables par « Ancienne vue »).
+  const v2Actif = ESPACE_VENTE_V2 && (hasCloserRole || hasSetterRole || isAdminOrRespVente)
+
   // Badge "Équipe de vente" : ventes sans closer pour le mois courant (admin only)
   const _now = new Date()
   const _start = isAdminOrRespVente ? `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-01` : null
@@ -171,6 +176,18 @@ export default function Sidebar() {
               }
             />
           </NavGroup>
+        )}
+        {/* Scoreboard d'équipe v2 — admin et resp_vente (les setters/closeurs y vont depuis Mon espace) */}
+        {ESPACE_VENTE_V2 && isAdminOrRespVente && (
+          <NavItem
+            to="/scoreboard"
+            label="Scoreboard"
+            icon={
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 18.75h-9m9 0a3 3 0 013 3h-15a3 3 0 013-3m9 0v-3.375c0-.621-.503-1.125-1.125-1.125h-.871M7.5 18.75v-3.375c0-.621.504-1.125 1.125-1.125h.872m5.007 0H9.497m5.007 0a7.454 7.454 0 01-.982-3.172M9.497 14.25a7.454 7.454 0 00.981-3.172M5.25 4.236c-.982.143-1.954.317-2.916.52A6.003 6.003 0 007.73 9.728M5.25 4.236V4.5c0 2.108.966 3.99 2.48 5.228M5.25 4.236V2.721C7.456 2.41 9.71 2.25 12 2.25c2.291 0 4.545.16 6.75.47v1.516M7.73 9.728a6.726 6.726 0 002.748 1.35m8.272-6.842V4.5c0 2.108-.966 3.99-2.48 5.228m2.48-5.492a46.32 46.32 0 012.916.52 6.003 6.003 0 01-5.395 4.972m0 0a6.726 6.726 0 01-2.749 1.35m0 0a6.772 6.772 0 01-3.044 0" />
+              </svg>
+            }
+          />
         )}
         {isAdmin && (
           <NavItem
@@ -275,7 +292,7 @@ export default function Sidebar() {
           />
         )}
         {/* Closer — rôle secondaire seulement (admin inclus s'il close) */}
-        {((profile?.secondary_roles ?? []).includes('closer') || doubleVente) && (
+        {!v2Actif && ((profile?.secondary_roles ?? []).includes('closer') || doubleVente) && (
           <NavItem
             to="/closer"
             label="Closer"
@@ -287,7 +304,7 @@ export default function Sidebar() {
           />
         )}
         {/* Setter — rôle secondaire seulement (admin inclus s'il set) */}
-        {((profile?.secondary_roles ?? []).includes('setter') || doubleVente) && (
+        {!v2Actif && ((profile?.secondary_roles ?? []).includes('setter') || doubleVente) && (
           <NavItem
             to="/setter"
             label="Setter"
@@ -299,7 +316,7 @@ export default function Sidebar() {
           />
         )}
         {/* Calendrier — closer (primaire ou secondaire) */}
-        {hasCloserRole && (
+        {!v2Actif && hasCloserRole && (
           <NavItem
             to="/calendrier"
             label="Calendrier"
@@ -311,7 +328,7 @@ export default function Sidebar() {
           />
         )}
         {/* Terminal de paiement — closeurs, admin et resp_vente */}
-        {canUseTerminal({ isAdmin, isAdminOrRespVente, hasCloserRole }) && (
+        {canUseTerminal({ isAdmin, isAdminOrRespVente, hasCloserRole, email: user?.email }) && (
           <NavItem
             to="/terminal"
             label="Terminal de paiement"
@@ -334,11 +351,25 @@ export default function Sidebar() {
             }
           />
         )}
-        {/* Mon Espace — membre (incluant resp_vente) */}
-        {!isAdmin && !doubleVente && (
+        {/* Mon espace v2 — setter et/ou closeur, admin inclus */}
+        {v2Actif && (
+          <NavItem
+            to="/mon-espace-v2"
+            label="Mon espace"
+            icon={
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+              </svg>
+            }
+          />
+        )}
+        {/* Mon Espace — membre (incluant resp_vente), sauf double rôle de vente
+            (entrées Closer et Setter). En v2, l'ancien espace closer/setter passe
+            par « Mon espace » ; le dossier reste au menu. */}
+        {!isAdmin && !doubleVente && !(v2Actif && monEspaceTo !== '/mon-dossier') && (
           <NavItem
             to={monEspaceTo}
-            label="Mon Espace"
+            label={v2Actif ? 'Mon dossier' : 'Mon Espace'}
             icon={
               <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />

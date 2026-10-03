@@ -8,7 +8,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { attachCard, createPlanSubscription, newLinkToken, sha256 } from '../_shared/terminal.ts'
 import { ECI, cancelSubscription } from '../_shared/moneris.ts'
-import { FREQUENCY_UNITS, TERMINAL_PRODUCTS, approxDays, buildSchedule, installmentsForProduct, todayMontreal } from '../_shared/schedule.js'
+import { addTagByEmail } from '../_shared/ghl.ts'
+import { FREQUENCY_UNITS, TERMINAL_PRODUCTS, approxDays, buildSaleSchedule, installmentsForProduct, priceSale, todayMontreal } from '../_shared/schedule.js'
 
 declare const Deno: { env: { get(key: string): string | undefined }; serve(handler: (req: Request) => Promise<Response> | Response): void }
 
@@ -33,9 +34,12 @@ Deno.serve(async (req) => {
     if (!user) return json({ error: 'Non autorisé' }, 401)
     const { data: profile } = await db.from('profiles')
       .select('id, full_name, role, secondary_roles').eq('id', user.id).maybeSingle()
-    const isManager = ['admin', 'resp_vente'].includes(profile?.role)
+    // Superviseurs du terminal : voient toutes les ventes et peuvent annuler un programme
+    const SUPERVISORS = ['hugues@neoperformance.ca', 'info@neoperformance.ca']
+    const isSupervisor = SUPERVISORS.includes((user.email ?? '').toLowerCase())
+    const isManager = isSupervisor || ['admin', 'resp_vente'].includes(profile?.role)
     const isCloser = profile?.role === 'closer' || (profile?.secondary_roles ?? []).includes('closer')
-    if (!profile || (!isManager && !isCloser)) return json({ error: 'Accès réservé aux closeurs' }, 403)
+    if (!isSupervisor && (!profile || (!isManager && !isCloser))) return json({ error: 'Accès réservé aux closeurs' }, 403)
 
     const body = await req.json() as Record<string, unknown>
     const action = String(body.action ?? '')
@@ -44,11 +48,12 @@ Deno.serve(async (req) => {
     const loadPlan = async (planId: unknown) => {
       const { data } = await db.from('payment_plans').select('id, closer_id, status, moneris_subscription_id').eq('id', String(planId)).maybeSingle()
       if (!data) return null
-      if (!isManager && data.closer_id !== profile.id) return null
+      if (!isManager && data.closer_id !== profile?.id) return null
       return data
     }
 
     if (action === 'create_plan') {
+      if (!profile) return json({ error: 'Ton compte n’a pas de profil dans l’app : impossible de créer une vente' }, 403)
       const product = String(body.productName ?? '')
       if (!TERMINAL_PRODUCTS.includes(product)) return json({ error: 'Produit invalide' }, 400)
       const first = String(body.clientFirstName ?? '').trim()
@@ -63,7 +68,15 @@ Deno.serve(async (req) => {
         return json({ error: 'Adresse du client incomplète (rue, ville et code postal valide requis)' }, 400)
       }
 
-      const totalCents = Math.round(Number(body.totalAmount) * 100)
+      // Prix : montant avant taxes + ajouts - rabais, taxes calculées ici (jamais confiées au navigateur)
+      const training = body.addTraining === true
+      const guarantee = body.addGuarantee === true
+      const discountType = body.discountType === 'amount' ? 'amount' : 'percent'
+      const discountValue = Number(body.discountValue ?? 0) || 0
+      let price
+      try { price = priceSale({ pretaxCents: Math.round(Number(body.pretaxAmount) * 100), training, discountType, discountValue }) }
+      catch (e) { return json({ error: (e as Error).message }, 400) }
+      const totalCents = price.totalCents
       const count = installmentsForProduct(product)
       const frequencyUnit = String(body.frequencyUnit ?? 'WEEK').toUpperCase()
       const frequencyInterval = count > 1 ? Number(body.frequencyInterval) : 1
@@ -82,12 +95,15 @@ Deno.serve(async (req) => {
       if (!payToday && firstDate <= today) return json({ error: 'Le 1er prélèvement doit être une date à venir (sinon coche « Payer aujourd’hui »)' }, 400)
       if (payToday && count > 1 && secondDate && secondDate <= today) return json({ error: 'Le 2e prélèvement doit être une date à venir' }, 400)
       // Sans paiement aujourd'hui, tous les versements sont prélevés par Moneris au même montant
+      if (!payToday && count > 1 && price.firstDiscountTotal) {
+        return json({ error: 'Un rabais en $ sur le 1er versement demande « Payer aujourd’hui ». Coche-le ou utilise un rabais en %.' }, 400)
+      }
       if (!payToday && count > 1 && totalCents % count !== 0) {
         return json({ error: `Sans paiement aujourd’hui, le total doit se diviser également en ${count} versements (ex. ${(Math.floor(totalCents / count) * count / 100).toFixed(2)} $ ou ${((Math.floor(totalCents / count) + 1) * count / 100).toFixed(2)} $)` }, 400)
       }
 
       let schedule
-      try { schedule = buildSchedule({ totalCents, count, frequencyUnit, frequencyInterval, firstDate, secondDate }) }
+      try { schedule = buildSaleSchedule(price, { count, frequencyUnit, frequencyInterval, firstDate, secondDate }) }
       catch (e) { return json({ error: (e as Error).message }, 400) }
 
       // ID client Moneris : « Prénom Nom ». Si déjà pris, on ajoute un « . » à la fin.
@@ -111,7 +127,11 @@ Deno.serve(async (req) => {
         client_city: String(body.clientCity ?? '').trim(),
         client_province: String(body.clientProvince ?? 'QC').trim().toUpperCase() || 'QC',
         client_postal_code: postal.replace(/^(\w{3})\s?(\w{3})$/, '$1 $2'),
-        product_name: product, total_amount_cents: totalCents, installments_count: count,
+        product_name: product, installments_count: count,
+        total_amount_cents: schedule.reduce((a, x) => a + x.amountCents, 0),
+        pretax_amount_cents: price.basePretax, training_addon: training, guarantee_addon: guarantee,
+        discount_type: price.discountPretax ? discountType : null,
+        discount_value: price.discountPretax ? discountValue : null,
         frequency_days: count > 1 ? approxDays(frequencyUnit, frequencyInterval) : 1,
         frequency_unit: count > 1 ? frequencyUnit : 'DAY', frequency_interval: frequencyInterval,
         first_charge_date: firstDate,
@@ -157,6 +177,7 @@ Deno.serve(async (req) => {
     }
 
     if (action === 'cancel_plan') {
+      if (!isSupervisor) return json({ error: 'Seuls Hugues et info@ peuvent annuler un programme' }, 403)
       const plan = await loadPlan(body.planId)
       if (!plan) return json({ error: 'Plan introuvable' }, 404)
       if (['completed', 'canceled'].includes(plan.status)) return json({ error: 'Plan déjà terminé ou annulé' }, 400)
@@ -173,10 +194,12 @@ Deno.serve(async (req) => {
         .eq('plan_id', plan.id).in('status', ['scheduled', 'declined'])
       await db.from('payment_plans').update({
         status: 'canceled', subscription_status: plan.moneris_subscription_id ? 'CANCELED' : null,
-        canceled_at: new Date().toISOString(), canceled_by: profile.id, updated_at: new Date().toISOString(),
+        canceled_at: new Date().toISOString(), canceled_by: profile?.id ?? null, updated_at: new Date().toISOString(),
       }).eq('id', plan.id)
       await db.from('payment_plan_links').delete().eq('plan_id', plan.id)
-      return json({ ok: true })
+      const { data: full } = await db.from('payment_plans').select('client_email').eq('id', plan.id).maybeSingle()
+      const tagged = await addTagByEmail(db, full?.client_email ?? '', 'statut-client-annuler')
+      return json({ ok: true, tagged })
     }
 
     return json({ error: 'Action inconnue' }, 400)

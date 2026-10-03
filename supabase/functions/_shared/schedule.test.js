@@ -67,3 +67,29 @@ describe('dates', () => {
     expect(todayMontreal(new Date('2026-10-01T02:00:00Z'))).toBe('2026-09-30')
   })
 })
+
+import { priceSale, buildSaleSchedule, withTax } from './schedule.js'
+
+describe('priceSale', () => {
+  it('ajoute 100 $ pour le programme d’entraînement', () => {
+    const p = priceSale({ pretaxCents: 100000, training: true })
+    expect(p.pretaxTotal).toBe(110000)
+    expect(p.totalCents).toBe(withTax(110000).total)
+  })
+  it('rabais % sur le total', () => {
+    const p = priceSale({ pretaxCents: 100000, discountType: 'percent', discountValue: 10 })
+    expect(p.pretaxTotal).toBe(90000)
+    expect(p.totalCents).toBe(103478)
+  })
+  it('rabais $ retiré du 1er versement seulement', () => {
+    const p = priceSale({ pretaxCents: 300000, discountType: 'amount', discountValue: 100 })
+    const s = buildSaleSchedule(p, { count: 3, frequencyUnit: 'WEEK', frequencyInterval: 2, firstDate: '2026-10-02' })
+    expect(s[1].amountCents).toBe(s[2].amountCents)
+    expect(s[0].amountCents).toBe(s[1].amountCents + (withTax(300000).total - s[1].amountCents * 3) - withTax(10000).total)
+    expect(s.reduce((a, x) => a + x.amountCents, 0)).toBe(withTax(300000).total - withTax(10000).total)
+  })
+  it('refuse un rabais trop grand', () => {
+    expect(() => priceSale({ pretaxCents: 5000, discountType: 'amount', discountValue: 60 })).toThrow()
+    expect(() => priceSale({ pretaxCents: 5000, discountType: 'percent', discountValue: 100 })).toThrow()
+  })
+})

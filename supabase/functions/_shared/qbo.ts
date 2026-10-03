@@ -3,8 +3,6 @@
 // Secrets / réglages (Supabase) :
 //   QBO_RECEIPTS     « on » pour activer la création (sinon rien n'est écrit dans QuickBooks)
 //   QBO_SEND_EMAIL   « off » pour ne PAS faire envoyer le reçu au client par QuickBooks
-//   QBO_TAX_MODE     « exclusive » pour ajouter les taxes au montant; défaut « inclusive »
-//                    (le total du reçu = exactement le montant prélevé sur la carte)
 // Les connexions QuickBooks (quickbooks_tokens) sont celles déjà utilisées par les commissions.
 
 declare const Deno: { env: { get(key: string): string | undefined } }
@@ -18,10 +16,14 @@ const TAX_CODE_QC = '8'            // « TPS/TVQ QC - 9,975 », comme tes reçus
 const DEPOSIT_ACCOUNT = '3'        // « 1260 Fonds non déposés »
 const PAYMENT_METHOD = '3'         // « Carte de crédit »
 const CLOSERS_FIELD_ID = '2'       // champ personnalisé « closers » (jamais le 4)
+const THERAPIST_FIELD_ID = '1'     // « Thérapeute »
+const SETTER_FIELD_ID = '3'        // « Setter »
 
 export interface ReceiptInput {
   firstName: string; lastName: string; email: string; phone?: string | null
   productName: string; closerName: string
+  therapistName?: string | null; setterName?: string | null
+  memo?: string | null
   amountCents: number; paidDate: string
   installmentNumber: number; installmentsCount: number; mutexId: string
 }
@@ -95,18 +97,24 @@ export async function createSalesReceipt(db: DB, i: ReceiptInput): Promise<strin
   const item = (await query(acc, `SELECT Id, Name FROM Item WHERE Name = '${esc(i.productName)}' AND Active = true MAXRESULTS 1`)).Item?.[0]
   if (!item) throw new Error(`Produit QuickBooks introuvable : ${i.productName}`)
   const customerId = await findOrCreateCustomer(acc, i)
-  const amount = Math.round(i.amountCents) / 100
-  const inclusive = (Deno.env.get('QBO_TAX_MODE') ?? 'inclusive') !== 'exclusive'
+  // Le montant prélevé contient déjà TPS+TVQ. On le ramène avant taxes et on laisse QuickBooks
+  // ajouter les taxes (comme tes reçus actuels : TaxExcluded). Écart possible : 1 cent au maximum.
+  const amount = Math.round(i.amountCents / 1.14975) / 100
   const receipt = {
     CustomerRef: { value: customerId },
     TxnDate: i.paidDate,
-    GlobalTaxCalculation: inclusive ? 'TaxInclusive' : 'TaxExcluded',
+    GlobalTaxCalculation: 'TaxExcluded',
     DepositToAccountRef: { value: DEPOSIT_ACCOUNT },
     PaymentMethodRef: { value: PAYMENT_METHOD },
     CurrencyRef: { value: 'CAD' },
     ...(i.email ? { BillEmail: { Address: i.email.trim() } } : {}),
-    CustomField: [{ DefinitionId: CLOSERS_FIELD_ID, Name: 'closers', Type: 'StringType', StringValue: i.closerName }],
-    PrivateNote: `Terminal NEO ${i.mutexId} (paiement ${i.installmentNumber}/${i.installmentsCount})`,
+    CustomField: [
+      { DefinitionId: CLOSERS_FIELD_ID, Name: 'closers', Type: 'StringType', StringValue: i.closerName },
+      ...(i.therapistName ? [{ DefinitionId: THERAPIST_FIELD_ID, Name: 'Thérapeute', Type: 'StringType', StringValue: i.therapistName }] : []),
+      ...(i.setterName ? [{ DefinitionId: SETTER_FIELD_ID, Name: 'Setter', Type: 'StringType', StringValue: i.setterName }] : []),
+    ],
+    PrivateNote: `Terminal NEO ${i.mutexId} (paiement ${i.installmentNumber}/${i.installmentsCount})${i.memo ? ' : ' + i.memo : ''}`,
+    ...(i.memo ? { CustomerMemo: { value: i.memo } } : {}),
     Line: [{
       DetailType: 'SalesItemLineDetail', Amount: amount,
       Description: `Paiement ${i.installmentNumber} de ${i.installmentsCount}`,

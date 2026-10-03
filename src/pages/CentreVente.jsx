@@ -1,11 +1,18 @@
 import { useState } from 'react'
 import Layout from '../components/layout/Layout'
+import { TerminalPanel } from './Terminal'
+import { useAuth } from '../context/AuthContext'
+import { canUseTerminal } from '../lib/terminal/flag'
+// Espace de vente v2 : rencontre d'évaluation réservée dans l'app
+import { ESPACE_VENTE_V2 } from '../lib/v2/featureFlag'
+import EvaluationReservation from '../components/v2/closer/EvaluationReservation'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const BASE_BOOKING_URL = 'https://api.leadconnectorhq.com/widget/booking/ucyJmhYKKDDm7U5JmaJ8'
+export const BASE_BOOKING_URL = 'https://api.leadconnectorhq.com/widget/booking/ucyJmhYKKDDm7U5JmaJ8'
 
-const SETTERS = [
+// Exportée pour l'espace de vente v2 (bouton « Prendre un rendez-vous »)
+export const SETTERS = [
   { key: 'manuel_thibault', label: 'Thibault' },
   { key: 'manuel_brice',    label: 'Brice' },
   { key: 'manuel_lyliane',  label: 'Lyliane' },
@@ -17,6 +24,10 @@ const SETTERS = [
   { key: 'manuel_pascal',   label: 'Pascal' },
   { key: 'manuel_hugues',   label: 'Hugues' },
   { key: 'manuel_vicky',    label: 'Vicky' },
+  // Kassy : clé déjà reconnue par GHL (setter « Kassy NEO » sur la carte)
+  { key: 'manuel_kassy',    label: 'Kassy' },
+  // Marie-Michèle : nouvelle clé, à ajouter au workflow GHL qui lit booking_source
+  { key: 'manuel_marie-michele', label: 'Marie-Michèle' },
 ]
 
 const EVAL_IFRAMES = {
@@ -249,9 +260,13 @@ function NurturingCard({ cas, copiedId, onCopy }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function CentreVente() {
+  const { isAdmin, isRespVente, hasCloserRole, user } = useAuth()
   const [view,     setView]     = useState('home')
   const [renTab,   setRenTab]   = useState('decouverte')
   const [evalTab,  setEvalTab]  = useState('clinique')
+  // v2 : réservation intégrée ; « secours » = calendrier GHL ; la clé remet le formulaire à zéro
+  const [evalSecours, setEvalSecours] = useState(false)
+  const [evalCle, setEvalCle] = useState(0)
   const [bilanTab, setBilanTab] = useState('ligne')
   const [setter,   setSetter]   = useState(null)
   const [copiedId, setCopiedId] = useState(null)
@@ -362,8 +377,26 @@ export default function CentreVente() {
       )}
 
       {/* ── Évaluations ── */}
-      {view === 'evaluations' && (
+      {view === 'evaluations' && ESPACE_VENTE_V2 && !evalSecours && (
+        <div className="bg-white rounded-2xl border border-[#e5e7eb] flex flex-col">
+          <EvaluationReservation
+            key={evalCle}
+            rechercheClient
+            onSecours={() => setEvalSecours(true)}
+            onTermine={() => setEvalCle(k => k + 1)}
+            libelleTermine="Nouvelle réservation"
+          />
+        </div>
+      )}
+
+      {view === 'evaluations' && (!ESPACE_VENTE_V2 || evalSecours) && (
         <div className="bg-white rounded-2xl border border-[#e5e7eb] p-6">
+          {ESPACE_VENTE_V2 && (
+            <button onClick={() => setEvalSecours(false)}
+              className="mb-4 text-xs font-bold text-[#6b7280] hover:text-[#1a1a1a] bg-white border border-[#e5e7eb] px-3 py-2 rounded-lg">
+              ← Revenir à la réservation dans l'app
+            </button>
+          )}
           <TabBar
             tabs={[
               { key: 'clinique',  label: 'Évaluation en clinique' },
@@ -374,6 +407,18 @@ export default function CentreVente() {
             onChange={setEvalTab}
           />
           <BookingIframe src={EVAL_IFRAMES[evalTab]} />
+        </div>
+      )}
+
+      {/* Terminal de paiement : après avoir pris le rendez-vous, le closeur prend le paiement */}
+      {/* v2 : la réservation dans l'app ouvre elle-même le terminal prérempli ; celui-ci reste pour le calendrier GHL */}
+      {view === 'evaluations' && (!ESPACE_VENTE_V2 || evalSecours) && canUseTerminal({ isAdmin, isAdminOrRespVente: isAdmin || isRespVente, hasCloserRole, email: user?.email }) && (
+        <div className="mt-8">
+          <div className="mb-4">
+            <h2 className="text-xl font-bold text-[#1a1a1a]">Prendre le paiement</h2>
+            <p className="text-sm text-[#6b7280]">Une fois le rendez-vous réservé, entre la vente et la carte du client ici.</p>
+          </div>
+          <TerminalPanel showHeader={false} />
         </div>
       )}
 

@@ -64,6 +64,8 @@ Deno.serve(async (req) => {
     // Upsert fresh contact into Supabase cache
     const row = {
       ghl_id:         String(c.id),
+      // Colonne NOT NULL : sans elle, l'upsert était refusé et le cache restait figé
+      location_id:    String(c.locationId ?? Deno.env.get('GHL_LOCATION_ID') ?? 'YG2spvWJqnD75L3V95UJ'),
       first_name:     String(c.firstName ?? ''),
       last_name:      String(c.lastName ?? ''),
       email:          String(c.email ?? ''),
@@ -74,12 +76,18 @@ Deno.serve(async (req) => {
       synced_at:      new Date().toISOString(),
     }
 
-    await supabase
+    const { error: upsertErr } = await supabase
       .from('ghl_contacts')
       .upsert(row, { onConflict: 'ghl_id' })
 
+    // Le contact frais est renvoyé même si le cache n'a pas pu être écrit
+    if (upsertErr) {
+      console.error(`[GHL] Contact ${contactId} : cache non mis à jour : ${upsertErr.message}`)
+      return json({ ok: true, contact: row, cache: false })
+    }
+
     console.log(`[GHL] Contact ${contactId} rafraîchi dans le cache`)
-    return json({ ok: true, contact: row })
+    return json({ ok: true, contact: row, cache: true })
 
   } catch (err) {
     console.error('ghl-get-contact error:', err)

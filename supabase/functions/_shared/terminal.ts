@@ -9,11 +9,12 @@
 //   SLACK_PAYMENTS_WEBHOOK_URL webhook Slack pour les refus de paiement
 
 import {
-  chargeAndStoreCard, validateAndStoreCard, createSubscription, getSubscription, getPayment,
+  chargeAndStoreCard, validateAndStoreCard, createSubscription, getSubscription, getPayment, listRecentPayments,
   MonerisResult, CardHolder,
 } from './moneris.ts'
 import { addInterval, todayMontreal } from './schedule.js'
 import { createSalesReceipt, qboEnabled } from './qbo.ts'
+import { firstNameCap, lookupTherapistAndSetter } from './ghl.ts'
 
 declare const Deno: { env: { get(key: string): string | undefined } }
 
@@ -28,6 +29,9 @@ export interface Plan {
   card_last4: string | null
   frequency_unit: 'DAY' | 'WEEK' | 'MONTH'; frequency_interval: number
   customer_reference?: string | null
+  therapist_name?: string | null; setter_name?: string | null
+  training_addon?: boolean; guarantee_addon?: boolean
+  discount_type?: 'percent' | 'amount' | null; discount_value?: number | null
   moneris_subscription_id: string | null; subscription_status: string | null
   client_street_number?: string | null; client_street_name?: string | null; client_unit?: string | null
   client_city?: string | null; client_province?: string | null; client_postal_code?: string | null
@@ -62,6 +66,17 @@ export async function notifySlack(text: string) {
 
 // Envoie le paiement réussi à Make, qui crée le reçu de vente QuickBooks
 // (produit + champ « closers ») et l'envoie au client.
+// Notes du reçu QuickBooks : ajouts et rabais de la vente
+function receiptMemo(plan: Plan, inst: Installment): string | null {
+  const parts: string[] = []
+  if (plan.training_addon) parts.push("Ajout d'un programme d'entraînement")
+  if (plan.guarantee_addon) parts.push("Ajout d'une garantie")
+  const v = Number(plan.discount_value ?? 0)
+  if (v > 0 && plan.discount_type === 'percent') parts.push(`Rabais de ${String(v).replace('.', ',')} %`)
+  if (v > 0 && plan.discount_type === 'amount' && inst.number === 1) parts.push(`Rabais de ${v.toFixed(2).replace('.', ',')} $ (avant taxes) sur ce paiement`)
+  return parts.length ? parts.join(' · ') : null
+}
+
 async function sendToMake(db: DB, plan: Plan, inst: Installment, paymentId: string | undefined, paidDate: string) {
   if (qboEnabled()) {
     // Reçu QuickBooks direct. On « réserve » le versement (sent) avant de créer, pour ne jamais faire deux reçus.
@@ -69,9 +84,20 @@ async function sendToMake(db: DB, plan: Plan, inst: Installment, paymentId: stri
       .update({ receipt_status: 'sent' }).eq('id', inst.id).in('receipt_status', ['pending', 'failed']).select('id').maybeSingle()
     if (!claimed) return
     try {
+      // Thérapeute et setter : lus dans GHL au 1er reçu, puis gardés sur la vente pour les reçus suivants.
+      let therapist = plan.therapist_name ?? null, setterName = plan.setter_name ?? null
+      if (!therapist || !setterName) {
+        const found = await lookupTherapistAndSetter(db, plan.client_email)
+        therapist = therapist ?? found.therapist
+        setterName = setterName ?? found.setter
+        if (therapist !== (plan.therapist_name ?? null) || setterName !== (plan.setter_name ?? null)) {
+          await db.from('payment_plans').update({ therapist_name: therapist, setter_name: setterName }).eq('id', plan.id)
+        }
+      }
       await createSalesReceipt(db, {
+        therapistName: therapist, setterName, memo: receiptMemo(plan, inst),
         firstName: plan.client_first_name, lastName: plan.client_last_name, email: plan.client_email, phone: plan.client_phone,
-        productName: plan.product_name, closerName: plan.closer_name,
+        productName: plan.product_name, closerName: firstNameCap(plan.closer_name) ?? plan.closer_name,
         amountCents: inst.amount_cents, paidDate,
         installmentNumber: inst.number, installmentsCount: plan.installments_count, mutexId: inst.id.slice(0, 8),
       })
@@ -142,7 +168,11 @@ async function markPaid(db: DB, plan: Plan, inst: Installment, paymentId: string
 
 // ── Abonnement Moneris pour les versements restants ───────────
 
+// Le pare-feu de Moneris bloque (403 « The request is blocked ») les abonnements qui contiennent
+// cette URL de rappel. Désactivée par défaut : la synchro quotidienne (pg_cron) suffit.
+// Mettre MONERIS_CALLBACK=on pour la réactiver.
 function webhookUrl(): string | undefined {
+  if (Deno.env.get('MONERIS_CALLBACK') !== 'on') return undefined
   const base = Deno.env.get('SUPABASE_URL')
   const secret = Deno.env.get('MONERIS_CRON_SECRET')
   if (!base || !secret) return undefined
@@ -230,8 +260,26 @@ export async function syncPlan(db: DB, planId: string): Promise<{ paid: number; 
   const byPayment = new Map<string, Installment>()
   for (const i of insts) if (i.moneris_payment_id) byPayment.set(i.moneris_payment_id, i)
 
-  for (const pid of sub.paymentIds) {
+  // L'abonnement ne liste pas toujours ses paiements : on cherche aussi dans les paiements récents,
+  // soit liés à l'abonnement, soit faits sur la même carte enregistrée au montant d'un versement prévu.
+  const ids = new Set(sub.paymentIds)
+  const known = new Set(insts.map(i => i.moneris_payment_id).filter(Boolean) as string[])
+  const scheduledAmounts = new Set(insts.filter(i => i.status !== 'paid').map(i => i.amount_cents))
+  const listed = await listRecentPayments(new Date(Date.now() - 3 * 86400_000).toISOString())
+  for (const p of listed.items) {
+    const sameSub = p.subscriptionId === plan.moneris_subscription_id
+    const sameCard = !!plan.moneris_payment_method_id && p.paymentMethodId === plan.moneris_payment_method_id
+      && !known.has(p.paymentId) && scheduledAmounts.has(p.amountCents)
+    if (sameSub || sameCard) ids.add(p.paymentId)
+  }
+  console.log('[syncPlan]', plan.id.slice(0, 8), JSON.stringify({
+    sub: sub.status, next: sub.nextBillingDate, fromSub: sub.paymentIds.length, listed: listed.items.length, listStatus: listed.status,
+    recent: listed.items.map(p => `${p.paymentId.slice(-5)}:${p.status}:${p.amountCents}:${p.subscriptionId ? 'sub' : '-'}:${p.paymentMethodId === plan.moneris_payment_method_id ? 'carte' : '-'}`),
+  }))
+
+  for (const pid of ids) {
     const info = await getPayment(pid)
+    if (info) console.log('[syncPlan] paiement', pid.slice(-6), info.status, info.amountCents)
     if (!info) continue
     const final = info.status === FINAL_OK || FINAL_DECLINED.includes(info.status)
     if (!final) continue

@@ -1,4 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { idsAPurger, paquets } from './purge.ts'
+import { estAppelCron, verdictAcces, jetonBearer } from './auth.ts'
+import { ligneContactComplete, ligneContactModifie, corpsRechercheModifies, nouveauxDepuis } from './contacts.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -36,7 +39,6 @@ async function fetchAndUpsertContacts(
     const params = new URLSearchParams({ locationId, limit: '100' })
     if (cursorTs) params.set('startAfter', cursorTs)
     if (cursorId) params.set('startAfterId', cursorId)
-    if (sinceDate) params.set('startDate', sinceDate)
 
     const res = await fetch(`${GHL_BASE}/contacts/?${params}`, { headers: ghlHeaders(apiKey) })
     if (!res.ok) {
@@ -44,53 +46,25 @@ async function fetchAndUpsertContacts(
       break
     }
     const data = await res.json() as Record<string, unknown>
-    const contacts = (data?.contacts ?? []) as Record<string, unknown>[]
+    const page = (data?.contacts ?? []) as Record<string, unknown>[]
+    // Synchro incrémentale : la liste arrive du plus récent au plus ancien et ignore
+    // startDate ; on s'arrête au premier contact ajouté avant sinceDate (- 15 min).
+    const { gardes, fini } = sinceDate
+      ? nouveauxDepuis(page, Date.parse(sinceDate) - 15 * 60_000)
+      : { gardes: page, fini: false }
+    const contacts = gardes
 
-    const rows = contacts.map(c => {
-      // Deux attributions, pas une. Le premier contact dit ce qui a fait
-      // connaître NEO, le dernier ce qui a déclenché l'action — et c'est le
-      // dernier qui décide à quelle publication un rendez-vous revient.
-      // Sur 90 jours, un contact sur quatre a deux sources différentes.
-      const attributions = (c.attributions ?? []) as Record<string, unknown>[]
-      const firstTouch = attributions.find(a => a.isFirst) ?? attributions[0] ?? {}
-      // isLast n'est pas toujours posé : repli sur le dernier élément, GHL
-      // renvoyant le tableau dans l'ordre chronologique.
-      const lastTouch = attributions.find(a => a.isLast)
-        ?? attributions[attributions.length - 1] ?? {}
-      const str = (v: unknown) => (v === null || v === undefined ? null : String(v) || null)
-      return {
-        ghl_id:         String(c.id ?? ''),
-        location_id:    locationId,
-        first_name:     String(c.firstName ?? ''),
-        last_name:      String(c.lastName ?? ''),
-        email:          String(c.email ?? ''),
-        phone:          String(c.phone ?? ''),
-        tags:           (c.tags ?? []) as string[],
-        source:         String(c.source ?? ''),
-        utm_campaign:   String(firstTouch.utmCampaign ?? ''),
-        utm_content:    String(firstTouch.utmContent ?? ''),
-        utm_source:     String(firstTouch.utmSource ?? ''),
-        utm_campaign_last: str(lastTouch.utmCampaign),
-        utm_content_last:  str(lastTouch.utmContent),
-        utm_source_last:   str(lastTouch.utmSource),
-        utm_medium_last:   str(lastTouch.utmMedium),
-        first_page_url:    str(firstTouch.url),
-        last_page_url:     str(lastTouch.url),
-        first_referrer:    str(firstTouch.referrer),
-        touch_count:       attributions.length,
-        created_at_ghl: c.dateAdded ? new Date(c.dateAdded as string).toISOString() : null,
-        raw:            c,
-        synced_at:      new Date().toISOString(),
-      }
-    })
+    const maintenant = new Date().toISOString()
+    const rows = contacts.map(c => ligneContactComplete(c, locationId, maintenant))
 
     for (let i = 0; i < rows.length; i += BATCH_SIZE) {
-      await supabase.from('ghl_contacts').upsert(rows.slice(i, i + BATCH_SIZE), { onConflict: 'ghl_id' })
+      const { error } = await supabase.from('ghl_contacts').upsert(rows.slice(i, i + BATCH_SIZE), { onConflict: 'ghl_id' })
+      if (error) console.error(`[GHL] Contacts : écriture du cache refusée (${rows.slice(i, i + BATCH_SIZE).length} lignes) : ${error.message}`)
     }
     synced += rows.length
 
     const meta = data?.meta as Record<string, unknown>
-    if (contacts.length < 100 || !meta?.nextPageUrl) break
+    if (fini || page.length < 100 || !meta?.nextPageUrl) break
 
     // GHL expose startAfter (timestamp) ET startAfterId directement dans meta
     const nextTs = meta?.startAfter != null ? String(meta.startAfter) : undefined
@@ -110,7 +84,82 @@ async function fetchAndUpsertContacts(
   return { synced, nextCursor }
 }
 
+// ─── Contacts modifiés depuis une date (recherche GHL) ─────────
+// La liste des contacts ne sert qu'aux nouveaux ; un contact existant corrigé
+// dans GHL (nom, téléphone…) n'y repassait pas. On relit ceux dont dateUpdated
+// est postérieur au dernier passage. Identité et champs personnalisés seulement :
+// les colonnes UTM ne sont pas touchées (voir contacts.ts).
+async function syncModifiedContacts(
+  apiKey: string,
+  locationId: string,
+  supabase: ReturnType<typeof createClient>,
+  depuisIso: string,
+  max = 2000,
+): Promise<{ modifies: number; erreurs: number; complet: boolean }> {
+  let modifies = 0, erreurs = 0
+  let searchAfter: unknown[] | null = null
+  while (modifies < max) {
+    const res = await fetch(`${GHL_BASE}/contacts/search`, {
+      method: 'POST', headers: ghlHeaders(apiKey),
+      body: JSON.stringify(corpsRechercheModifies(locationId, depuisIso, searchAfter)),
+    })
+    if (!res.ok) {
+      console.error(`[GHL] Contacts modifiés : recherche refusée ${res.status}: ${(await res.text()).slice(0, 200)}`)
+      return { modifies, erreurs: erreurs + 1, complet: false }
+    }
+    const data = await res.json() as Record<string, unknown>
+    const contacts = (data?.contacts ?? []) as Record<string, unknown>[]
+    if (contacts.length === 0) break
+
+    // raw déjà en cache, pour garder la liste `attributions`
+    const ids = contacts.map(c => String(c.id ?? '')).filter(Boolean)
+    const { data: anciens } = await supabase.from('ghl_contacts').select('ghl_id, raw').in('ghl_id', ids)
+    const rawParId = new Map((anciens ?? []).map((r: { ghl_id: string; raw: Record<string, unknown> }) => [r.ghl_id, r.raw]))
+
+    const maintenant = new Date().toISOString()
+    const rows = contacts.map(c => ligneContactModifie(c, locationId, maintenant, rawParId.get(String(c.id ?? '')) ?? null))
+    const { error } = await supabase.from('ghl_contacts').upsert(rows, { onConflict: 'ghl_id' })
+    if (error) { erreurs++; console.error(`[GHL] Contacts modifiés : écriture refusée : ${error.message}`) }
+    else modifies += rows.length
+
+    const dernier = contacts[contacts.length - 1]
+    searchAfter = (dernier?.searchAfter as unknown[] | undefined) ?? null
+    if (contacts.length < 100 || !searchAfter) break
+  }
+  return { modifies, erreurs, complet: modifies < max }
+}
+
 // ─── Calendriers Closer ───────────────────────────────────────
+// Pipelines dont les cartes fantômes (supprimées dans GHL) sont purgées du cache
+const PURGE_PIPELINE_IDS = [
+  'KkPiFjw0ztAXc7z6Ab9c', // 📞 pipeline setting
+  'pc4eWgm1TOfZgMgqh6Gv', // 🎯 Vente
+]
+
+// Lignes en cache (ghl_id), paginées
+async function idsEnCache(
+  supabase: ReturnType<typeof createClient>,
+  table: string,
+  filtre: (q: any) => any,
+): Promise<string[]> {
+  const ids: string[] = []
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await filtre(supabase.from(table).select('ghl_id')).order('ghl_id').range(from, from + 999)
+    if (error) throw new Error(`lecture ${table}: ${error.message}`)
+    ids.push(...(data ?? []).map((r: { ghl_id: string }) => r.ghl_id))
+    if ((data?.length ?? 0) < 1000) return ids
+  }
+}
+
+async function supprimer(supabase: ReturnType<typeof createClient>, table: string, ids: string[]) {
+  for (const lot of paquets(ids, 100)) {
+    const { error } = await supabase.from(table).delete().in('ghl_id', lot)
+    if (error) throw new Error(`purge ${table}: ${error.message}`)
+  }
+}
+
+export interface OptionsPurge { purge?: boolean; dryRun?: boolean }
+
 const GHL_CLOSER_CALENDAR_IDS = [
   '4227QzeKvFczi5BZyHOC', // Rencontre découverte 1
   'DIN6EPtG7eNU3Gf6ZRoC', // Rencontre découverte 2
@@ -124,7 +173,7 @@ async function fetchCalendarEvents(
   calendarId: string,
   startTimeMs: number,
   endTimeMs: number
-): Promise<Record<string, unknown>[]> {
+): Promise<{ items: Record<string, unknown>[]; ok: boolean }> {
   const params = new URLSearchParams({
     locationId,
     calendarId,
@@ -137,15 +186,15 @@ async function fetchCalendarEvents(
   const rawText = await res.text()
   if (!res.ok) {
     console.error(`[GHL] calendar events FAILED [${calendarId}]: ${res.status} ${rawText}`)
-    return []
+    return { items: [], ok: false }
   }
   console.log(`[GHL] calendar events OK [${calendarId}]: ${res.status} — body: ${rawText.slice(0, 500)}`)
   let data: Record<string, unknown>
-  try { data = JSON.parse(rawText) } catch { return [] }
+  try { data = JSON.parse(rawText) } catch { return { items: [], ok: false } }
   // GHL retourne tantôt "events", tantôt "appointments"
   const items = (data?.events ?? data?.appointments ?? []) as Record<string, unknown>[]
   console.log(`[GHL] [${calendarId}] found ${items.length} item(s), keys: ${Object.keys(data).join(', ')}`)
-  return items
+  return { items, ok: true }
 }
 
 async function syncAppointments(
@@ -154,11 +203,15 @@ async function syncAppointments(
   supabase: ReturnType<typeof createClient>,
   startTimeMs: number,
   endTimeMs: number,
-  calendarIds: string[] = GHL_CLOSER_CALENDAR_IDS
-): Promise<{ synced: number }> {
+  calendarIds: string[] = GHL_CLOSER_CALENDAR_IDS,
+  { purge = false, dryRun = false, purgeDebutMs = startTimeMs }: OptionsPurge & { purgeDebutMs?: number } = {},
+): Promise<{ synced: number; purged?: number; purgeBloquee?: string[]; aPurger?: string[] }> {
   let synced = 0
+  let purged = 0
+  const purgeBloquee: string[] = []
+  const aPurger: string[] = []
   for (const calendarId of calendarIds) {
-    const events = await fetchCalendarEvents(apiKey, locationId, calendarId, startTimeMs, endTimeMs)
+    const { items: events, ok } = await fetchCalendarEvents(apiKey, locationId, calendarId, startTimeMs, endTimeMs)
     const rows = events.map(e => {
       const contact = e.contact as Record<string, unknown> | undefined
       // Extraire l'URL de meeting (Google Meet, Zoom, etc.)
@@ -194,6 +247,25 @@ async function syncAppointments(
       await supabase.from('ghl_appointments').upsert(rows, { onConflict: 'ghl_id' })
       synced += rows.length
     }
+
+    // Purge : RDV de ce calendrier, dans la fenêtre de purge (incluse dans la
+    // fenêtre lue), que GHL n'a pas renvoyés. Jamais si la lecture a échoué.
+    if (purge) {
+      const debutIso = new Date(purgeDebutMs).toISOString()
+      const finIso = new Date(endTimeMs).toISOString()
+      const enCache = await idsEnCache(supabase, 'ghl_appointments', q => q
+        .eq('calendar_id', calendarId).gte('start_time', debutIso).lte('start_time', finIso))
+      const decision = idsAPurger(enCache, rows.map(r => r.ghl_id), { complet: ok })
+      if (decision.bloque) {
+        console.warn(`[GHL] Purge RDV [${calendarId}] bloquée : ${decision.bloque}`)
+        purgeBloquee.push(`${calendarId}: ${decision.bloque}`)
+      } else if (decision.ids.length > 0) {
+        aPurger.push(...decision.ids)
+        if (!dryRun) await supprimer(supabase, 'ghl_appointments', decision.ids)
+        purged += decision.ids.length
+      }
+      console.log(`[GHL] Purge RDV [${calendarId}] : ${decision.ids.length} ligne(s) ${dryRun ? 'à purger (essai)' : 'purgée(s)'}`)
+    }
   }
 
   // Enrichir les noms depuis ghl_contacts pour les RDV sans nom
@@ -201,7 +273,8 @@ async function syncAppointments(
   if (fillErr) console.error('[GHL] fill_appointment_contact_names error:', fillErr.message)
   else console.log(`[GHL] Filled ${filled} appointment contact names from ghl_contacts`)
 
-  return { synced }
+  if (purge) console.log(`[GHL] Purge RDV totale : ${purged} ligne(s) ${dryRun ? 'à purger (essai)' : 'purgée(s)'}`)
+  return purge ? { synced, purged, purgeBloquee, aPurger } : { synced }
 }
 
 // ─── Pipelines + Opportunités ─────────────────────────────────
@@ -217,14 +290,16 @@ async function fetchPipelines(apiKey: string, locationId: string): Promise<Recor
 async function fetchOpportunities(
   apiKey: string,
   locationId: string,
-): Promise<Record<string, unknown>[]> {
+): Promise<{ opps: Record<string, unknown>[]; complet: boolean }> {
   const results: Record<string, unknown>[] = []
+  let complet = true
   let page = 1
   while (true) {
     const params = new URLSearchParams({ location_id: locationId, limit: '100', page: String(page) })
     const res = await fetch(`${GHL_BASE}/opportunities/search?${params}`, { headers: ghlHeaders(apiKey) })
     if (!res.ok) {
       console.error('GHL opportunities failed:', res.status, await res.text())
+      complet = false
       break
     }
     const data = await res.json() as Record<string, unknown>
@@ -234,15 +309,16 @@ async function fetchOpportunities(
     if (opps.length < 100 || !meta?.nextPage) break
     page++
   }
-  return results
+  return { opps: results, complet }
 }
 
 async function syncOpportunities(
   apiKey: string,
   locationId: string,
-  supabase: ReturnType<typeof createClient>
-): Promise<{ pipelines: number; opportunities: number }> {
-  const [pipelines, opps] = await Promise.all([
+  supabase: ReturnType<typeof createClient>,
+  { purge = false, dryRun = false }: OptionsPurge = {},
+): Promise<{ pipelines: number; opportunities: number; purged?: number; purgeBloquee?: string | null; aPurger?: string[] }> {
+  const [pipelines, { opps, complet }] = await Promise.all([
     fetchPipelines(apiKey, locationId),
     fetchOpportunities(apiKey, locationId),
   ])
@@ -297,6 +373,20 @@ async function syncOpportunities(
     await supabase.from('ghl_opportunities').upsert(oppRows.slice(i, i + BATCH_SIZE), { onConflict: 'ghl_id' })
   }
 
+  // Purge : cartes des pipelines setting et Vente que GHL ne renvoie plus
+  // (supprimées dans GHL). Jamais si la lecture a été interrompue.
+  if (purge) {
+    const enCache = await idsEnCache(supabase, 'ghl_opportunities', q => q.in('pipeline_id', PURGE_PIPELINE_IDS))
+    const decision = idsAPurger(enCache, oppRows.map(r => r.ghl_id), { complet })
+    if (decision.bloque) console.warn(`[GHL] Purge opportunités bloquée : ${decision.bloque}`)
+    else if (decision.ids.length > 0 && !dryRun) await supprimer(supabase, 'ghl_opportunities', decision.ids)
+    console.log(`[GHL] Purge opportunités : ${decision.ids.length} ligne(s) ${dryRun ? 'à purger (essai)' : 'purgée(s)'} sur ${enCache.length} en cache`)
+    return {
+      pipelines: pipelines.length, opportunities: oppRows.length,
+      purged: decision.ids.length, purgeBloquee: decision.bloque, aPurger: decision.ids,
+    }
+  }
+
   return { pipelines: pipelines.length, opportunities: oppRows.length }
 }
 
@@ -308,19 +398,15 @@ Deno.serve(async (req) => {
     new Response(JSON.stringify(data), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
 
   try {
-    if (!req.headers.get('Authorization')) return json({ error: 'Non autorisé' })
+    const authHeader = req.headers.get('Authorization')
+    if (!authHeader) return json({ error: 'Non autorisé' }, 401)
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
     )
 
-    const apiKey = Deno.env.get('GHL_API_KEY')
-    if (!apiKey) return json({ error: 'GHL_API_KEY non configurée' }, 500)
-
-    const DEFAULT_LOCATION_ID = Deno.env.get('GHL_LOCATION_ID') ?? 'YG2spvWJqnD75L3V95UJ'
-
-    let action = 'test', locationId = '', startAfterCursor: string | undefined, maxContacts = 2000
+    let action = 'test', locationId = '', startAfterCursor: string | undefined, maxContacts = 2000, dryRun = false
     try {
       const text = await req.text()
       const b = text ? JSON.parse(text) : {}
@@ -328,7 +414,37 @@ Deno.serve(async (req) => {
       locationId = b?.locationId ?? ''
       startAfterCursor = b?.startAfterCursor ?? undefined
       maxContacts = b?.maxContacts ?? 2000
+      dryRun = b?.dryRun === true
     } catch { /* ok */ }
+
+    // ── Contrôle d'accès ──
+    // Cron (clé anon) : sync_incremental seulement. Tout le reste : utilisateur
+    // connecté avec le rôle admin ou resp_vente (voir auth.ts).
+    const jeton = jetonBearer(authHeader)
+    const appelCron = estAppelCron({ jeton, action })
+    let utilisateur = false
+    let role: string | null = null
+    let email = ''
+    if (!appelCron) {
+      const { data: { user } } = await supabase.auth.getUser(jeton)
+      if (user) {
+        utilisateur = true
+        email = user.email ?? ''
+        const { data: profil } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle()
+        role = profil?.role ?? null
+      }
+    }
+    const verdict = verdictAcces({ appelCron, utilisateur, role })
+    if (!verdict.ok) {
+      console.warn(`[GHL sync] Accès refusé — action ${action}, ${utilisateur ? `utilisateur ${email} (rôle ${role ?? 'aucun'})` : 'sans utilisateur valide'}`)
+      return json({ error: verdict.error }, verdict.status)
+    }
+    console.log(`[GHL sync] ${action} — ${appelCron ? 'cron' : `${email} (${role})`}${dryRun ? ' — essai' : ''}`)
+
+    const apiKey = Deno.env.get('GHL_API_KEY')
+    if (!apiKey) return json({ error: 'GHL_API_KEY non configurée' }, 500)
+
+    const DEFAULT_LOCATION_ID = Deno.env.get('GHL_LOCATION_ID') ?? 'YG2spvWJqnD75L3V95UJ'
 
     // ── Test de connexion ──
     if (action === 'test') {
@@ -370,7 +486,8 @@ Deno.serve(async (req) => {
 
     // ── Sync opportunités (full) ──
     if (action === 'sync_opportunities') {
-      const result = await syncOpportunities(apiKey, locationId, supabase)
+      // Purge des cartes fantômes (setting + Vente) ; dryRun : liste sans supprimer
+      const result = await syncOpportunities(apiKey, locationId || DEFAULT_LOCATION_ID, supabase, { purge: true, dryRun })
       await supabase.from('ghl_config')
         .update({ last_synced_at: new Date().toISOString() })
         .eq('location_id', locationId)
@@ -384,7 +501,10 @@ Deno.serve(async (req) => {
       const now = new Date()
       const aptStartMs = new Date(now.getFullYear(), now.getMonth() - 6, 1).getTime()
       const aptEndMs   = new Date(now.getFullYear(), now.getMonth() + 2, 0).getTime()
-      const result = await syncAppointments(apiKey, locId, supabase, aptStartMs, aptEndMs)
+      // Purge des RDV fantômes sur 3 mois (incluse dans la fenêtre lue) → fin du mois prochain
+      const purgeDebutMs = new Date(now.getFullYear(), now.getMonth() - 3, 1).getTime()
+      const result = await syncAppointments(apiKey, locId, supabase, aptStartMs, aptEndMs, GHL_CLOSER_CALENDAR_IDS,
+        { purge: true, dryRun, purgeDebutMs })
       return json({ ok: true, ...result })
     }
 
@@ -408,6 +528,13 @@ Deno.serve(async (req) => {
         apiKey, locId, supabase, undefined, 5000, sinceDate
       )
 
+      // Contacts existants modifiés dans GHL depuis le dernier passage
+      const modif = sinceDate
+        // Marge de 15 min : modifications faites pendant un passage, ou date de
+        // dernière synchro avancée par une synchro manuelle des opportunités
+        ? await syncModifiedContacts(apiKey, locId, supabase, new Date(Date.parse(sinceDate) - 15 * 60_000).toISOString())
+        : { modifies: 0, erreurs: 0, complet: true }
+
       // Opportunités : toujours full sync (changements de stage fréquents)
       const { pipelines, opportunities } = await syncOpportunities(apiKey, locId, supabase)
 
@@ -421,8 +548,8 @@ Deno.serve(async (req) => {
         .update({ last_synced_at: nowIso })
         .eq('location_id', locId)
 
-      console.log(`Incremental sync: +${newContacts} contacts, ${opportunities} opps, ${appointments} appts (since ${sinceDate ?? 'beginning'})`)
-      return json({ ok: true, newContacts, pipelines, opportunities, appointments, syncedAt: nowIso })
+      console.log(`Incremental sync: +${newContacts} contacts, ${modif.modifies} contacts modifiés${modif.erreurs ? ` (${modif.erreurs} erreur(s))` : ''}${modif.complet ? '' : ' (plafond atteint)'}, ${opportunities} opps, ${appointments} appts (since ${sinceDate ?? 'beginning'})`)
+      return json({ ok: true, newContacts, modifiedContacts: modif.modifies, pipelines, opportunities, appointments, syncedAt: nowIso })
     }
 
     return json({ error: `Action inconnue: ${action}` }, 400)

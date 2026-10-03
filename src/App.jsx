@@ -34,6 +34,10 @@ import MontageConfiguration from './features/social/montage/MontageConfiguration
 import { TERMINAL_ENABLED, canUseTerminal } from './lib/terminal/flag'
 import { hasSocialAccess } from './lib/socialAccess'
 import { MONTAGE_VIDEO_ENABLED, canUseMontageVideo, canConfigureMontageVideo } from './lib/montageVideoAccess'
+// Espace de vente v2 (derrière VITE_ESPACE_VENTE_V2)
+import { ESPACE_VENTE_V2 } from './lib/v2/featureFlag'
+import MonEspaceV2 from './pages/v2/MonEspace'
+import ScoreboardV2 from './pages/v2/Scoreboard'
 
 const HUGUES_EMAIL = 'hugues@neoperformance.ca'
 
@@ -113,7 +117,7 @@ function TerminalRoute({ children }) {
   const { user, loading, isAdmin, isAdminOrRespVente, hasCloserRole } = useAuth()
   if (loading) return <LoadingScreen />
   if (!user) return <Navigate to="/login" replace />
-  if (!canUseTerminal({ isAdmin, isAdminOrRespVente, hasCloserRole })) return <Navigate to="/dashboard" replace />
+  if (!canUseTerminal({ isAdmin, isAdminOrRespVente, hasCloserRole, email: user?.email })) return <Navigate to="/dashboard" replace />
   return children
 }
 
@@ -163,6 +167,14 @@ function AppRoutes() {
         </>
       ) : (
         <Route path="/reseaux-sociaux" element={<SocialRoute><ReseauxSociaux /></SocialRoute>} />
+      )}
+
+      {/* Espace de vente v2 : routes présentes seulement si le drapeau est actif */}
+      {ESPACE_VENTE_V2 && (
+        <Route path="/mon-espace-v2" element={<PrivateRoute><MonEspaceV2 /></PrivateRoute>} />
+      )}
+      {ESPACE_VENTE_V2 && (
+        <Route path="/scoreboard" element={<PrivateRoute><ScoreboardV2 /></PrivateRoute>} />
       )}
 
       {/* Admin + resp_vente — équipe de vente & naturopathe */}

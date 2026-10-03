@@ -290,3 +290,23 @@ export async function getPayment(id: string): Promise<PaymentInfo | null> {
     message: String(tx.message ?? ''),
   }
 }
+
+// Paiements récents (Moneris limite à 20 par appel). Lecture seule.
+export interface RecentPayment { paymentId: string; subscriptionId: string; paymentMethodId: string; amountCents: number; status: string; createdAt: string }
+export async function listRecentPayments(createdFromIso: string): Promise<{ items: RecentPayment[]; status: number }> {
+  const from = createdFromIso.replace(/\.\d{3}Z$/, 'Z')
+  const { status, data } = await call('GET', `/payments?created_from=${encodeURIComponent(from)}&limit=20`)
+  if (status < 200 || status >= 300) {
+    console.error('[listPayments]', status, JSON.stringify(data).slice(0, 400))
+    return { items: [], status }
+  }
+  const items = ((Array.isArray(data.data) ? data.data : []) as Json[]).map(p => ({
+    paymentId: String(p.paymentId ?? ''),
+    subscriptionId: String(((p.subscription ?? {}) as Json).subscriptionId ?? ''),
+    paymentMethodId: String(((p.paymentMethod ?? {}) as Json).paymentMethodId ?? ''),
+    amountCents: Number(((p.amount ?? {}) as Json).amount ?? 0),
+    status: String(p.paymentStatus ?? ''),
+    createdAt: String(p.createdAt ?? ''),
+  })).filter(p => p.paymentId)
+  return { items, status }
+}

@@ -16,6 +16,48 @@ function ghlHeaders(apiKey: string) {
   }
 }
 
+// Rendez-vous (payload de workflow GHL, espace de vente v2) : mêmes calendriers
+// que gohighlevel-sync, mêmes colonnes dans ghl_appointments.
+const APPT_UPSERT_EVENTS = new Set(['AppointmentCreate', 'AppointmentUpdate'])
+const APPT_CALENDAR_IDS = new Set([
+  '4227QzeKvFczi5BZyHOC', // Rencontre découverte 1
+  'DIN6EPtG7eNU3Gf6ZRoC', // Rencontre découverte 2
+  'ucyJmhYKKDDm7U5JmaJ8', // Rencontre découverte 3
+  'BQK4NoyrVNuJA3e1VHDH', // Rencontre de suivi / décision
+])
+
+// Ligne ghl_appointments à partir d'un RDV GHL (même logique que gohighlevel-sync)
+function appointmentRow(e: Record<string, unknown>, locationId: string, contact?: Record<string, unknown>) {
+  let meetingUrl = ''
+  const loc = e.location ?? e.address ?? ''
+  if (typeof loc === 'string' && (loc.startsWith('https://') || loc.startsWith('http://'))) {
+    meetingUrl = loc
+  } else if (e.googleMeetLink && typeof e.googleMeetLink === 'string') {
+    meetingUrl = e.googleMeetLink
+  }
+  const contactFullName = contact
+    ? (String(contact.name ?? '') || [contact.firstName, contact.lastName].filter(Boolean).join(' '))
+    : ''
+  const rawTitle = String(contactFullName || e.title || e.contactName || '')
+  const cleanedTitle = rawTitle.replace(/\s+(Consultation|Rencontre|Suivi).*/i, '').trim()
+  return {
+    ghl_id:           String(e.id ?? ''),
+    location_id:      String(e.locationId ?? locationId),
+    calendar_id:      String(e.calendarId ?? ''),
+    contact_id:       String(e.contactId ?? ''),
+    contact_name:     cleanedTitle || rawTitle,
+    contact_email:    String(contact?.email ?? ''),
+    assigned_user_id: String(e.assignedUserId ?? e.userId ?? ''),
+    start_time:       e.startTime ? new Date(e.startTime as string).toISOString() : null,
+    end_time:         e.endTime   ? new Date(e.endTime   as string).toISOString() : null,
+    status:           String(e.appoinmentStatus ?? e.appointmentStatus ?? ''),
+    meeting_url:      meetingUrl,
+    notes:            String(e.notes ?? ''),
+    raw:              e,
+    synced_at:        new Date().toISOString(),
+  }
+}
+
 const OPP_UPSERT_EVENTS = new Set([
   'OpportunityCreate',
   'OpportunityUpdate',
@@ -62,11 +104,20 @@ Deno.serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     )
 
-    const payload = await req.json() as Record<string, unknown>
+    const body = await req.json() as Record<string, unknown>
+    // Action « Webhook » d'un workflow GHL : nos clés arrivent dans customData
+    // ({ type, id }) et passent devant les champs natifs (où `id` est celui du
+    // contact). Un événement natif (app Marketplace) n'a pas de customData.
+    const customData = (body.customData ?? {}) as Record<string, unknown>
+    const payload    = { ...body, ...customData } as Record<string, unknown>
+    const viaWorkflow = Object.keys(customData).length > 0
     const eventType  = String(payload.type ?? '')
-    const locationId = String(payload.locationId ?? Deno.env.get('GHL_LOCATION_ID') ?? '')
+    const locationId = String(payload.locationId ?? (body.location as Record<string, unknown>)?.id ?? Deno.env.get('GHL_LOCATION_ID') ?? '')
 
-    console.log(`[GHL Webhook] ${eventType} — payload: ${JSON.stringify(payload).slice(0, 400)}`)
+    console.log(`[GHL Webhook] appel reçu — type: ${eventType || '∅'} · id: ${String(payload.id ?? '∅')} · source: ${viaWorkflow ? 'workflow' : 'natif'}`)
+    // Jamais les valeurs du payload dans les journaux : GHL y joint tous les champs
+    // du contact (coordonnées, montants, et parfois des données de carte).
+    console.log(`[GHL Webhook] ${eventType} — champs reçus : ${Object.keys(body).length}`)
 
     // ── Suppression d'opportunité ──────────────────────────────
     if (eventType === 'OpportunityDelete') {
@@ -146,6 +197,57 @@ Deno.serve(async (req) => {
       }, { onConflict: 'ghl_id' })
 
       console.log(`[GHL Webhook] Opportunité upsertée (${eventType}): ${oppId}`)
+      return ack()
+    }
+
+    // ── Rendez-vous : suppression ───────────────────────────────
+    if (eventType === 'AppointmentDelete') {
+      const calendar = (body.calendar ?? {}) as Record<string, unknown>
+      const apptId = String(customData.id ?? calendar.appointmentId ?? payload.id ?? '')
+      if (!apptId) return ack('no id')
+      await supabase.from('ghl_appointments').delete().eq('ghl_id', apptId)
+      console.log(`[GHL Webhook] RDV supprimé: ${apptId}`)
+      return ack()
+    }
+
+    // ── Rendez-vous : création / mise à jour (re-fetch complet) ─
+    if (APPT_UPSERT_EVENTS.has(eventType)) {
+      // Repli sur le bloc « calendar » natif des webhooks de workflow
+      const calendar = (body.calendar ?? {}) as Record<string, unknown>
+      const apptId = String(customData.id ?? calendar.appointmentId ?? calendar.id ?? '')
+      if (!apptId) return ack('no id')
+
+      const res = await fetch(`${GHL_BASE}/calendars/events/appointments/${apptId}`, { headers: ghlHeaders(apiKey) })
+      if (!res.ok) {
+        console.error(`[GHL Webhook] Re-fetch RDV ${apptId} échoué: ${res.status}`)
+        return ack('refetch failed')
+      }
+      const data = await res.json() as Record<string, unknown>
+      const appt = (data?.appointment ?? data?.event ?? data) as Record<string, unknown>
+      const calendarId = String(appt.calendarId ?? '')
+      if (!APPT_CALENDAR_IDS.has(calendarId)) {
+        console.log(`[GHL Webhook] RDV ${apptId} ignoré (calendrier ${calendarId} non suivi)`)
+        return ack('calendar ignored')
+      }
+
+      // Nom et courriel du contact (comme la synchro, qui les reçoit avec l'événement)
+      let contact: Record<string, unknown> | undefined
+      const contactId = String(appt.contactId ?? '')
+      if (contactId) {
+        const cRes = await fetch(`${GHL_BASE}/contacts/${contactId}`, { headers: ghlHeaders(apiKey) })
+        if (cRes.ok) {
+          const cData = await cRes.json() as Record<string, unknown>
+          contact = (cData?.contact ?? cData) as Record<string, unknown>
+        }
+      }
+
+      const row = appointmentRow({ ...appt, id: String(appt.id ?? apptId) }, locationId, contact)
+      const { error: upErr } = await supabase.from('ghl_appointments').upsert(row, { onConflict: 'ghl_id' })
+      if (upErr) {
+        console.error(`[GHL Webhook] Upsert RDV ${apptId} échoué: ${upErr.message}`)
+        return ack('upsert failed')
+      }
+      console.log(`[GHL Webhook] RDV upserté (${eventType}): ${apptId} — statut ${row.status}`)
       return ack()
     }
 

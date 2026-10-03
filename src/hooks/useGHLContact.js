@@ -26,7 +26,10 @@ export function useGHLContactById(contactId) {
       body: { contactId },
     })
 
-    if (refreshed?.ok) {
+    if (refreshed?.ok && refreshed.cache === false && refreshed.contact) {
+      // Cache non écrit : on garde quand même le contact frais renvoyé par GHL
+      setContact(prev => ({ ...(prev ?? {}), ...refreshed.contact }))
+    } else if (refreshed?.ok) {
       // Re-fetch from cache — the edge function just upserted fresh data
       const { data: fresh } = await supabase
         .from('ghl_contacts')

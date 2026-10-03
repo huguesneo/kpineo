@@ -20,6 +20,9 @@ import {
 import { useSaleCallNote } from '../hooks/useSaleCallNotes'
 import { EOD_OBJECTIONS, saveRowChangesToEOD } from '../hooks/useCloserEOD'
 import { finRendezVous, showPermis, heureShowPermis, SHOW_CHAMPS_MIN, ficheRemplie } from '../lib/showHoraire'
+// Espace de vente v2 : prise de rendez-vous d'évaluation intégrée à l'app
+import { ESPACE_VENTE_V2 } from '../lib/v2/featureFlag'
+import ModalEvaluation from '../components/v2/closer/ModalEvaluation'
 
 // ─── Helpers ──────────────────────────────────────────────────
 function fmtTime(iso) {
@@ -85,23 +88,35 @@ const BOOKINGS = {
   decision: { titre: 'Prendre rencontre de décision',  tabs: DECISION_TABS },
 }
 
-function BookingModal({ titre, tabs, onClose }) {
+// Préremplissage du formulaire GHL (prénom, nom, courriel, téléphone du client)
+function avecClient(src, client) {
+  if (!src || !client) return src
+  const p = new URLSearchParams()
+  if (client.first_name) p.set('first_name', client.first_name)
+  if (client.last_name) p.set('last_name', client.last_name)
+  if (client.email) p.set('email', client.email)
+  if (client.phone) p.set('phone', client.phone)
+  const qs = p.toString()
+  return qs ? `${src}${src.includes('?') ? '&' : '?'}${qs}` : src
+}
+
+function BookingModal({ titre, tabs, onClose, client = null }) {
   const [tab, setTab] = useState(tabs[0].key)
   const current = tabs.find(t => t.key === tab)
+  const src = avecClient(current?.src, client)
   return (
     <>
       {/* Overlay */}
       <div className="fixed inset-0 z-50 bg-black/40" onClick={onClose} />
 
       {/* Popup centré, adaptatif à l'écran */}
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-6 pointer-events-none">
-        <div
-          className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col pointer-events-auto overflow-hidden"
-          style={{ height: '88vh' }}
-        >
+      {/* Assez large pour que GHL affiche calendrier et plages côte à côte (en 768 px,
+          il empilait tout et ajoutait sa propre zone de défilement) ; plein écran sur téléphone */}
+      <div className="fixed inset-0 z-50 flex items-center justify-center sm:p-6 pointer-events-none">
+        <div className="bg-white sm:rounded-2xl shadow-2xl w-full max-w-5xl h-[100dvh] sm:h-[94vh] flex flex-col pointer-events-auto overflow-hidden">
           {/* Header compact : titre + onglets + fermer sur une ligne */}
-          <div className="flex items-center gap-3 px-5 border-b border-[#e5e7eb] flex-shrink-0" style={{ minHeight: 52 }}>
-            <span className="text-sm font-bold text-[#1a1a1a] flex-shrink-0 whitespace-nowrap">
+          <div className="flex items-center gap-3 px-3 sm:px-5 border-b border-[#e5e7eb] flex-shrink-0" style={{ minHeight: 52 }}>
+            <span className="hidden sm:inline text-sm font-bold text-[#1a1a1a] flex-shrink-0 whitespace-nowrap">
               {titre}
             </span>
             <div className="flex flex-1 overflow-x-auto">
@@ -134,7 +149,7 @@ function BookingModal({ titre, tabs, onClose }) {
             {current && (
               <iframe
                 key={tab}
-                src={current.src}
+                src={src}
                 title={current.label}
                 style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 'none' }}
               />
@@ -895,11 +910,21 @@ export default function SaleCallScript() {
         <div className="h-8" />
       </div>
 
-      {booking && (
-        <BookingModal
-          titre={BOOKINGS[booking].titre}
-          tabs={BOOKINGS[booking].tabs}
+      {/* v2 : évaluation réservée dans l'app (secours : calendrier GHL ci-dessous) */}
+      {booking === 'eval' && ESPACE_VENTE_V2 && (contact?.ghl_id ?? appt?.contact_id) && (
+        <ModalEvaluation
+          client={contact}
+          contactId={contact?.ghl_id ?? appt?.contact_id}
           onClose={() => setBooking(null)}
+          onSecours={() => setBooking('eval-ghl')}
+        />
+      )}
+      {booking && !(booking === 'eval' && ESPACE_VENTE_V2 && (contact?.ghl_id ?? appt?.contact_id)) && (
+        <BookingModal
+          titre={BOOKINGS[booking === 'eval-ghl' ? 'eval' : booking].titre}
+          tabs={BOOKINGS[booking === 'eval-ghl' ? 'eval' : booking].tabs}
+          onClose={() => setBooking(null)}
+          client={contact}
         />
       )}
     </Layout>
