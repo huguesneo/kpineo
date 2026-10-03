@@ -3,6 +3,7 @@ import { supabase } from '../../../lib/supabase'
 import {
   CLE_DOSSIER_BRUT_ID, CLE_DOSSIER_BRUT_NOM, lireDossierBrut, premiereTacheMontage, cheminDernierApercu, derniereTacheParJob,
 } from '../../../lib/montageVideo'
+import { lignesClips } from '../../../lib/montageClips'
 
 const COLONNES_JOB =
   'id, titre, cree_par, statut, etape, progression, created_at, updated_at, fichier_drive_id, nom_source, lien_drive_export, erreur, format, version_courante'
@@ -177,17 +178,27 @@ export function useTemplatesApprouves() {
   return { templates, loading, error, reload }
 }
 
-// Crée le montage puis sa tâche « montage ». Si le montage existe déjà (essai
-// précédent arrivé à mi-chemin), seule la tâche est créée : pas de doublon.
+// Crée le montage, ses clips, puis sa tâche « montage ». Si le montage existe
+// déjà (essai précédent arrivé à mi-chemin), il n'est pas recréé, et ses clips
+// ne sont écrits que s'il n'en a encore aucun : pas de doublon.
 // En cas d'échec, l'erreur porte `jobId` pour la nouvelle tentative.
-export async function lancerMontage(ligne, jobIdExistant = null) {
+export async function lancerMontage(ligne, jobIdExistant = null, clips = []) {
   let jobId = jobIdExistant
   if (!jobId) {
     const { data, error: err } = await supabase.from('video_jobs').insert(ligne).select('id').single()
     if (err) throw err
     jobId = data.id
   }
-  const { error: errTache } = await supabase.from('video_taches').insert(premiereTacheMontage(jobId))
+  if (clips.length) {
+    const { count, error: errLecture } = await supabase
+      .from('video_clips').select('id', { count: 'exact', head: true }).eq('job_id', jobId)
+    if (errLecture) throw Object.assign(errLecture, { jobId })
+    if (!count) {
+      const { error: errClips } = await supabase.from('video_clips').insert(lignesClips(jobId, clips))
+      if (errClips) throw Object.assign(errClips, { jobId })
+    }
+  }
+  const { error: errTache } = await supabase.from('video_taches').insert(premiereTacheMontage(jobId, clips))
   if (errTache) throw Object.assign(errTache, { jobId })
   return jobId
 }

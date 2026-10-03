@@ -13,6 +13,7 @@ import PastilleMac from './PastilleMac'
 import LecteurApercu, { EtatProgression } from './LecteurApercu'
 import FilConversation from './FilConversation'
 import BandeVersions from './BandeVersions'
+import ClipsMontage from './ClipsMontage'
 import ZoneDemande from './ZoneDemande'
 
 function Retour() {
@@ -48,7 +49,7 @@ export default function MontageEditeur() {
 }
 
 function Editeur({ jobId }) {
-  const { job, versions, taches, loading, error, introuvable, direct, reload, envoyer } = useMontageEditeur(jobId)
+  const { job, versions, taches, clips, loading, error, introuvable, direct, reload, envoyer } = useMontageEditeur(jobId)
   const agent = useAgentStatus()
   const enLigne = !agent.error && isAgentEnLigne(agent.status?.dernier_signal, agent.maintenant)
   const noms = useNoms([job?.cree_par, ...versions.map(v => v.auteur), ...taches.map(t => t.cree_par)])
@@ -158,16 +159,25 @@ function Editeur({ jobId }) {
           )}
         </Card>
 
-        {/* Bande des versions (sous le lecteur) */}
-        {versions.length > 0 && (
-          <Card className="p-3 lg:col-start-1 lg:row-start-2">
-            <BandeVersions
-              versions={versions}
-              numeroAffiche={version?.numero}
-              versionCourante={job.version_courante}
-              onChoisir={setNumeroChoisi}
-            />
-          </Card>
+        {/* Bande des versions, puis les clips (sous le lecteur) */}
+        {(versions.length > 0 || clips.length > 0) && (
+          <div className="space-y-4 lg:col-start-1 lg:row-start-2">
+            {versions.length > 0 && (
+              <Card className="p-3">
+                <BandeVersions
+                  versions={versions}
+                  numeroAffiche={version?.numero}
+                  versionCourante={job.version_courante}
+                  onChoisir={setNumeroChoisi}
+                />
+              </Card>
+            )}
+            {clips.length > 0 && (
+              <Card className="p-4">
+                <ClipsMontage clips={clips} />
+              </Card>
+            )}
+          </div>
         )}
 
         {/* Fil de conversation (à droite) */}

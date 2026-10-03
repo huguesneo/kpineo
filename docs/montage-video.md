@@ -14,6 +14,7 @@ Plan de référence : `PROMPT-CLAUDE-CODE-MONTAGE-VIDEO-2026-10-01.md` (hors dé
 | **1c** | **Sous-menus Réseaux sociaux (Analyse et pub + Montage vidéo), redirection de `/reseaux-sociaux`, accueil, pastille Mac en ligne, file d'attente, configuration du dossier Brut** | **Fait, testé (logique), derrière le flag** |
 | **2a-2b** | **Upload résumable vers Brut, Google Picker (vidéos), copie dans Brut, galerie de templates, prompt, lancement (montage + tâche), aperçu et progression dans la liste** | **Fait, testé (logique), derrière le flag** |
 | **3a** | **Éditeur : lecteur 9:16 (aperçu du bucket), fil de conversation, demande « Qu'est-ce que tu veux changer ? », bande des versions, Mac en ligne, temps réel** | **Fait, testé (logique, composants, RLS), derrière le flag** |
+| **Clips 1** | **Plusieurs clips par montage (Principal et B-roll) : table `video_clips`, liste ordonnée à l'étape 1, clips dans le payload de la tâche, panneau dans l'éditeur ; la file de l'accueil ouvre l'éditeur** | **Fait, testé, appliqué en production le 3 oct. Agent : partie 2, à faire** |
 | 3b et suite | Sous-titres éditables, restaurer une version, Terminer et lien d'export | À faire |
 | **4-départ** | **Templates de départ « Pub 0929 » et « Entrevue mythe 0924 » (approuvés, aperçus), colonne `style_enregistre`, montage parti de la composition de départ du style** | **Fait, testé, appliqué en production le 3 oct.** |
 | 4 | Templates proposés et approbation par Hugues, variantes | À faire (côté agent : prêt) |
@@ -272,7 +273,7 @@ Décisions :
 - **Nouvelle version** : le lecteur passe dessus, même si une autre version était choisie dans la bande.
 - **URL signée** d'une heure, renouvelée 5 min avant l'expiration ; la lecture reprend où elle en était. Si la vidéo ne se charge plus, une nouvelle URL est demandée (au plus toutes les 10 s).
 - Bande : numéros seulement, pas de miniatures (il faudrait une URL signée et un chargement vidéo par version).
-- Pas de lien vers l'éditeur depuis la file d'attente de l'accueil (seulement depuis le titre dans la liste).
+- ~~Pas de lien vers l'éditeur depuis la file d'attente de l'accueil~~ : corrigé avec les clips, chaque ligne de la file ouvre l'éditeur.
 
 Tests :
 - `src/lib/montageEditeur.test.js` (24) : contrat de la tâche, états désactivés, version affichée, fil, URL signée, messages d'erreur.
@@ -295,6 +296,48 @@ Prérequis : `.env.local` comme en phase 1c, `npm run dev`, `http://localhost:51
 7. **Téléphone** (ou fenêtre étroite) : lecteur en haut, bande des versions dessous, puis le fil et le champ.
 8. **Accès** : un compte hors liste qui ouvre `/reseaux-sociaux/montage/<id>` revient au tableau de bord ; une adresse inventée (`/reseaux-sociaux/montage/abc`) affiche « Montage introuvable ».
 
+## Clips, partie 1 : base et hub (3 oct. 2026)
+
+Toujours derrière `VITE_MONTAGE_VIDEO=true`. Agent (video-neo) non modifié : c'est la partie 2.
+
+Migration `20261003c_montage_video_clips.sql` (additive, se rejoue ; appliquée sur soma-hq sous le nom `montage_video_clips`) :
+- Table `video_clips` : `id`, `job_id` (cascade), `ordre` (1 à 10, unique par montage), `role` (`principal` ou `broll`), `nom`, `fichier_drive_id`, `nom_source` (même source que `video_jobs`), `duree_s` (vide, pour l'agent), `created_at`.
+- RLS : lecture et création pour `has_montage_access()` (hugues@ et info@), ni modification ni suppression depuis le hub. Trigger : le hub n'ajoute des clips qu'à un montage sans version (au lancement) et ne peut pas remplir `duree_s`.
+- Backfill : chaque montage existant a reçu son clip 1, principal, copié de `fichier_drive_id` / `nom_source` (nom = `nom_source`, sinon le titre). Production : 2 montages, 2 clips, vérifiés.
+- `video_jobs.fichier_drive_id` et `nom_source` restent : ils reçoivent le **premier clip Principal dans l'ordre**, la seule vidéo que l'agent actuel monte.
+
+Hub :
+- `src/lib/montageClips.js` : règles (premier clip ajouté Principal, les suivants B-roll, 10 au plus, au moins un Principal, noms obligatoires), ordre, lignes `video_clips`, payload.
+- Étape 1 (« Les vidéos ») : chaque vidéo prête dans Brut (envoi, Picker ou copie, comme avant) rejoint la liste et la zone de dépôt revient (« Ajouter un clip »). Flèches haut et bas, nom modifiable, Principal ou B-roll, retirer (le fichier reste dans Drive). Liste figée pendant un envoi et après un lancement à moitié réussi (réessai). Titre proposé : le nom du premier clip.
+- Lancement : montage, puis clips (seulement si le montage n'en a encore aucun, pour un réessai sans doublon), puis tâche `montage`.
+- Éditeur : panneau « Clips » (lecture seule) sous la bande des versions : ordre, nom, rôle, durée si connue.
+- Accueil : chaque ligne de la file d'attente ouvre l'éditeur du montage.
+
+Payload de la première tâche `montage` (le prompt reste sur le montage, jamais dans le payload) :
+
+```json
+{ "clips": [
+  { "ordre": 1, "nom": "Entrevue", "role": "principal", "fichier_drive_id": "…", "nom_source": "Entrevue_2026-10-03_1000.mov" },
+  { "ordre": 2, "nom": "Cuisine", "role": "broll", "fichier_drive_id": "…", "nom_source": "Cuisine_2026-10-03_1001.mov" }
+] }
+```
+
+L'agent actuel ignore `clips` (vérifié dans `agent/src/taches.ts` : il ne lit que `payload.prompt`) et monte `video_jobs.nom_source`.
+
+Pour la partie 2 (agent) :
+- Lire `payload.clips` (ou `video_clips` du montage, trié par `ordre`, même contenu) ; sans `clips` (montages d'avant), garder `nom_source` comme source unique.
+- Chaque `nom_source` est dans `NEO vidéo/Brut/` : attendre la synchro de chacun comme aujourd'hui.
+- Écrire `video_clips.duree_s` (service_role).
+- `variante` recopie aujourd'hui `nom_source` seulement : il faudra recopier les clips.
+
+Tests : `montageClips.test.js` (12), `clips.test.jsx` (14 : liste, flèches, rôles, 10 au plus, verrou, panneau de l'éditeur, liens de la file), `40_tests_clips.sql` (22 : backfill, ordre unique, 10 au plus, rôle, nom, verrou après version, hors liste, non connecté, agent, cascade). `run.sh` → `PASS: 139  FAIL: 0`. Hub : 270 tests qui passent (les 2 fichiers des commissions échouent toujours, photo de référence absente). Build et ESLint (configuration temporaire hors dépôt) sans remarque.
+
+### Tester à la main (3 points)
+
+1. **Liste** : ajouter 3 vidéos (un envoi, deux par le Picker) : 1re Principal, les autres B-roll. Monter, descendre, renommer, passer la 1re en B-roll : « Choisis au moins un clip Principal » et le lancement est refusé. Au 10e clip, la zone de dépôt disparaît.
+2. **Lancement** : remettre un Principal, lancer. Dans l'éditeur SQL : `select ordre, role, nom, nom_source from video_clips where job_id='<id>' order by ordre;` dans l'ordre choisi, `video_jobs.nom_source` = le premier Principal, et la tâche a `payload.clips`. Avec l'agent en simulation, le montage se fait comme avant. L'éditeur montre le panneau « Clips ».
+3. **File d'attente** : sur l'accueil, cliquer une ligne de la file (en cours ou en attente) ouvre l'éditeur de ce montage.
+
 ## Tester la migration en local
 
 Avec un Postgres local vide (jamais un projet Supabase, le script refuse), migrations e et f :
@@ -303,4 +346,4 @@ Avec un Postgres local vide (jamais un projet Supabase, le script refuse), migra
 PGHOST=/chemin/socket PGPORT=5432 PGUSER=postgres supabase/tests/montage_video/run.sh
 ```
 
-Résultat attendu : `PASS: 117  FAIL: 0` (migrations e, f et 20261003a, puis les templates de départ, puis l'éditeur). Sur le Mac : `brew install postgresql@17`, puis un Postgres jetable (`initdb`, `pg_ctl ... -o "-k '' -p 54329"`) et `PGHOST=localhost PGPORT=54329`.
+Résultat attendu : `PASS: 139  FAIL: 0` (migrations e, f et 20261003a, puis les templates de départ, puis l'éditeur, puis les clips). Sur le Mac : `brew install postgresql@17`, puis un Postgres jetable (`initdb`, `pg_ctl ... -o "-k '' -p 54329"`) et `PGHOST=localhost PGPORT=54329`.

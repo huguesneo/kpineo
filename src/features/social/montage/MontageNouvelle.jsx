@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import Layout from '../../../components/layout/Layout'
 import Header from '../../../components/layout/Header'
@@ -12,6 +12,9 @@ import { prechargerGoogle, googlePickerConfigure } from '../../../lib/googlePick
 import {
   validerDirection, validerTitre, nouveauMontage, messageErreurLancement,
 } from '../../../lib/montageVideo'
+import {
+  ajouterClip, deplacerClip, renommerClip, changerRoleClip, supprimerClip, clipPrincipal, validerClips,
+} from '../../../lib/montageClips'
 import { useDossierBrut, useTemplatesApprouves, lancerMontage } from './useMontageVideo'
 import { useEnvoiVideo } from './useEnvoiVideo'
 import EtapeVideo, { BrutNonConfigure } from './EtapeVideo'
@@ -37,8 +40,9 @@ function EnTeteEtape({ numero, titre, fait }) {
   )
 }
 
-// Nouvelle vidéo : étape 1 (la vidéo dans Brut) et étape 2 (la direction),
-// puis création du montage et de sa tâche « montage ». L'agent fait le reste.
+// Nouvelle vidéo : étape 1 (les clips dans Brut) et étape 2 (la direction),
+// puis création du montage, de ses clips et de sa tâche « montage ».
+// L'agent fait le reste.
 export default function MontageNouvelle() {
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -52,42 +56,66 @@ export default function MontageNouvelle() {
   const [prompt, setPrompt] = useState('')
   const [tentative, setTentative] = useState(false)
   const [lancement, setLancement] = useState({ enCours: false, erreur: null, jobId: null })
+  const [clips, setClips] = useState([])
 
   useEffect(() => { prechargerGoogle() }, [])
 
-  // Titre proposé : le nom d'origine du fichier, tant que la personne ne l'a pas changé.
+  // Une vidéo arrivée dans Brut rejoint la liste des clips, puis la zone de
+  // dépôt revient pour en ajouter une autre.
   const nomOrigine = envoi.fichier?.name || envoi.fichierDrive?.nom
+  const dernierResultat = useRef(null)
+  const { etat: etatEnvoi, resultat, recommencer } = envoi
   useEffect(() => {
-    if (nomOrigine && !titreModifie) setTitre(titreDepuisNom(nomOrigine))
-  }, [nomOrigine, titreModifie])
+    if (etatEnvoi !== 'pret' || !resultat || dernierResultat.current === resultat) return
+    dernierResultat.current = resultat
+    setClips(c => ajouterClip(c, { nom: titreDepuisNom(nomOrigine || resultat.nomSource), ...resultat }))
+    recommencer()
+  }, [etatEnvoi, resultat, nomOrigine, recommencer])
 
-  const pret = envoi.etat === 'pret' && !!envoi.resultat
+  // Titre proposé : le nom du premier clip, tant que la personne ne l'a pas changé.
+  const nomPremier = clips[0]?.nom
+  useEffect(() => {
+    if (nomPremier && !titreModifie) setTitre(nomPremier)
+  }, [nomPremier, titreModifie])
+
+  const actionsClips = {
+    onDeplacer: (cle, sens) => setClips(c => deplacerClip(c, cle, sens)),
+    onRenommer: (cle, nom) => setClips(c => renommerClip(c, cle, nom)),
+    onRole: (cle, role) => setClips(c => changerRoleClip(c, cle, role)),
+    onSupprimer: (cle) => setClips(c => supprimerClip(c, cle)),
+  }
+
+  const envoiEnCours = !['choix', 'erreur', 'pret'].includes(envoi.etat)
+  const erreurClips = validerClips(clips)
+  const pret = clips.length > 0 && !envoiEnCours
   const erreurTitre = validerTitre(titre)
   const erreurDirection = validerDirection({ templateId, prompt })
 
   async function lancer() {
     setTentative(true)
-    if (!pret || erreurTitre || erreurDirection) return
+    if (!pret || erreurClips || erreurTitre || erreurDirection) return
     setLancement(l => ({ ...l, enCours: true, erreur: null }))
+    // L'agent actuel monte une seule vidéo : le premier clip principal.
+    const principal = clipPrincipal(clips)
     try {
       const jobId = await lancerMontage(nouveauMontage({
         titre,
-        fichierDriveId: envoi.resultat.fichierDriveId,
-        nomSource: envoi.resultat.nomSource,
+        fichierDriveId: principal.fichierDriveId,
+        nomSource: principal.nomSource,
         templateId,
         prompt,
-      }), lancement.jobId)
+      }), lancement.jobId, clips)
       navigate(`/reseaux-sociaux/montage/${jobId}`)
     } catch (e) {
       setLancement({ enCours: false, erreur: messageErreurLancement(e), jobId: e?.jobId ?? lancement.jobId })
     }
   }
 
-  const raisonAttente = !pret
-    ? (envoi.etat === 'envoi' || envoi.etat === 'interrompu' || envoi.etat === 'copie'
-      ? "Attends la fin de l'envoi de la vidéo."
-      : "Ajoute d'abord la vidéo à l'étape 1.")
-    : null
+  const raisonAttente = envoiEnCours
+    ? "Attends la fin de l'ajout du clip, ou annule-le."
+    : !clips.length
+      ? "Ajoute d'abord une vidéo à l'étape 1."
+      : erreurClips
 
   return (
     <Layout>
@@ -101,7 +129,7 @@ export default function MontageNouvelle() {
 
       <div className="max-w-3xl space-y-6">
         <Card className="p-6">
-          <EnTeteEtape numero={1} titre="La vidéo" fait={pret} />
+          <EnTeteEtape numero={1} titre="Les vidéos" fait={pret && !erreurClips} />
           {brut.loading ? (
             <SkeletonLine className="w-1/2" />
           ) : brut.error ? (
@@ -118,6 +146,10 @@ export default function MontageNouvelle() {
           ) : (
             <EtapeVideo
               envoi={envoi}
+              clips={clips}
+              actionsClips={actionsClips}
+              erreurClips={clips.length ? erreurClips : null}
+              verrouille={!!lancement.jobId}
               titre={titre}
               setTitre={(t) => { setTitre(t); setTitreModifie(true) }}
               erreurTitre={tentative || titre ? erreurTitre : null}
@@ -140,7 +172,7 @@ export default function MontageNouvelle() {
           {lancement.erreur && (
             <div className="mt-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
               <p>{lancement.erreur}</p>
-              <p className="mt-1 text-xs text-red-600">La vidéo reste dans Google Drive : « Réessayer » ne la renvoie pas.</p>
+              <p className="mt-1 text-xs text-red-600">Les vidéos restent dans Google Drive : « Réessayer » ne les renvoie pas.</p>
             </div>
           )}
 

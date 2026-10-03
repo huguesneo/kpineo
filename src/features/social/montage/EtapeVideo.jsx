@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom'
 import Button from '../../../components/shared/Button'
 import { ACCEPT_VIDEO, formatOctets, formatDuree } from '../../../lib/montageUpload'
 import { googlePickerConfigure } from '../../../lib/googlePicker'
+import { MAX_CLIPS } from '../../../lib/montageClips'
+import ListeClips from './ListeClips'
 
 function IconeVideo({ className = 'w-7 h-7' }) {
   return (
@@ -48,7 +50,7 @@ export function BrutNonConfigure({ peutConfigurer }) {
   )
 }
 
-function ZoneDepot({ onFichier, onDrive, desactive }) {
+function ZoneDepot({ onFichier, onDrive, desactive, ajout }) {
   const input = useRef(null)
   const [survol, setSurvol] = useState(false)
 
@@ -64,14 +66,14 @@ function ZoneDepot({ onFichier, onDrive, desactive }) {
           const f = e.dataTransfer.files?.[0]
           if (f) onFichier(f)
         }}
-        className={`rounded-xl border-2 border-dashed px-6 py-12 text-center transition-colors ${
+        className={`rounded-xl border-2 border-dashed px-6 ${ajout ? 'py-6' : 'py-12'} text-center transition-colors ${
           survol ? 'border-[#00bbb1] bg-[#00bbb1]/5' : 'border-[#e5e7eb] bg-white'
         }`}
       >
         <div className="w-14 h-14 mx-auto rounded-full bg-[#00bbb1]/10 text-[#00bbb1] flex items-center justify-center mb-4">
           <IconeVideo />
         </div>
-        <p className="text-base font-semibold text-[#1a1a1a]">Glisse ta vidéo ici</p>
+        <p className="text-base font-semibold text-[#1a1a1a]">{ajout ? 'Ajouter un clip' : 'Glisse ta vidéo ici'}</p>
         <p className="text-sm text-[#6b7280] mt-1">.mp4, .mov ou .m4v, envoyée telle quelle dans Google Drive (aucune compression)</p>
         <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
           <Button variant="secondary" onClick={() => input.current?.click()} disabled={desactive}>
@@ -132,14 +134,20 @@ function BarreEnvoi({ progression, interrompu }) {
   )
 }
 
-// Étape 1, la vidéo : dépôt (upload résumable vers Brut) ou choix dans Drive.
-export default function EtapeVideo({ envoi, titre, setTitre, erreurTitre }) {
+// Étape 1, les vidéos : liste ordonnée des clips, et ajout d'un clip par dépôt
+// (upload résumable vers Brut) ou choix dans Drive. Un clip prêt dans Brut
+// rejoint la liste (MontageNouvelle) et la zone de dépôt revient.
+// verrouille : le montage est déjà créé (lancement à réessayer), les clips ne
+// changent plus.
+export default function EtapeVideo({ envoi, clips = [], actionsClips, erreurClips, verrouille, titre, setTitre, erreurTitre }) {
   const {
     etat, message, fichier, fichierDrive, progression, resultat,
     choisirFichier, demarrer, reprendre, annuler, recommencer, choisirDansDrive, copierDansBrut, autoriserBrut,
   } = envoi
   const [enCours, setEnCours] = useState(false)
   const nomOrigine = fichier?.name || fichierDrive?.nom
+  const plein = clips.length >= MAX_CLIPS
+  const envoiActif = etat !== 'choix' && etat !== 'erreur' && etat !== 'pret'
 
   async function avecAttente(fn) {
     setEnCours(true)
@@ -148,14 +156,20 @@ export default function EtapeVideo({ envoi, titre, setTitre, erreurTitre }) {
 
   return (
     <div className="space-y-5">
-      {(etat === 'choix' || etat === 'erreur') && (
-        <>
-          {etat === 'erreur' && message && <Avis type="erreur">{message}</Avis>}
-          <ZoneDepot onFichier={choisirFichier} onDrive={() => avecAttente(choisirDansDrive)} desactive={enCours} />
-        </>
+      {actionsClips && (
+        <ListeClips clips={clips} {...actionsClips} desactive={envoiActif || verrouille} erreur={erreurClips} />
       )}
 
-      {etat !== 'choix' && etat !== 'erreur' && nomOrigine && (
+      {(etat === 'choix' || etat === 'erreur') && !verrouille && (plein ? (
+        <p className="text-sm text-[#6b7280]">{MAX_CLIPS} clips au plus : retire un clip pour en ajouter un autre.</p>
+      ) : (
+        <>
+          {etat === 'erreur' && message && <Avis type="erreur">{message}</Avis>}
+          <ZoneDepot onFichier={choisirFichier} onDrive={() => avecAttente(choisirDansDrive)} desactive={enCours} ajout={clips.length > 0} />
+        </>
+      ))}
+
+      {envoiActif && nomOrigine && (
         <div className="flex items-center gap-3 rounded-lg border border-[#e5e7eb] bg-white p-4">
           <div className="w-10 h-10 flex-shrink-0 rounded-lg bg-[#00bbb1]/10 text-[#00bbb1] flex items-center justify-center">
             <IconeVideo className="w-5 h-5" />
@@ -169,7 +183,7 @@ export default function EtapeVideo({ envoi, titre, setTitre, erreurTitre }) {
           </div>
           {etat !== 'envoi' && etat !== 'copie' && etat !== 'verification' && (
             <button onClick={recommencer} className="text-sm font-semibold text-[#6b7280] hover:text-[#1a1a1a]">
-              Changer de vidéo
+              {clips.length ? 'Annuler cet ajout' : 'Changer de vidéo'}
             </button>
           )}
         </div>
@@ -237,7 +251,7 @@ export default function EtapeVideo({ envoi, titre, setTitre, erreurTitre }) {
         </Avis>
       )}
 
-      {etat !== 'choix' && etat !== 'erreur' && (
+      {(clips.length > 0 || envoiActif) && (
         <div>
           <label htmlFor="titre-video" className="block text-sm font-semibold text-[#1a1a1a] mb-1.5">Titre de la vidéo</label>
           <input

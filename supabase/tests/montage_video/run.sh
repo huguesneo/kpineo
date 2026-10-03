@@ -3,7 +3,8 @@
 # Usage : PGHOST=/chemin/socket PGPORT=5432 PGUSER=postgres ./run.sh
 # Crée la base « montage_test », applique l'imitation Supabase, les migrations
 # 20261001e, 20261001f et 20261003a (deux fois, pour vérifier qu'elles se rejouent), puis les tests,
-# puis les templates de départ (20261003b, deux fois) et leurs tests, puis ceux de l'éditeur.
+# puis les templates de départ (20261003b, deux fois) et leurs tests, puis ceux de l'éditeur,
+# puis les clips (20261003c, deux fois, sur des montages existants : backfill) et leurs tests.
 # Refuse de tourner sur un hôte Supabase : ne sert jamais en production.
 set -euo pipefail
 
@@ -15,6 +16,7 @@ fi
 ICI="$(cd "$(dirname "$0")" && pwd)"
 MIGRATIONS=("$ICI/../../migrations/20261001e_montage_video.sql" "$ICI/../../migrations/20261001f_montage_video_ajouts.sql" "$ICI/../../migrations/20261003a_montage_video_style_enregistre.sql")
 DEPART="$ICI/../../migrations/20261003b_montage_video_templates_depart.sql"
+CLIPS="$ICI/../../migrations/20261003c_montage_video_clips.sql"
 BASE=montage_test
 
 psql -q -d postgres -c "DROP DATABASE IF EXISTS $BASE" -c "CREATE DATABASE $BASE"
@@ -35,6 +37,11 @@ SORTIE="$SORTIE
 $($P -f "$ICI/20_tests_templates_depart.sql" 2>&1)"
 SORTIE="$SORTIE
 $($P -f "$ICI/30_tests_editeur.sql" 2>&1)"
+for _ in 1 2; do
+  $P -f "$CLIPS" >/dev/null 2>&1 || { echo "La migration des clips échoue : $CLIPS" >&2; $P -f "$CLIPS"; exit 1; }
+done
+SORTIE="$SORTIE
+$($P -f "$ICI/40_tests_clips.sql" 2>&1)"
 echo "$SORTIE" | sed '/^$/d'
 PASS=$(grep -c '^ PASS' <<<"$SORTIE" || true)
 FAIL=$(grep -cE '^ FAIL|ERROR' <<<"$SORTIE" || true)

@@ -1,6 +1,8 @@
 // Logique du module Montage vidéo, sans dépendance à React ni à Supabase
 // (testée dans montageVideo.test.js).
 
+import { payloadClips } from './montageClips'
+
 // Plus de 90 s sans heartbeat de l'agent (écrit toutes les 30 s) = Mac hors ligne.
 export const AGENT_HORS_LIGNE_APRES_MS = 90 * 1000
 
@@ -106,8 +108,10 @@ export function nouveauMontage({ titre, fichierDriveId, nomSource, templateId, p
   }
 }
 
-export function premiereTacheMontage(jobId) {
-  return { job_id: jobId, type: 'montage', payload: {} }
+// Avec des clips, la liste ordonnée part dans le payload ({ clips: [...] }) :
+// l'agent actuel l'ignore et monte la source du montage (le clip principal).
+export function premiereTacheMontage(jobId, clips = null) {
+  return { job_id: jobId, type: 'montage', payload: clips?.length ? { clips: payloadClips(clips) } : {} }
 }
 
 // Erreur Supabase ou réseau → message clair en français.

@@ -7,18 +7,21 @@ const COLONNES_JOB =
   'id, titre, cree_par, statut, etape, progression, created_at, updated_at, erreur, format, version_courante, template_id, prompt'
 const COLONNES_VERSION = 'id, job_id, numero, chemin_apercu, prompt, reponse_agent, auteur, created_at'
 const COLONNES_TACHE = 'id, job_id, type, payload, statut, cree_par, erreur, created_at'
+const COLONNES_CLIP = 'id, job_id, ordre, role, nom, nom_source, duree_s'
 const POLLING_MS = 3000
 
 function remplacer(liste, row) {
   return [...liste.filter(x => x.id !== row.id), row]
 }
 
-// Un montage, ses versions et ses tâches, en direct. Temps réel Supabase filtré
+// Un montage, ses versions et ses tâches, en direct (ses clips : relus avec le
+// reste, sans temps réel ; une erreur de lecture des clips ne bloque pas l'éditeur). Temps réel Supabase filtré
 // sur le montage ; si le canal n'est pas abonné, rechargement toutes les 3 s.
 export function useMontageEditeur(jobId) {
   const [job, setJob] = useState(null)
   const [versions, setVersions] = useState([])
   const [taches, setTaches] = useState([])
+  const [clips, setClips] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [introuvable, setIntrouvable] = useState(false)
@@ -26,10 +29,11 @@ export function useMontageEditeur(jobId) {
   const [direct, setDirect] = useState(null)
 
   const reload = useCallback(async () => {
-    const [j, v, t] = await Promise.all([
+    const [j, v, t, c] = await Promise.all([
       supabase.from('video_jobs').select(COLONNES_JOB).eq('id', jobId).maybeSingle(),
       supabase.from('video_versions').select(COLONNES_VERSION).eq('job_id', jobId).order('numero'),
       supabase.from('video_taches').select(COLONNES_TACHE).eq('job_id', jobId).order('created_at'),
+      supabase.from('video_clips').select(COLONNES_CLIP).eq('job_id', jobId).order('ordre'),
     ])
     const err = j.error || v.error || t.error
     if (err) {
@@ -40,6 +44,7 @@ export function useMontageEditeur(jobId) {
       setJob(j.data)
       setVersions(v.data ?? [])
       setTaches(t.data ?? [])
+      if (!c.error) setClips(c.data ?? [])
     }
     setLoading(false)
   }, [jobId])
@@ -96,7 +101,7 @@ export function useMontageEditeur(jobId) {
     setTaches(prev => remplacer(prev, data))
   }, [jobId])
 
-  return { job, versions, taches, loading, error, introuvable, direct, reload, envoyer }
+  return { job, versions, taches, clips, loading, error, introuvable, direct, reload, envoyer }
 }
 
 // Noms des auteurs (courriels → nom du profil).

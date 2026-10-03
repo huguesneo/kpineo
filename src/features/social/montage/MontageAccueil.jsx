@@ -162,7 +162,8 @@ function ListeMontages({ jobs, noms, loading, error, reload, positions, taches }
   )
 }
 
-function FileAttente({ jobs, positions, noms, enLigne }) {
+// File d'attente : chaque ligne ouvre l'éditeur du montage.
+export function FileAttente({ jobs, positions, noms, enLigne }) {
   const enCours = jobs.filter(j => STATUTS_EN_TRAITEMENT.includes(j.statut))
   const enAttente = jobs.filter(j => positions[j.id]).sort((a, b) => positions[a.id] - positions[b.id])
 
@@ -172,7 +173,7 @@ function FileAttente({ jobs, positions, noms, enLigne }) {
   return (
     <div className="px-5 pb-5 space-y-3">
       {enCours.map(job => (
-        <div key={job.id} className="rounded-lg border border-[#00bbb1]/30 bg-[#00bbb1]/5 p-3">
+        <Link key={job.id} to={`/reseaux-sociaux/montage/${job.id}`} className="block rounded-lg border border-[#00bbb1]/30 bg-[#00bbb1]/5 p-3 hover:border-[#00bbb1]">
           <div className="flex items-center justify-between gap-2">
             <p className="text-sm font-semibold text-[#1a1a1a] truncate">{job.titre}</p>
             <span className="text-xs font-semibold text-[#00bbb1] whitespace-nowrap">En cours</span>
@@ -181,10 +182,10 @@ function FileAttente({ jobs, positions, noms, enLigne }) {
           <div className="mt-2 h-2 rounded-full bg-white overflow-hidden">
             <div className="h-full bg-[#00bbb1] transition-all" style={{ width: `${job.progression ?? 0}%` }} />
           </div>
-        </div>
+        </Link>
       ))}
       {enAttente.map(job => (
-        <div key={job.id} className="flex items-center gap-3 rounded-lg border border-[#e5e7eb] bg-white p-3">
+        <Link key={job.id} to={`/reseaux-sociaux/montage/${job.id}`} className="flex items-center gap-3 rounded-lg border border-[#e5e7eb] bg-white p-3 hover:border-[#00bbb1]">
           <span className="w-9 h-9 flex-shrink-0 rounded-full bg-gray-100 text-[#374151] text-sm font-bold flex items-center justify-center">
             {rangFr(positions[job.id])}
           </span>
@@ -192,7 +193,7 @@ function FileAttente({ jobs, positions, noms, enLigne }) {
             <p className="text-sm font-semibold text-[#1a1a1a] truncate">{job.titre}</p>
             <p className="text-xs text-[#6b7280]">{noms[job.cree_par] || job.cree_par}</p>
           </div>
-        </div>
+        </Link>
       ))}
       {!enLigne && enAttente.length > 0 && (
         <p className="text-xs text-amber-700">La file reprendra dès que le Mac sera en ligne.</p>
