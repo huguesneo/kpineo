@@ -76,6 +76,15 @@ export function dernierNumero(versions) {
   return (versions || []).reduce((max, v) => Math.max(max, v.numero || 0), 0)
 }
 
+// Texte d'une tâche dans le fil : son prompt, sinon ce qu'elle fait.
+export function texteTache(tache) {
+  if (tache?.type === 'correction_sous_titres') {
+    const n = Array.isArray(tache.payload?.corrections) ? tache.payload.corrections.length : 0
+    return `Correction des sous-titres à la main (${n} mot${n > 1 ? 's' : ''})`
+  }
+  return tache?.payload?.prompt || 'Lancer le montage'
+}
+
 // Fil de conversation : pour chaque version, la demande (prompt) puis la
 // réponse de l'agent. Ensuite la demande en cours (pas encore de version) ou
 // le refus de la dernière demande.
@@ -96,7 +105,7 @@ export function filConversation({ versions, taches }) {
   const active = tacheActive(taches)
   if (active) {
     messages.push({
-      cle: `t${active.id}`, role: 'demande', texte: active.payload?.prompt || 'Lancer le montage',
+      cle: `t${active.id}`, role: 'demande', texte: texteTache(active),
       auteur: active.cree_par, date: active.created_at, enAttente: active.statut,
     })
     return messages
@@ -106,7 +115,7 @@ export function filConversation({ versions, taches }) {
   const dernierVersion = trierVersions(versions).at(-1)
   if (derniere?.statut === 'erreur' && (!dernierVersion || new Date(derniere.created_at) > new Date(dernierVersion.created_at))) {
     messages.push({
-      cle: `t${derniere.id}`, role: 'demande', texte: derniere.payload?.prompt || 'Lancer le montage',
+      cle: `t${derniere.id}`, role: 'demande', texte: texteTache(derniere),
       auteur: derniere.cree_par, date: derniere.created_at,
     })
     messages.push({ cle: `e${derniere.id}`, role: 'erreur', texte: derniere.erreur || "L'agent a signalé une erreur sans message.", date: derniere.created_at })

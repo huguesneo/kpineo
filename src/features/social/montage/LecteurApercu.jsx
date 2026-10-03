@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { statutMontage, STATUTS_EN_TRAITEMENT } from '../../../lib/montageVideo'
 
 function Cadre({ children }) {
@@ -37,10 +37,20 @@ export function EtatProgression({ job, enLigne }) {
 }
 
 // Lecteur 9:16 de l'aperçu (URL signée). Quand l'URL est renouvelée pour la
-// même version, la lecture reprend où elle en était.
-export default function LecteurApercu({ numero, url, erreur, onErreurChargement }) {
+// même version, la lecture reprend où elle en était. `saut` ({ secondes, tour }) :
+// chaque clic sur une ligne de sous-titres place la lecture à ce moment (aussi
+// sur la version suivante, pour revoir la ligne corrigée).
+export default function LecteurApercu({ numero, url, erreur, onErreurChargement, saut }) {
   const video = useRef(null)
   const position = useRef({ numero: null, t: 0, enPause: true })
+
+  useEffect(() => {
+    if (!saut) return
+    const v = video.current
+    // Vidéo pas encore chargée : le moment sera appliqué à son chargement.
+    if (!v || v.readyState < 1) { position.current = { numero, t: saut.secondes, enPause: true }; return }
+    v.currentTime = saut.secondes
+  }, [saut, numero])
 
   function memoriser() {
     const v = video.current

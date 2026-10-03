@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { tacheDemande, delaiRenouvellement } from '../../../lib/montageEditeur'
+import { tacheCorrection } from '../../../lib/montageSousTitres'
 import { urlSigneeApercu } from './useMontageVideo'
 
 const COLONNES_JOB =
   'id, titre, cree_par, statut, etape, progression, created_at, updated_at, erreur, format, version_courante, template_id, prompt'
-const COLONNES_VERSION = 'id, job_id, numero, chemin_apercu, prompt, reponse_agent, auteur, created_at'
+const COLONNES_VERSION = 'id, job_id, numero, chemin_apercu, prompt, reponse_agent, auteur, created_at, sous_titres'
 const COLONNES_TACHE = 'id, job_id, type, payload, statut, cree_par, erreur, created_at'
 const COLONNES_CLIP = 'id, job_id, ordre, role, nom, nom_source, duree_s'
 const POLLING_MS = 3000
@@ -101,7 +102,41 @@ export function useMontageEditeur(jobId) {
     setTaches(prev => remplacer(prev, data))
   }, [jobId])
 
-  return { job, versions, taches, clips, loading, error, introuvable, direct, reload, envoyer }
+  // Corrections de sous-titres à la main : même principe que envoyer.
+  const corriger = useCallback(async (corrections) => {
+    const { data, error: err } = await supabase.from('video_taches').insert(tacheCorrection(jobId, corrections)).select(COLONNES_TACHE).single()
+    if (err) throw err
+    setTaches(prev => remplacer(prev, data))
+  }, [jobId])
+
+  return { job, versions, taches, clips, loading, error, introuvable, direct, reload, envoyer, corriger }
+}
+
+export const MESSAGE_SORTIE = "Tes corrections de sous-titres n'ont pas été envoyées. Quitter la page quand même ?"
+
+// Tant que `actif` : avertit avant de fermer ou recharger l'onglet, et demande
+// confirmation avant de suivre un lien interne (menu, « Retour aux montages ») :
+// BrowserRouter n'a pas de blocage de navigation.
+export function useConfirmerSortie(actif, message = MESSAGE_SORTIE) {
+  useEffect(() => {
+    if (!actif) return
+    const avant = (e) => { e.preventDefault(); e.returnValue = '' }
+    const clic = (e) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+      const lien = e.target?.closest?.('a[href]')
+      if (!lien || lien.target === '_blank') return
+      if (!window.confirm(message)) {
+        e.preventDefault()
+        e.stopPropagation()
+      }
+    }
+    window.addEventListener('beforeunload', avant)
+    document.addEventListener('click', clic, true)
+    return () => {
+      window.removeEventListener('beforeunload', avant)
+      document.removeEventListener('click', clic, true)
+    }
+  }, [actif, message])
 }
 
 // Noms des auteurs (courriels → nom du profil).

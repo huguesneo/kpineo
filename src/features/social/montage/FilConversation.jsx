@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { dateFr } from './PastilleMac'
+import TexteMarkdown from './TexteMarkdown'
 
 function Entete({ qui, date, version }) {
   return (
@@ -71,8 +72,8 @@ export default function FilConversation({ messages, noms = {}, job }) {
         return (
           <li key={m.cle} className="flex flex-col items-start" data-role="agent">
             <Entete qui="Agent de montage" date={m.date} version={m.version} />
-            <div className="max-w-[90%] rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm bg-white border border-[#e5e7eb] text-[#1a1a1a] whitespace-pre-wrap break-words">
-              {m.texte}
+            <div className="max-w-[90%] rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm bg-white border border-[#e5e7eb] text-[#1a1a1a] break-words">
+              <TexteMarkdown texte={m.texte} />
             </div>
           </li>
         )

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import Layout from '../../../components/layout/Layout'
 import Card from '../../../components/shared/Card'
@@ -7,14 +7,16 @@ import { isAgentEnLigne, statutMontage, STATUTS_EN_TRAITEMENT } from '../../../l
 import {
   jobIdValide, etatEnvoi, filConversation, versionAffichee, dernierNumero, tacheActive,
 } from '../../../lib/montageEditeur'
+import { etatCorrection, correctionsAEnvoyer } from '../../../lib/montageSousTitres'
 import { useAgentStatus } from './useMontageVideo'
-import { useMontageEditeur, useNoms, useUrlApercu } from './useMontageEditeur'
+import { useMontageEditeur, useNoms, useUrlApercu, useConfirmerSortie } from './useMontageEditeur'
 import PastilleMac from './PastilleMac'
 import LecteurApercu, { EtatProgression } from './LecteurApercu'
 import FilConversation from './FilConversation'
 import BandeVersions from './BandeVersions'
 import ClipsMontage from './ClipsMontage'
 import ZoneDemande from './ZoneDemande'
+import PanneauSousTitres from './PanneauSousTitres'
 
 function Retour() {
   return (
@@ -49,7 +51,7 @@ export default function MontageEditeur() {
 }
 
 function Editeur({ jobId }) {
-  const { job, versions, taches, clips, loading, error, introuvable, direct, reload, envoyer } = useMontageEditeur(jobId)
+  const { job, versions, taches, clips, loading, error, introuvable, direct, reload, envoyer, corriger } = useMontageEditeur(jobId)
   const agent = useAgentStatus()
   const enLigne = !agent.error && isAgentEnLigne(agent.status?.dernier_signal, agent.maintenant)
   const noms = useNoms([job?.cree_par, ...versions.map(v => v.auteur), ...taches.map(t => t.cree_par)])
@@ -74,6 +76,29 @@ function Editeur({ jobId }) {
     dernierRenouvellement.current = Date.now()
     apercu.renouveler()
   }
+
+  // Corrections de sous-titres pas encore envoyées, pour une version donnée
+  // (seule la version actuelle se corrige ; une nouvelle version les oublie).
+  const [brouillons, setBrouillons] = useState({ numero: null, textes: {} })
+  const [saut, setSaut] = useState(null)
+  const versionCourante = versions.find(v => v.numero === job?.version_courante)
+  const textesCourants = brouillons.numero === job?.version_courante ? brouillons.textes : {}
+  const nonEnvoyees = job?.statut !== 'termine' && correctionsAEnvoyer(versionCourante?.sous_titres, textesCourants).modifiees > 0
+  useConfirmerSortie(nonEnvoyees)
+
+  const modifierSousTitre = useCallback((cle, texte) => {
+    setBrouillons(prev => {
+      const numero = job?.version_courante ?? null
+      const textes = prev.numero === numero ? prev.textes : {}
+      return { numero, textes: { ...textes, [cle]: texte } }
+    })
+  }, [job?.version_courante])
+  const annulerSousTitres = useCallback(() => setBrouillons({ numero: null, textes: {} }), [])
+  const appliquerSousTitres = useCallback(async (corrections) => {
+    await corriger(corrections)
+    setBrouillons({ numero: null, textes: {} })
+  }, [corriger])
+  const sauter = useCallback((secondes) => setSaut({ secondes, tour: Date.now() }), [])
 
   if (loading && !job) {
     return <Message titre="Chargement du montage..." texte="Un instant." />
@@ -149,7 +174,7 @@ function Editeur({ jobId }) {
           )}
           {version ? (
             <>
-              <LecteurApercu numero={version.numero} url={apercu.url} erreur={apercu.erreur} onErreurChargement={erreurChargement} />
+              <LecteurApercu numero={version.numero} url={apercu.url} erreur={apercu.erreur} onErreurChargement={erreurChargement} saut={saut} />
               <p className="text-center text-xs text-[#6b7280] mt-2">
                 Version {version.numero}{version.numero === job.version_courante ? ' (actuelle)' : ''}
               </p>
@@ -159,7 +184,7 @@ function Editeur({ jobId }) {
           )}
         </Card>
 
-        {/* Bande des versions, puis les clips (sous le lecteur) */}
+        {/* Bande des versions, sous-titres, puis les clips (sous le lecteur) */}
         {(versions.length > 0 || clips.length > 0) && (
           <div className="space-y-4 lg:col-start-1 lg:row-start-2">
             {versions.length > 0 && (
@@ -169,6 +194,20 @@ function Editeur({ jobId }) {
                   numeroAffiche={version?.numero}
                   versionCourante={job.version_courante}
                   onChoisir={setNumeroChoisi}
+                />
+              </Card>
+            )}
+            {version && (
+              <Card className="p-4">
+                <PanneauSousTitres
+                  key={version.numero}
+                  version={version}
+                  etat={etatCorrection({ job, taches, version })}
+                  brouillons={brouillons.numero === version.numero ? brouillons.textes : {}}
+                  onModifier={modifierSousTitre}
+                  onAnnuler={annulerSousTitres}
+                  onAppliquer={appliquerSousTitres}
+                  onSauter={sauter}
                 />
               </Card>
             )}

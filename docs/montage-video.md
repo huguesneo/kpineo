@@ -14,6 +14,7 @@ Plan de référence : `PROMPT-CLAUDE-CODE-MONTAGE-VIDEO-2026-10-01.md` (hors dé
 | **1c** | **Sous-menus Réseaux sociaux (Analyse et pub + Montage vidéo), redirection de `/reseaux-sociaux`, accueil, pastille Mac en ligne, file d'attente, configuration du dossier Brut** | **Fait, testé (logique), derrière le flag** |
 | **2a-2b** | **Upload résumable vers Brut, Google Picker (vidéos), copie dans Brut, galerie de templates, prompt, lancement (montage + tâche), aperçu et progression dans la liste** | **Fait, testé (logique), derrière le flag** |
 | **3a** | **Éditeur : lecteur 9:16 (aperçu du bucket), fil de conversation, demande « Qu'est-ce que tu veux changer ? », bande des versions, Mac en ligne, temps réel** | **Fait, testé (logique, composants, RLS), derrière le flag** |
+| **8** | **Correction des sous-titres à la main dans l'éditeur (tâche `correction_sous_titres`), réponse de l'agent rendue en markdown dans le fil** | **Fait, testé (logique, composants), derrière le flag. Aucune migration, agent inchangé** |
 | **Clips 1** | **Plusieurs clips par montage (Principal et B-roll) : table `video_clips`, liste ordonnée à l'étape 1, clips dans le payload de la tâche, panneau dans l'éditeur ; la file de l'accueil ouvre l'éditeur** | **Fait, testé, appliqué en production le 3 oct. Agent : partie 2, à faire** |
 | 3b et suite | Sous-titres éditables, restaurer une version, Terminer et lien d'export | À faire |
 | **4-départ** | **Templates de départ « Pub 0929 » et « Entrevue mythe 0924 » (approuvés, aperçus), colonne `style_enregistre`, montage parti de la composition de départ du style** | **Fait, testé, appliqué en production le 3 oct.** |
@@ -239,7 +240,7 @@ Vérifié en lecture seule en production : les 2 templates (comme hugues@, avec 
 
 - Hugues : installer le service (`bash agent/launchd/installer.sh --essai`, puis sans `--essai`) après avoir fusionné `feat/agent-hub` dans `main` de video-neo ; premier vrai montage pour valider Claude de bout en bout.
 - Hugues : partager `NEO vidéo/Brut` (en modification) avec info@ ; à son premier envoi, info@ cliquera une fois « Autoriser le dossier Brut ».
-- Hub 3b et suite : bande de sous-titres éditable depuis `sous_titres` (tâche `correction_sous_titres`), restaurer une version (tâche `restaurer`), Terminer et lien d'export. L'éditeur 3a est en place.
+- Hub 3b et suite : ~~bande de sous-titres éditable~~ (fait, étape 8), restaurer une version (tâche `restaurer`), Terminer et lien d'export. L'éditeur 3a est en place.
 - Hub 4 : proposition de template avec `job_id` et `numero_version`, approbation par Hugues, menu Variantes.
 - Premier vrai montage avec un template de départ (demande la clé Anthropic) : vérifier que Claude copie bien `Pub0929.tsx` ou `Pub0924.tsx`.
 - `lien_drive_export` est un chemin dans Drive, pas une URL : le hub pourra retrouver le fichier par l'API Drive (phase 3).
@@ -337,6 +338,40 @@ Tests : `montageClips.test.js` (12), `clips.test.jsx` (14 : liste, flèches, rô
 1. **Liste** : ajouter 3 vidéos (un envoi, deux par le Picker) : 1re Principal, les autres B-roll. Monter, descendre, renommer, passer la 1re en B-roll : « Choisis au moins un clip Principal » et le lancement est refusé. Au 10e clip, la zone de dépôt disparaît.
 2. **Lancement** : remettre un Principal, lancer. Dans l'éditeur SQL : `select ordre, role, nom, nom_source from video_clips where job_id='<id>' order by ordre;` dans l'ordre choisi, `video_jobs.nom_source` = le premier Principal, et la tâche a `payload.clips`. Avec l'agent en simulation, le montage se fait comme avant. L'éditeur montre le panneau « Clips ».
 3. **File d'attente** : sur l'accueil, cliquer une ligne de la file (en cours ou en attente) ouvre l'éditeur de ce montage.
+
+## Étape 8 : correction des sous-titres à la main (3 oct. 2026)
+
+Toujours derrière `VITE_MONTAGE_VIDEO=true`. **Aucune migration** (la colonne `video_versions.sous_titres` existe depuis 1a-bis et se lit déjà avec le RLS) et **agent inchangé** : il gérait déjà la tâche.
+
+Contrat vérifié dans `video-neo/agent/src/taches.ts` (`correctionSousTitres`, `nouvelleVersion`) :
+- À chaque version, l'agent copie `public/sous-titres/m-<id>.json` dans `video_versions.sous_titres` : `{ video, motsParLigne, dureeMs, mots: [{ texte, debutMs, finMs }] }`. Ce sont des **mots**, pas des lignes ; le gabarit `SousTitres` de video-neo les regroupe au rendu.
+- Payload : `{ "corrections": [{ "mot": <index dans mots>, "texte": "..." }] }`. Refus si un index n'existe pas ou si un texte est vide ; l'agent ne sait ni ajouter ni retirer un mot.
+- Il corrige le fichier de la **version courante** (branche du montage), fait un commit, rend l'aperçu et crée la version n+1 (prompt « Correction des sous-titres à la main », réponse « « ancien » → « nouveau » »). **Aucun appel Claude** : seulement le rendu Remotion.
+
+Hub :
+- `src/lib/montageSousTitres.js` : mots, regroupement en lignes (même règle que le gabarit, variante classique : ponctuation, pause de plus de 350 ms, 5 mots, 24 caractères), avertissements de longueur, ligne modifiée → corrections mot par mot, payload, état du panneau.
+- `PanneauSousTitres.jsx` : panneau « Sous-titres de la vN » sous la bande des versions. Une ligne par sous-titre avec son début (« 1,2 s ») ; cliquer l'heure ou entrer dans le champ fait sauter le lecteur à ce moment (`LecteurApercu`, prop `saut`). Texte modifiable, minutage non.
+- `useMontageEditeur.js` : `sous_titres` lu avec les versions, `corriger()` crée la tâche, `useConfirmerSortie()` (fermeture de l'onglet et liens internes).
+- `src/lib/markdownSimple.js` et `TexteMarkdown.jsx` : la réponse de l'agent est rendue (titres, gras, italique, code, listes, tableaux, séparateurs) en éléments React, sans `innerHTML` : le HTML du texte reste du texte. Aucune dépendance ajoutée (aucune bibliothèque markdown dans `package.json`). Les demandes restent en texte brut.
+- `montageEditeur.js` : dans le fil, une tâche de correction s'affiche « Correction des sous-titres à la main (N mots) » (avant : « Lancer le montage »).
+
+Décisions :
+- **Une ligne modifiée → corrections par mot.** Les mots du texte sont posés un à un sur les mots d'origine ; s'il y en a plus, les derniers rejoignent le dernier mot de la ligne (son minutage ne change pas). S'il y en a moins : erreur sur la ligne (« Garde au moins N mots ») et envoi bloqué, puisque l'agent ne peut pas retirer un mot. Seuls les mots changés partent.
+- **Avertissements sans blocage** : plus de 5 mots, plus de 24 caractères (règles du skill, `SOUS_TITRES_NEO_CLASSIQUE`), retour à la ligne.
+- **Seule la version actuelle se corrige** (l'agent corrige `version_courante`) : une ancienne version affichée est en lecture seule, avec « Affiche-la pour corriger ses sous-titres ».
+- « Appliquer les corrections » : désactivé sans changement, avec une erreur de ligne, tant qu'une tâche du montage attend ou tourne (même message que le champ de demande), et pour un montage terminé (panneau en lecture seule). Les champs se désactivent aussi.
+- « Annuler mes changements » efface les brouillons. Corrections non envoyées : confirmation avant de fermer l'onglet ou de suivre un lien interne (menu, « Retour aux montages »). Une nouvelle version efface les brouillons de l'ancienne (les index de mots ne valent plus).
+- Le découpage du hub suit la règle 5 mots / 24 caractères ; une composition qui passe un autre `motsParLigne` au gabarit coupera autrement à l'écran. Sans effet sur la correction, qui se fait par mot.
+
+Tests : `montageSousTitres.test.js` (26 : lignes sur un extrait de `0929-2.json`, avertissements, corrections par mot, payload, états, fil), `markdownSimple.test.js` (9), `sousTitres.test.jsx` (12 : panneau, états désactivés, avertissements, rendu markdown, échappement, fil). Hub : 317 tests qui passent (les 2 fichiers des commissions échouent toujours, photo de référence absente). Build et ESLint (configuration temporaire hors dépôt) sans remarque. Sur le vrai `0929-2.json` : 203 mots, 65 lignes, aucun avertissement. Pas de test SQL : aucune migration, et la lecture de `sous_titres` comme l'envoi d'une `correction_sous_titres` sont déjà couverts par `10_tests_rls.sql`.
+
+### Tester à la main (3 points)
+
+Agent en simulation (`npm run simule` dans `video-neo/agent`), un montage avec une version.
+
+1. **Panneau** : les lignes et leurs débuts s'affichent sous la bande ; cliquer « 1,2 s » place le lecteur à 1,2 s. Allonger une ligne au-delà de 24 caractères : avertissement orange, « Appliquer » reste actif. Retirer un mot : erreur rouge, « Appliquer » désactivé. « Annuler mes changements » remet le texte d'origine.
+2. **Envoi** : corriger un mot, Appliquer. Le panneau et le champ de demande se désactivent (« attend son tour »), le fil montre « Correction des sous-titres à la main (1 mot) ». Dans l'éditeur SQL, la tâche a `payload` `{"corrections":[{"mot":…,"texte":"…"}]}`. La version suivante arrive, et son `sous_titres` contient le mot corrigé.
+3. **Sortie et markdown** : avec une correction non envoyée, cliquer « Retour aux montages » ou recharger : confirmation demandée. Une réponse de l'agent avec `##` et un tableau s'affiche en titre et en tableau.
 
 ## Tester la migration en local
 
