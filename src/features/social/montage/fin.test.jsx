@@ -2,7 +2,7 @@
 // Restaurer, Terminer, confirmations, lien d'export, cas d'erreur.
 import { describe, it, expect } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { RestaurerVersion, BoutonTerminer, BandeauTermine, LienExport } from './FinMontage'
+import { RestaurerVersion, BoutonTerminer, BandeauExport, LienExport } from './FinMontage'
 import FilConversation from './FilConversation'
 import { LienDrive } from './MontageAccueil'
 import { filConversation } from '../../../lib/montageEditeur'
@@ -31,10 +31,9 @@ describe('Restaurer cette version', () => {
     expect(html).toContain('agent travaille')
   })
 
-  it('montage terminé : désactivé', () => {
-    const html = rendre({ job: job({ statut: 'termine' }) })
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Restaurer cette version<\/button>/)
-    expect(html).toContain('terminé')
+  it('montage terminé : bouton actif (plus de verrou après Terminer)', () => {
+    const html = rendre({ job: job({ statut: 'termine', lien_drive_export: CHEMIN }) })
+    expect(html).toMatch(/<button(?![^>]*disabled="")[^>]*>Restaurer cette version<\/button>/)
   })
 
   it('confirmation avant l\'envoi : ce que ça fait, Annuler, Restaurer la v1', () => {
@@ -75,8 +74,16 @@ describe('Terminer et exporter', () => {
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Terminer et exporter<\/button>/)
   })
 
-  it('montage terminé : plus de bouton', () => {
-    expect(rendre({ job: job({ statut: 'termine', lien_drive_export: CHEMIN }) })).toBe('')
+  it('version actuelle déjà exportée : bouton désactivé, message « déjà exportée »', () => {
+    const html = rendre({ job: job({ statut: 'termine', lien_drive_export: CHEMIN }) })
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Terminer et exporter<\/button>/)
+    expect(html).toContain('Cette version est déjà exportée, fais un changement pour créer une nouvelle version.')
+  })
+
+  it('export de v3 puis changement (v4) : bouton actif, la confirmation parle de la v4', () => {
+    const j = job({ statut: 'apercu_pret', version_courante: 4, lien_drive_export: CHEMIN })
+    expect(rendre({ job: j })).toMatch(/<button(?![^>]*disabled="")[^>]*>Terminer et exporter<\/button>/)
+    expect(rendre({ job: j, ouvertInitial: true })).toContain('Pub cortisol_v4.mp4')
   })
 
   it('erreur d\'export : on peut relancer Terminer, et le fil le dit', () => {
@@ -90,17 +97,25 @@ describe('Terminer et exporter', () => {
 })
 
 describe('lien d\'export', () => {
-  it('bandeau Terminé : chemin et « Ouvrir dans Drive »', () => {
-    const html = renderToStaticMarkup(<BandeauTermine job={job({ statut: 'termine', lien_drive_export: CHEMIN })} />)
-    expect(html).toContain('Montage terminé')
+  it('dernier export de la version actuelle : fichier, version, chemin et « Ouvrir dans Drive »', () => {
+    const html = renderToStaticMarkup(<BandeauExport job={job({ statut: 'termine', lien_drive_export: CHEMIN })} />)
+    expect(html).toContain('Dernier export : Pub cortisol_v3.mp4')
+    expect(html).toContain('export de la version actuelle (v3)')
     expect(html).toContain(CHEMIN)
     expect(html).toContain('>Ouvrir dans Drive</a>')
-    expect(html).toContain('href="https://drive.google.com/drive/search?q=')
+    expect(html).toContain('href="https://drive.google.com/drive/search?safe=strict&amp;q=Pub%20cortisol_v3.mp4"')
     expect(html).toContain('target="_blank"')
   })
 
-  it('pas de bandeau tant que le montage n\'est pas terminé', () => {
-    expect(renderToStaticMarkup(<BandeauTermine job={job()} />)).toBe('')
+  it('après un changement : le dernier export reste affiché, avec la version actuelle', () => {
+    const html = renderToStaticMarkup(<BandeauExport job={job({ statut: 'montage', version_courante: 4, lien_drive_export: CHEMIN })} />)
+    expect(html).toContain('Dernier export : Pub cortisol_v3.mp4')
+    expect(html).toContain('export de v3, version actuelle : v4')
+    expect(html).toContain('>Ouvrir dans Drive</a>')
+  })
+
+  it('pas de bandeau sans export', () => {
+    expect(renderToStaticMarkup(<BandeauExport job={job()} />)).toBe('')
   })
 
   it('URL écrite par l\'agent : lien direct', () => {
@@ -116,7 +131,13 @@ describe('lien d\'export', () => {
     const html = renderToStaticMarkup(<LienDrive job={job({ statut: 'termine', lien_drive_export: CHEMIN, fichier_drive_id: 'f9' })} />)
     expect(html.indexOf('Ouvrir dans Drive')).toBeLessThan(html.indexOf('Vidéo source'))
     expect(html).toContain(`title="${CHEMIN}"`)
+    expect(html).toContain('href="https://drive.google.com/drive/search?safe=strict&amp;q=Pub%20cortisol_v3.mp4"')
     expect(html).toContain('href="https://drive.google.com/file/d/f9/view"')
+  })
+
+  it('liste, montage revenu en cours après un export : le lien reste', () => {
+    const html = renderToStaticMarkup(<LienDrive job={job({ statut: 'montage', version_courante: 4, lien_drive_export: CHEMIN })} />)
+    expect(html).toContain('>Ouvrir dans Drive</a>')
   })
 
   it('liste, pas encore exporté : vidéo source seulement', () => {

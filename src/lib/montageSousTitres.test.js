@@ -136,8 +136,8 @@ describe('états du panneau', () => {
     expect(etatCorrection({ job, taches: [tache('en_attente')], version: v2 })).toMatchObject({ lectureSeule: false, envoiDesactive: true, raisonEnvoi: expect.stringMatching(/attend son tour/) })
     expect(etatCorrection({ job, taches: [tache('en_cours')], version: v2 })).toMatchObject({ envoiDesactive: true, raisonEnvoi: expect.stringMatching(/agent travaille/) })
   })
-  it('montage terminé : lecture seule', () => {
-    expect(etatCorrection({ job: { ...job, statut: 'termine' }, taches: [], version: v2 })).toMatchObject({ lectureSeule: true, envoiDesactive: true, raison: expect.stringMatching(/terminé/) })
+  it('montage terminé : on peut encore corriger la version actuelle', () => {
+    expect(etatCorrection({ job: { ...job, statut: 'termine' }, taches: [], version: v2 })).toMatchObject({ lectureSeule: false, envoiDesactive: false })
   })
   it('ancienne version affichée : lecture seule (l\'agent corrige la version actuelle)', () => {
     expect(etatCorrection({ job, taches: [], version: { numero: 1, sous_titres: SOUS_TITRES } })).toMatchObject({ lectureSeule: true, raison: expect.stringMatching(/version actuelle \(v2\)/) })

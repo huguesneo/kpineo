@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   tacheRestaurer, etatRestaurer, texteConfirmationRestaurer,
   tacheTerminer, etatTerminer, texteConfirmationTerminer, nomExport, cheminExportPrevu, dimensionsFinales, lienExport,
+  versionExportee, infoDernierExport, RAISON_DEJA_EXPORTEE,
 } from './montageFin'
 import { filConversation, texteTache } from './montageEditeur'
 
@@ -36,10 +37,8 @@ describe('restaurer (contrat de video-neo/agent/src/taches.ts)', () => {
     expect(cours.raison).toContain('agent travaille')
   })
 
-  it('montage terminé : désactivé', () => {
-    const e = etatRestaurer({ job: job({ statut: 'termine' }), taches: [], version: v(1) })
-    expect(e).toMatchObject({ visible: true, desactive: true })
-    expect(e.raison).toContain('terminé')
+  it('montage terminé : on peut encore restaurer (plus de verrou)', () => {
+    expect(etatRestaurer({ job: job({ statut: 'termine' }), taches: [], version: v(1) })).toEqual({ visible: true, desactive: false, raison: null })
   })
 
   it('montage en erreur, rien en cours : on peut restaurer', () => {
@@ -63,9 +62,24 @@ describe('terminer (contrat de video-neo/agent/src/taches.ts et drive.ts)', () =
     expect(etatTerminer({ job: job(), taches: [] })).toEqual({ visible: true, desactive: false, raison: null })
   })
 
-  it('sans version : désactivé ; terminé : caché', () => {
+  it('sans version : désactivé', () => {
     expect(etatTerminer({ job: job({ version_courante: 0, statut: 'en_file' }), taches: [] })).toMatchObject({ visible: true, desactive: true })
-    expect(etatTerminer({ job: job({ statut: 'termine' }), taches: [] }).visible).toBe(false)
+  })
+
+  it('version actuelle déjà exportée : visible mais désactivé, avec le message', () => {
+    const e = etatTerminer({ job: job({ statut: 'termine', lien_drive_export: 'NEO vidéo/Out/Pub cortisol/Pub cortisol_v3.mp4' }), taches: [] })
+    expect(e).toEqual({ visible: true, desactive: true, raison: RAISON_DEJA_EXPORTEE })
+    expect(RAISON_DEJA_EXPORTEE).toBe('Cette version est déjà exportée, fais un changement pour créer une nouvelle version.')
+  })
+
+  it('après un export et un changement (v4) : Terminer redevient actif', () => {
+    const j = job({ statut: 'apercu_pret', version_courante: 4, lien_drive_export: 'NEO vidéo/Out/Pub cortisol/Pub cortisol_v3.mp4' })
+    expect(etatTerminer({ job: j, taches: [] })).toEqual({ visible: true, desactive: false, raison: null })
+  })
+
+  it('montage terminé avec une demande en attente : raison de la file', () => {
+    const j = job({ statut: 'termine', lien_drive_export: 'NEO vidéo/Out/Pub cortisol/Pub cortisol_v3.mp4' })
+    expect(etatTerminer({ job: j, taches: [t('a', 'en_attente', '2026-10-03T15:00:00Z')] }).raison).toContain('attend son tour')
   })
 
   it('pendant le rendu (tâche en cours) : désactivé', () => {
@@ -90,19 +104,42 @@ describe('terminer (contrat de video-neo/agent/src/taches.ts et drive.ts)', () =
     expect(texte).toContain('NEO vidéo/Out/Pub cortisol/')
     expect(texte).toContain('Aucune approbation')
     expect(texte).toContain('Terminé')
+    expect(texte).toContain('encore demander des changements')
     expect(dimensionsFinales('4:5')).toBe('1080 x 1350')
   })
 })
 
 describe('lien d\'export', () => {
-  it('chemin écrit par l\'agent : recherche Drive sur le nom exact du fichier', () => {
+  it('chemin écrit par l\'agent : recherche Drive sur le nom du fichier, sans guillemets', () => {
+    expect(lienExport({ lien_drive_export: 'NEO vidéo/Out/C0922/C0922_v2.mp4' }).url)
+      .toBe('https://drive.google.com/drive/search?safe=strict&q=C0922_v2.mp4')
     const lien = lienExport({ lien_drive_export: 'NEO vidéo/Out/Pub cortisol/Pub cortisol_v3.mp4' })
     expect(lien.chemin).toBe('NEO vidéo/Out/Pub cortisol/Pub cortisol_v3.mp4')
-    expect(lien.url).toBe(`https://drive.google.com/drive/search?q=${encodeURIComponent('"Pub cortisol_v3.mp4"')}`)
+    expect(lien.fichier).toBe('Pub cortisol_v3.mp4')
+    expect(lien.url).toBe('https://drive.google.com/drive/search?safe=strict&q=Pub%20cortisol_v3.mp4')
+    expect(lien.url).not.toContain('%22')
   })
   it('URL : prise telle quelle', () => {
     expect(lienExport({ lien_drive_export: 'https://drive.google.com/file/d/abc/view' }))
-      .toEqual({ url: 'https://drive.google.com/file/d/abc/view', chemin: null })
+      .toEqual({ url: 'https://drive.google.com/file/d/abc/view', chemin: null, fichier: null })
+  })
+  it('version exportée : lue dans le nom du fichier', () => {
+    expect(versionExportee({ job: job({ lien_drive_export: 'NEO vidéo/Out/a/a_v2.mp4' }) })).toBe(2)
+    expect(versionExportee({ job: job() })).toBeNull()
+  })
+  it('version exportée avec une URL : version actuelle au moment du dernier Terminer réussi', () => {
+    const j = job({ version_courante: 3, lien_drive_export: 'https://drive.google.com/file/d/abc/view' })
+    const taches = [t('x', 'fait', '2026-10-03T12:30:00Z', { type: 'terminer' })]
+    expect(versionExportee({ job: j, versions: [v(1), v(2), v(3)], taches })).toBe(2)
+    expect(versionExportee({ job: j, versions: [v(1)], taches: [] })).toBeNull()
+  })
+  it('dernier export : version actuelle ou plus ancienne', () => {
+    const lien = 'NEO vidéo/Out/Pub cortisol/Pub cortisol_v3.mp4'
+    expect(infoDernierExport({ job: job({ lien_drive_export: lien }) }))
+      .toMatchObject({ fichier: 'Pub cortisol_v3.mp4', version: 3, actuelle: true, detail: 'export de la version actuelle (v3)' })
+    expect(infoDernierExport({ job: job({ version_courante: 4, lien_drive_export: lien }) }))
+      .toMatchObject({ version: 3, actuelle: false, detail: 'export de v3, version actuelle : v4' })
+    expect(infoDernierExport({ job: job() })).toBeNull()
   })
   it('rien d\'exporté : null', () => {
     expect(lienExport({ lien_drive_export: null })).toBeNull()

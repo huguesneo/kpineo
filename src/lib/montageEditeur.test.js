@@ -60,8 +60,8 @@ describe('états désactivés', () => {
     expect(e.videPermis).toBe(true)
     expect(validerDemande('', e.videPermis)).toBeNull()
   })
-  it('montage terminé : désactivé', () => {
-    expect(etatEnvoi({ job: { ...job, statut: 'termine' }, taches: [] }).desactive).toBe(true)
+  it('montage terminé : on peut encore demander un changement', () => {
+    expect(etatEnvoi({ job: { ...job, statut: 'termine' }, taches: [] })).toMatchObject({ desactive: false, raison: null })
   })
   it('demande trop longue refusée', () => {
     expect(validerDemande('x'.repeat(LONGUEUR_MAX_DEMANDE + 1), false)).toMatch(/trop longue/)

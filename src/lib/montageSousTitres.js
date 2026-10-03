@@ -141,9 +141,6 @@ export function etatCorrection({ job, taches, version }) {
   if (!motsDe(version.sous_titres).length) {
     return { lectureSeule: true, raison: "Pas de sous-titres enregistrés pour cette version.", envoiDesactive: true, raisonEnvoi: null }
   }
-  if (job?.statut === 'termine') {
-    return { lectureSeule: true, raison: 'Ce montage est terminé : ses sous-titres ne peuvent plus être corrigés ici.', envoiDesactive: true, raisonEnvoi: null }
-  }
   if (version.numero !== job?.version_courante) {
     return {
       lectureSeule: true,

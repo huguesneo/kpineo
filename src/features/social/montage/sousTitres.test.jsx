@@ -58,6 +58,7 @@ describe('PanneauSousTitres', () => {
   it('ligne trop longue : avertissement visible, envoi toujours possible', () => {
     const html = rendre({ brouillons: { 0: 'passées quarante-deux ans,' } })
     expect(html).toContain('26 caractères : 24 au plus par ligne.')
+    expect(bouton(html, 'Appliquer les corrections')).not.toBe('')
     expect(bouton(html, 'Appliquer les corrections')).not.toContain('disabled=""')
   })
 
@@ -76,11 +77,10 @@ describe('PanneauSousTitres', () => {
     }
   })
 
-  it('montage terminé : lecture seule, pas de boutons', () => {
-    const html = rendre({ j: { ...job, statut: 'termine' } })
-    expect(html).toMatch(/<input[^>]*disabled=""/)
-    expect(html).not.toContain('Appliquer les corrections')
-    expect(html).toContain('terminé')
+  it('montage terminé : sous-titres encore modifiables (plus de verrou)', () => {
+    const html = rendre({ j: { ...job, statut: 'termine' }, brouillons: { 0: 'passé 40 ans,' } })
+    expect(html).not.toMatch(/<input[^>]*disabled=""/)
+    expect(bouton(html, 'Appliquer les corrections')).not.toContain('disabled=""')
   })
 
   it('ancienne version affichée : lecture seule, invitation à afficher la version actuelle', () => {

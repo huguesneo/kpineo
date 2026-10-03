@@ -1,7 +1,7 @@
 import ActionConfirmee from './ActionConfirmee'
 import Card from '../../../components/shared/Card'
 import {
-  etatRestaurer, texteConfirmationRestaurer, etatTerminer, texteConfirmationTerminer, lienExport,
+  etatRestaurer, texteConfirmationRestaurer, etatTerminer, texteConfirmationTerminer, lienExport, infoDernierExport,
 } from '../../../lib/montageFin'
 
 // « Restaurer cette version » : sous la bande, seulement pour une ancienne
@@ -24,9 +24,10 @@ export function RestaurerVersion({ job, taches, version, onRestaurer, ouvertInit
   )
 }
 
-// « Terminer et exporter » : rendu HD dans Drive, sans approbation.
-export function BoutonTerminer({ job, taches, onTerminer, ouvertInitial }) {
-  const etat = etatTerminer({ job, taches })
+// « Terminer et exporter » : rendu HD dans Drive, sans approbation. Reste
+// après un export : désactivé tant que la version actuelle est déjà exportée.
+export function BoutonTerminer({ job, taches, versions, onTerminer, ouvertInitial }) {
+  const etat = etatTerminer({ job, taches, versions })
   if (!etat.visible) return null
   return (
     <div className="max-w-md">
@@ -62,18 +63,23 @@ export function LienExport({ job, compact = false }) {
   )
 }
 
-// Bandeau d'un montage terminé : où se trouve l'export.
-export function BandeauTermine({ job }) {
-  if (job?.statut !== 'termine') return null
-  const lien = lienExport(job)
+// « Dernier export » : tant qu'un export existe, même après de nouveaux
+// changements (le montage n'est alors plus Terminé). Précise si c'est la
+// version actuelle ou une plus ancienne.
+export function BandeauExport({ job, versions, taches }) {
+  const info = infoDernierExport({ job, versions, taches })
+  if (!info && job?.statut !== 'termine') return null
+  const vert = !info || info.actuelle
   return (
-    <Card className="p-4 mb-4 border-emerald-200 bg-emerald-50">
+    <Card className={`p-4 mb-4 ${vert ? 'border-emerald-200 bg-emerald-50' : 'border-gray-200 bg-[#f9fafb]'}`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-emerald-800">Montage terminé : la vidéo HD est dans Google Drive</p>
-          {lien?.chemin && <p className="text-xs text-emerald-700 mt-0.5 break-all">{lien.chemin}</p>}
-          {!lien && <p className="text-xs text-emerald-700 mt-0.5">L&apos;agent n&apos;a pas indiqué où se trouve l&apos;export.</p>}
-          <p className="text-xs text-emerald-700 mt-1">Les demandes, les corrections de sous-titres et le retour à une version sont désactivés.</p>
+          <p className={`text-sm font-semibold ${vert ? 'text-emerald-800' : 'text-[#374151]'} break-all`}>
+            {info ? `Dernier export : ${info.fichier || 'vidéo HD dans Google Drive'}` : 'Montage terminé'}
+          </p>
+          {info?.detail && <p className={`text-xs mt-0.5 ${vert ? 'text-emerald-700' : 'text-[#6b7280]'}`}>{info.detail}</p>}
+          {info?.chemin && <p className={`text-xs mt-0.5 break-all ${vert ? 'text-emerald-700' : 'text-[#6b7280]'}`}>{info.chemin}</p>}
+          {!info && <p className="text-xs text-emerald-700 mt-0.5">L&apos;agent n&apos;a pas indiqué où se trouve l&apos;export.</p>}
         </div>
         <LienExport job={job} />
       </div>

@@ -36,9 +36,6 @@ export function derniereTache(taches) {
 // videPermis : à la première ronde, « Relancer le montage » part sans texte.
 export function etatEnvoi({ job, taches }) {
   if (!job) return { desactive: true, raison: 'Chargement du montage...', videPermis: false }
-  if (job.statut === 'termine') {
-    return { desactive: true, raison: 'Ce montage est terminé : il ne peut plus être modifié ici.', videPermis: false }
-  }
   const active = tacheActive(taches)
   if (active?.statut === 'en_cours') {
     return { desactive: true, raison: "L'agent travaille sur la dernière demande. Tu pourras écrire la suivante quand la nouvelle version sera prête.", videPermis: false }

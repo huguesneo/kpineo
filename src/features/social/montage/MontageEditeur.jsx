@@ -17,7 +17,7 @@ import BandeVersions from './BandeVersions'
 import ClipsMontage from './ClipsMontage'
 import ZoneDemande from './ZoneDemande'
 import PanneauSousTitres from './PanneauSousTitres'
-import { RestaurerVersion, BoutonTerminer, BandeauTermine } from './FinMontage'
+import { RestaurerVersion, BoutonTerminer, BandeauExport } from './FinMontage'
 
 function Retour() {
   return (
@@ -86,7 +86,7 @@ function Editeur({ jobId }) {
   const [saut, setSaut] = useState(null)
   const versionCourante = versions.find(v => v.numero === job?.version_courante)
   const textesCourants = brouillons.numero === job?.version_courante ? brouillons.textes : {}
-  const nonEnvoyees = job?.statut !== 'termine' && correctionsAEnvoyer(versionCourante?.sous_titres, textesCourants).modifiees > 0
+  const nonEnvoyees = correctionsAEnvoyer(versionCourante?.sous_titres, textesCourants).modifiees > 0
   useConfirmerSortie(nonEnvoyees)
 
   const modifierSousTitre = useCallback((cle, texte) => {
@@ -141,11 +141,11 @@ function Editeur({ jobId }) {
         </div>
         <div className="flex flex-col items-end gap-2">
           <PastilleMac {...agent} compacte />
-          <BoutonTerminer job={job} taches={taches} onTerminer={terminer} />
+          <BoutonTerminer job={job} taches={taches} versions={versions} onTerminer={terminer} />
         </div>
       </div>
 
-      <BandeauTermine job={job} />
+      <BandeauExport job={job} versions={versions} taches={taches} />
 
       {!agent.loading && !enLigne && (
         <Card className="p-4 mb-4 border-amber-200 bg-amber-50">

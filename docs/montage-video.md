@@ -244,7 +244,7 @@ Vérifié en lecture seule en production : les 2 templates (comme hugues@, avec 
 - Hub 3b et suite : ~~bande de sous-titres éditable~~ (fait, étape 8), ~~restaurer une version~~, ~~Terminer et lien d'export~~ (faits, étape 9). L'éditeur 3a est en place.
 - Hub 4 : proposition de template avec `job_id` et `numero_version`, approbation par Hugues, menu Variantes.
 - Premier vrai montage avec un template de départ (demande la clé Anthropic) : vérifier que Claude copie bien `Pub0929.tsx` ou `Pub0924.tsx`.
-- `lien_drive_export` est un chemin dans Drive, pas une URL. Avec la portée `drive.file`, le hub ne peut pas retrouver le fichier par l'API (il a été créé par Drive pour ordinateur) : « Ouvrir dans Drive » ouvre une recherche sur le nom exact. Agent : écrire l'URL du fichier (voir étape 9).
+- `lien_drive_export` est un chemin dans Drive, pas une URL. Avec la portée `drive.file`, le hub ne peut pas retrouver le fichier par l'API (il a été créé par Drive pour ordinateur) : « Ouvrir dans Drive » ouvre une recherche sur le nom du fichier (`?safe=strict&q=<nom>`, sans guillemets). Agent : écrire l'URL du fichier (voir étape 9).
 
 ## Phase 3a : éditeur de montage (hub)
 
@@ -269,7 +269,7 @@ Fichiers :
 - Téléphone : lecteur, puis bande des versions, puis fil.
 
 Décisions :
-- **Champ désactivé tant qu'une tâche du montage est `en_attente` ou `en_cours`**, quel que soit son type, avec un message (« attend son tour » ou « l'agent travaille »). Désactivé aussi pour un montage `termine`. Mac hors ligne : le champ reste actif (la demande attend dans la file).
+- **Champ désactivé tant qu'une tâche du montage est `en_attente` ou `en_cours`**, quel que soit son type, avec un message (« attend son tour » ou « l'agent travaille »). ~~Désactivé aussi pour un montage `termine`~~ : verrou retiré (étape 9b). Mac hors ligne : le champ reste actif (la demande attend dans la file).
 - **Relancer après une erreur** : dès que plus aucune tâche n'est active, on peut renvoyer une demande. À la version 0, le bouton devient « Relancer le montage » et part sans texte (`payload` vide).
 - La tâche créée est ajoutée à l'écran dès la réponse de l'insertion, sans attendre le temps réel, pour que le champ se désactive aussitôt.
 - **Nouvelle version** : le lecteur passe dessus, même si une autre version était choisie dans la bande.
@@ -393,11 +393,11 @@ Hub :
 - `MontageAccueil.jsx` : colonne Google Drive = « Ouvrir dans Drive » (export) puis « Vidéo source ». `lienDriveMontage` ne donne plus que la source.
 
 Décisions :
-- **Restaurer** : seulement sur une ancienne version affichée (la version actuelle n'a pas le bouton). Confirmation : « Ça crée une nouvelle version, v(n+1), identique à la vk (…). Les versions v1 à vn restent dans la bande : rien n'est perdu. Les clips ne changent pas. » Désactivé tant qu'une tâche du montage attend ou tourne (même message que le champ de demande) et pour un montage terminé.
-- **Terminer et exporter** : aucune approbation (la personne qui clique valide). Confirmation : rendu HD de la vN (taille, 30 images/s), dossier `NEO vidéo/Out/<titre>/`, nom du fichier, passage à Terminé. Désactivé sans version et pendant une tâche ; caché une fois terminé. Pendant le rendu, le lecteur garde l'aperçu avec « Rendu HD pour Google Drive · étape · % » et le fil montre la demande avec la barre habituelle.
+- **Restaurer** : seulement sur une ancienne version affichée (la version actuelle n'a pas le bouton). Confirmation : « Ça crée une nouvelle version, v(n+1), identique à la vk (…). Les versions v1 à vn restent dans la bande : rien n'est perdu. Les clips ne changent pas. » Désactivé tant qu'une tâche du montage attend ou tourne (même message que le champ de demande). ~~Et pour un montage terminé~~ (retiré, étape 9b).
+- **Terminer et exporter** : aucune approbation (la personne qui clique valide). Confirmation : rendu HD de la vN (taille, 30 images/s), dossier `NEO vidéo/Out/<titre>/`, nom du fichier, passage à Terminé. Désactivé sans version et pendant une tâche ; ~~caché une fois terminé~~ (étape 9b : désactivé seulement si la version actuelle est déjà exportée). Pendant le rendu, le lecteur garde l'aperçu avec « Rendu HD pour Google Drive · étape · % » et le fil montre la demande avec la barre habituelle.
 - **Erreur d'export** : bandeau rouge et message de l'agent dans le fil (« Tu peux relancer « Terminer et exporter » en haut de la page »). Terminer redevient actif dès que plus rien n'est en cours. Si la vN a déjà été exportée, l'agent refuse (« existe déjà ») : il faut une nouvelle version pour réexporter.
-- **Lien** : `lien_drive_export` en URL → lien direct ; en chemin → recherche Drive sur le nom exact du fichier (`drive.google.com/drive/search?q="<nom>_v<n>.mp4"`), chemin affiché dans le bandeau Terminé et en infobulle dans la liste.
-- **Après Terminer** : demande, corrections de sous-titres et Restaurer désactivés. Pas de bouton « Rouvrir » pour l'instant. Il serait simple côté hub (aucune migration, l'agent accepte déjà une tâche sur un montage terminé et le remet en `montage`, puis en `apercu_pret` avec une nouvelle version ; un nouveau Terminer exporte `_v<n+1>.mp4` à côté de l'ancien, sans rien écraser). Mais `lien_drive_export` resterait sur l'ancien export jusqu'au nouveau Terminer, et le statut Terminé disparaîtrait de la liste dès la première demande.
+- **Lien** : `lien_drive_export` en URL → lien direct ; en chemin → recherche Drive sur le nom du fichier (étape 9b : `drive.google.com/drive/search?safe=strict&q=<nom>_v<n>.mp4`, encodé, sans guillemets ; l'ancien format avec guillemets ne trouvait rien), chemin affiché dans le bandeau Terminé et en infobulle dans la liste.
+- ~~**Après Terminer** : demande, corrections de sous-titres et Restaurer désactivés.~~ Verrou retiré à l'étape 9b. Pas de bouton « Rouvrir » pour l'instant. Il serait simple côté hub (aucune migration, l'agent accepte déjà une tâche sur un montage terminé et le remet en `montage`, puis en `apercu_pret` avec une nouvelle version ; un nouveau Terminer exporte `_v<n+1>.mp4` à côté de l'ancien, sans rien écraser). Mais `lien_drive_export` resterait sur l'ancien export jusqu'au nouveau Terminer, et le statut Terminé disparaîtrait de la liste dès la première demande.
 
 Ce que l'agent devrait ajouter (non bloquant) : écrire dans `lien_drive_export` l'URL du fichier exporté (`https://drive.google.com/file/d/<id>/view`) au lieu du chemin. Sur le Mac, Drive pour ordinateur expose l'id dans l'attribut étendu `com.google.drivefs.item-id#S` du fichier, une fois celui-ci synchronisé (à vérifier sur le Mac). Le hub prend déjà une URL telle quelle.
 
@@ -408,6 +408,27 @@ Tests : `montageFin.test.js` (20 : payloads, états, confirmations, nom du dossi
 1. **Restaurer** (agent en simulation) : sur un montage en v3, afficher v1 : « Restaurer cette version » apparaît (pas sur v3). Cliquer : la confirmation parle de v4 identique à v1. Confirmer : le bouton et le champ se désactivent, puis v4 arrive (même aperçu que v1). SQL : la tâche a `payload` `{"version":1}`.
 2. **Terminer réel** sur un petit montage (agent réel, quelques secondes de vidéo) : « Terminer et exporter », confirmer. Le fil montre « Rendu final HD (x %) », puis le montage passe à Terminé : bandeau vert avec le chemin, champ, sous-titres et Restaurer désactivés. Le fichier est dans `NEO vidéo/Out/<titre>/` sur le Mac et dans Drive (web).
 3. **Lien** : « Ouvrir dans Drive » (éditeur et liste) ouvre la recherche Drive et le fichier y apparaît (prévoir le délai de synchro de Drive pour ordinateur).
+
+## Étape 9b : lien Drive corrigé et plus de verrou après Terminer (3 oct. 2026)
+
+Toujours derrière `VITE_MONTAGE_VIDEO=true`. **Aucune migration**, **agent inchangé**.
+
+Vérifié côté base : le statut `termine` n'apparaît que dans le CHECK de `video_jobs.statut`. Ni le RLS, ni les triggers (`video_taches_avant_insert` force seulement statut, auteur et erreur), ni les tests SQL ne bloquent une tâche sur un montage terminé. Rien à changer. Côté hub : la liste n'a pas de filtre sur `termine` (le badge vient de `statutMontage`, la section « en cours » de `STATUTS_EN_TRAITEMENT`), l'accueil non plus.
+
+Changements :
+- **Lien « Ouvrir dans Drive »** (`lienExport`, éditeur et liste) : `https://drive.google.com/drive/search?safe=strict&q=<nom du fichier encodé>`, sans guillemets (format vérifié par Hugues). Une URL `https://` reste prise telle quelle.
+- **Verrou retiré** : `etatEnvoi` (demande), `etatCorrection` (sous-titres), `etatRestaurer` et l'avertissement de sortie avec corrections non envoyées ne regardent plus `termine`. Une nouvelle demande fait repasser le montage en cours (c'est l'agent qui change le statut) ; un nouveau Terminer exporte `_v<n+1>.mp4` à côté de l'ancien.
+- **Dernier export** (`BandeauExport`, remplace `BandeauTermine`) : affiché tant que `lien_drive_export` est rempli, quel que soit le statut. « Dernier export : <fichier> », puis « export de la version actuelle (v3) » (vert) ou « export de v3, version actuelle : v4 » (gris), le chemin et « Ouvrir dans Drive ». La colonne Google Drive de la liste garde le lien (elle ne regardait déjà que `lien_drive_export`).
+- **Version exportée** (`versionExportee`) : lue dans le nom du fichier (`_v<n>.mp4`). Si l'agent écrit un jour une URL : version actuelle au moment de la dernière tâche `terminer` réussie (versions créées avant elle).
+- **Terminer** : toujours visible dès qu'il y a une version. Désactivé pendant une tâche (message de la file), puis si la version actuelle est déjà exportée : « Cette version est déjà exportée, fais un changement pour créer une nouvelle version. » (l'agent refuserait : le fichier existe). La confirmation dit qu'on pourra encore demander des changements et qu'un nouvel export crée un autre fichier.
+
+Tests : `montageFin.test.js` (26 : format du lien sans guillemets, version exportée par le nom ou par la tâche, dernier export actuel ou ancien, Terminer désactivé si déjà exportée, réactivé en v4, Restaurer permis après Terminer), `fin.test.jsx` (19 : bouton Terminer « déjà exportée », actif en v4, bandeau Dernier export dans les deux cas, lien de la liste après retour en cours), `sousTitres.test.jsx`, `montageEditeur.test.js` et `montageSousTitres.test.js` ajustés (plus de verrou). Hub : 363 tests qui passent (les 2 fichiers des commissions échouent toujours, photo de référence absente). Build et ESLint (configuration temporaire hors dépôt) sans remarque.
+
+### Tester à la main (3 points)
+
+1. **Lien** : sur un montage exporté, « Ouvrir dans Drive » (éditeur et liste) ouvre `…/drive/search?safe=strict&q=<nom>_v<n>.mp4` et le fichier apparaît.
+2. **Après Terminer** : sur le montage terminé, Terminer est grisé avec « Cette version est déjà exportée… » ; le champ, les sous-titres et Restaurer sont actifs. Envoyer « Musique plus forte » : le montage repasse en cours, puis v<n+1> ; le bandeau dit « export de vN, version actuelle : vN+1 » et la liste garde « Ouvrir dans Drive ».
+3. **Nouvel export** : Terminer sur v<n+1> crée `<titre>_v<n+1>.mp4` à côté de l'ancien dans `NEO vidéo/Out/<titre>/` ; le bandeau repasse au vert sur le nouveau fichier.
 
 ## Tester la migration en local
 
