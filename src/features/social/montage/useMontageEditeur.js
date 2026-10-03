@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { tacheDemande, delaiRenouvellement } from '../../../lib/montageEditeur'
-import { tacheCorrection } from '../../../lib/montageSousTitres'
+import { tacheCorrection, erreurBase } from '../../../lib/montageSousTitres'
 import { tacheRestaurer, tacheTerminer } from '../../../lib/montageFin'
 import { tacheVariante } from '../../../lib/montageVariantes'
 import { urlSigneeApercu } from './useMontageVideo'
@@ -121,7 +121,24 @@ export function useMontageEditeur(jobId) {
     if (err) throw err
     setTaches(prev => remplacer(prev, data))
   }, [])
-  const corriger = useCallback((corrections) => creerTache(tacheCorrection(jobId, corrections)), [creerTache, jobId])
+  // Corrections de sous-titres faites sur la version numeroBase. Avant l'envoi,
+  // on relit le montage et ses tâches actives : si une autre version est
+  // arrivée ou attend (une suppression décale les numéros de mots), rien ne
+  // part et l'éditeur se recharge avec les sous-titres de la nouvelle version.
+  const corriger = useCallback(async (corrections, { numeroBase, totalMots }) => {
+    const tache = tacheCorrection(jobId, corrections, totalMots)
+    const [j, t] = await Promise.all([
+      supabase.from('video_jobs').select('id, version_courante').eq('id', jobId).maybeSingle(),
+      supabase.from('video_taches').select('id').eq('job_id', jobId).in('statut', ['en_attente', 'en_cours']),
+    ])
+    if (j.error || t.error) throw j.error || t.error
+    const erreur = erreurBase({ numeroBase, job: j.data, tachesActives: t.data })
+    if (erreur) {
+      reload()
+      throw Object.assign(new Error(erreur), { clair: true })
+    }
+    await creerTache(tache)
+  }, [creerTache, jobId, reload])
   const restaurer = useCallback((numero) => creerTache(tacheRestaurer(jobId, numero)), [creerTache, jobId])
   const terminer = useCallback(() => creerTache(tacheTerminer(jobId)), [creerTache, jobId])
   const creerVariante = useCallback((choix) => creerTache(tacheVariante(jobId, choix)), [creerTache, jobId])

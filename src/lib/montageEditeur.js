@@ -87,8 +87,13 @@ export function texteTacheVariante(payload) {
 // Texte d'une tâche dans le fil : son prompt, sinon ce qu'elle fait.
 export function texteTache(tache) {
   if (tache?.type === 'correction_sous_titres') {
-    const n = Array.isArray(tache.payload?.corrections) ? tache.payload.corrections.length : 0
-    return `Correction des sous-titres à la main (${n} mot${n > 1 ? 's' : ''})`
+    const liste = Array.isArray(tache.payload?.corrections) ? tache.payload.corrections : []
+    const retires = liste.filter(c => c?.supprimer === true).length
+    const corriges = liste.length - retires
+    const morceaux = []
+    if (corriges || !retires) morceaux.push(`${corriges} mot${corriges > 1 ? 's' : ''}${retires ? ` corrigé${corriges > 1 ? 's' : ''}` : ''}`)
+    if (retires) morceaux.push(`${retires} mot${retires > 1 ? 's' : ''} retiré${retires > 1 ? 's' : ''}`)
+    return `Correction des sous-titres à la main (${morceaux.join(', ')})`
   }
   if (tache?.type === 'restaurer') return `Restaurer la version ${tache.payload?.version ?? '?'}`
   if (tache?.type === 'terminer') return 'Terminer et exporter en HD'
@@ -177,6 +182,8 @@ export function delaiRenouvellement(obtenueLe, maintenant = Date.now()) {
 
 // Erreur à l'envoi d'une demande → message clair en français.
 export function messageErreurEnvoi(err) {
+  // Refus du hub avant l'envoi (garde-fous) : le message est déjà clair.
+  if (err?.clair) return err.message
   const msg = `${err?.message || ''} ${err?.details || ''}`
   if (err?.code === '42501' || /row-level security/i.test(msg)) {
     return "Ton compte n'a pas l'autorisation d'envoyer une demande. Demande à Hugues de vérifier ton accès au module."

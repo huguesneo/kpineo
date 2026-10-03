@@ -2,27 +2,32 @@ import { useMemo, useState } from 'react'
 import Button from '../../../components/shared/Button'
 import { messageErreurEnvoi } from '../../../lib/montageEditeur'
 import {
-  lignesDe, formatDebut, avertissementsLigne, estModifiee, correctionsAEnvoyer,
+  lignesDe, formatDebut, avertissementsLigne, estModifiee, correctionsAEnvoyer, nbSuppressions,
 } from '../../../lib/montageSousTitres'
 
 // Sous-titres de la version affichée : une ligne par sous-titre, avec son
 // début. Cliquer l'heure (ou entrer dans le champ) fait sauter le lecteur à
 // ce moment. Seul le texte se modifie. « Appliquer les corrections » envoie
-// les mots modifiés à l'agent (tâche correction_sous_titres) ; le résultat
-// arrive comme une nouvelle version.
+// les mots modifiés ou retirés à l'agent (tâche correction_sous_titres) ; le
+// résultat arrive comme une nouvelle version, avec des numéros de mots
+// nouveaux si un mot a été retiré (les brouillons de l'ancienne sont oubliés).
 // etat vient de etatCorrection ; brouillons = { [cle de ligne]: texte }.
 export default function PanneauSousTitres({ version, etat, brouillons, onModifier, onAnnuler, onAppliquer, onSauter }) {
   const lignes = useMemo(() => lignesDe(version?.sous_titres), [version?.sous_titres])
   const [envoi, setEnvoi] = useState({ enCours: false, erreur: null })
-  const { corrections, erreurs, modifiees } = correctionsAEnvoyer(version?.sous_titres, brouillons)
+  const { corrections, erreurs, erreur: erreurGlobale, modifiees } = correctionsAEnvoyer(version?.sous_titres, brouillons)
+  const retires = nbSuppressions(corrections)
   const champsDesactives = etat.lectureSeule || etat.envoiDesactive || envoi.enCours
-  const peutAppliquer = !champsDesactives && corrections.length > 0 && !Object.keys(erreurs).length
+  const peutAppliquer = !champsDesactives && corrections.length > 0 && !Object.keys(erreurs).length && !erreurGlobale
 
   async function appliquer() {
     if (!peutAppliquer) return
     setEnvoi({ enCours: true, erreur: null })
     try {
-      await onAppliquer(corrections)
+      await onAppliquer(corrections, {
+        numeroBase: version.numero,
+        totalMots: Array.isArray(version.sous_titres?.mots) ? version.sous_titres.mots.length : 0,
+      })
       setEnvoi({ enCours: false, erreur: null })
     } catch (err) {
       setEnvoi({ enCours: false, erreur: messageErreurEnvoi(err) })
@@ -80,6 +85,12 @@ export default function PanneauSousTitres({ version, etat, brouillons, onModifie
 
       {!etat.lectureSeule && (
         <div className="mt-3 space-y-2">
+          {retires > 0 && !erreurGlobale && (
+            <p className="text-xs text-[#6b7280]" data-retires={retires}>
+              {retires} mot{retires > 1 ? 's' : ''} retiré{retires > 1 ? 's' : ''} : les autres mots gardent leur minutage.
+            </p>
+          )}
+          {erreurGlobale && <p className="text-xs text-red-600" data-erreur-globale="">{erreurGlobale}</p>}
           {envoi.erreur && <p className="text-xs text-red-600">{envoi.erreur}</p>}
           <div className="flex flex-wrap items-center justify-end gap-2">
             <Button type="button" variant="secondary" size="sm" onClick={onAnnuler} disabled={!modifiees || envoi.enCours}>

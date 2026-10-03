@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
   motsDe, grouperLignes, lignesDe, formatDebut, avertissementsLigne, correctionsLigne, estModifiee,
-  correctionsAEnvoyer, tacheCorrection, etatCorrection, MOTS_MAX_LIGNE, LETTRES_MAX_LIGNE,
+  correctionsAEnvoyer, tacheCorrection, etatCorrection, erreurCorrections, erreurBase, nbSuppressions,
+  MOTS_MAX_LIGNE, LETTRES_MAX_LIGNE,
 } from './montageSousTitres'
-import { texteTache, filConversation } from './montageEditeur'
+import { texteTache, filConversation, messageErreurEnvoi } from './montageEditeur'
 
 const JOB = '22222222-0000-0000-0000-000000000001'
 const mot = (texte, debutMs, finMs) => ({ texte, debutMs, finMs })
@@ -82,14 +83,29 @@ describe('modification d\'une ligne → corrections mot par mot', () => {
     expect(correctionsLigne(ligne, 'passées 40 ans bien sonnés,', parIndex).corrections)
       .toEqual([{ mot: 6, texte: 'ans bien sonnés,' }])
   })
-  it('mots en moins : refusé (l\'agent ne retire pas de mot)', () => {
-    const r = correctionsLigne(ligne, 'passées 40', parIndex)
-    expect(r.corrections).toEqual([])
-    expect(r.erreur).toMatch(/Garde au moins 3 mots/)
+  it('mot en moins : retiré (supprimer: true), sur son numéro d\'origine', () => {
+    expect(correctionsLigne(ligne, 'passées 40', parIndex)).toEqual({ corrections: [{ mot: 6, supprimer: true }], erreur: null })
+    expect(correctionsLigne(ligne, 'passées ans,', parIndex).corrections).toEqual([{ mot: 5, supprimer: true }])
+    expect(correctionsLigne(ligne, '40 ans,', parIndex).corrections).toEqual([{ mot: 4, supprimer: true }])
   })
-  it('ligne d\'un mot vidée : refusé', () => {
-    const seul = lignesDe(SOUS_TITRES)[1]
-    expect(correctionsLigne(seul, '   ', parIndex).erreur).toBe('Un sous-titre ne peut pas être vide.')
+  it('mot retiré et mot corrigé sur la même ligne : le mot qui ressemble le plus est gardé', () => {
+    // « passées » corrigé en « passé », « 40 » retiré
+    expect(correctionsLigne(ligne, 'passé ans,', parIndex).corrections).toEqual([{ mot: 4, texte: 'passé' }, { mot: 5, supprimer: true }])
+    // ponctuation et accents ignorés pour reconnaître un mot gardé
+    expect(correctionsLigne(ligne, 'passees ans', parIndex).corrections).toEqual([{ mot: 4, texte: 'passees' }, { mot: 5, supprimer: true }, { mot: 6, texte: 'ans' }])
+  })
+  it('ligne vidée : tous ses mots sont retirés', () => {
+    const seul = lignesDe(SOUS_TITRES)[1] // femmes, (mot 3)
+    expect(correctionsLigne(seul, '   ', parIndex)).toEqual({ corrections: [{ mot: 3, supprimer: true }], erreur: null })
+    expect(correctionsLigne(ligne, '', parIndex).corrections).toEqual([4, 5, 6].map(m => ({ mot: m, supprimer: true })))
+  })
+  it('mot répété : un seul des deux est retiré', () => {
+    const l = { cle: 0, indices: [0, 1, 2], texte: 'le le chat' }
+    const p = new Map([[0, { texte: 'le' }], [1, { texte: 'le' }], [2, { texte: 'chat' }]])
+    const r = correctionsLigne(l, 'le chat', p).corrections
+    expect(r).toHaveLength(1)
+    expect(r[0]).toMatchObject({ supprimer: true })
+    expect([0, 1]).toContain(r[0].mot)
   })
   it('modifiée = différente du texte d\'origine (espaces en trop ignorées)', () => {
     expect(estModifiee(ligne, undefined)).toBe(false)
@@ -106,21 +122,60 @@ describe('corrections à envoyer et payload', () => {
       4: 'passées 40 ans,', // inchangée
       0: 'Voilà pourquoi les',
     })
-    expect(r).toEqual({ corrections: [{ mot: 0, texte: 'Voilà' }, { mot: 12, texte: 'maigrir' }], erreurs: {}, modifiees: 2 })
+    expect(r).toEqual({ corrections: [{ mot: 0, texte: 'Voilà' }, { mot: 12, texte: 'maigrir' }], erreurs: {}, erreur: null, modifiees: 2 })
   })
-  it('une ligne invalide donne une erreur sur sa clé', () => {
-    const r = correctionsAEnvoyer(SOUS_TITRES, { 4: 'passées' })
-    expect(r.corrections).toEqual([])
-    expect(Object.keys(r.erreurs)).toEqual(['4'])
-    expect(r.modifiees).toBe(1)
+  it('corrections et suppressions mélangées, triées par numéro d\'origine', () => {
+    const r = correctionsAEnvoyer(SOUS_TITRES, { 4: 'passées', 0: 'Voilà pourquoi les' })
+    expect(r).toEqual({
+      corrections: [{ mot: 0, texte: 'Voilà' }, { mot: 5, supprimer: true }, { mot: 6, supprimer: true }],
+      erreurs: {}, erreur: null, modifiees: 2,
+    })
+    expect(nbSuppressions(r.corrections)).toBe(2)
+  })
+  it('tous les mots retirés : refusé', () => {
+    const brouillons = Object.fromEntries(lignesDe(SOUS_TITRES).map(l => [l.cle, '']))
+    const r = correctionsAEnvoyer(SOUS_TITRES, brouillons)
+    expect(nbSuppressions(r.corrections)).toBe(16)
+    expect(r.erreur).toMatch(/pas retirer tous les mots/)
   })
   it('rien de modifié : rien à envoyer', () => {
-    expect(correctionsAEnvoyer(SOUS_TITRES, {})).toEqual({ corrections: [], erreurs: {}, modifiees: 0 })
+    expect(correctionsAEnvoyer(SOUS_TITRES, {})).toEqual({ corrections: [], erreurs: {}, erreur: null, modifiees: 0 })
+  })
+  it('garde-fous : même mot corrigé et retiré, tout retiré', () => {
+    expect(erreurCorrections([{ mot: 2, texte: 'a' }, { mot: 2, supprimer: true }], 10)).toMatch(/à la fois corrigé et retiré/)
+    expect(erreurCorrections([{ mot: 0, supprimer: true }, { mot: 1, supprimer: true }, { mot: 1, supprimer: true }], 2)).toMatch(/pas retirer tous les mots/)
+    expect(erreurCorrections([{ mot: 0, supprimer: true }, { mot: 1, texte: 'b' }], 2)).toBeNull()
+    expect(erreurCorrections([], 2)).toBeNull()
   })
   it('tâche correction_sous_titres au format de l\'agent, sans statut ni cree_par', () => {
     const t = tacheCorrection(JOB, [{ mot: 4, texte: 'passé' }])
     expect(t).toEqual({ job_id: JOB, type: 'correction_sous_titres', payload: { corrections: [{ mot: 4, texte: 'passé' }] } })
     expect(Object.keys(t).sort()).toEqual(['job_id', 'payload', 'type'])
+  })
+  it('suppression : { mot, supprimer: true } dans la même tâche', () => {
+    expect(tacheCorrection(JOB, [{ mot: 1, texte: 'b' }, { mot: 3, supprimer: true }], 16).payload)
+      .toEqual({ corrections: [{ mot: 1, texte: 'b' }, { mot: 3, supprimer: true }] })
+  })
+  it('tâche fautive : elle ne part pas, message clair', () => {
+    expect(() => tacheCorrection(JOB, [{ mot: 3, texte: 'x' }, { mot: 3, supprimer: true }], 16)).toThrow(/à la fois corrigé et retiré/)
+    let err
+    try { tacheCorrection(JOB, [{ mot: 0, supprimer: true }], 1) } catch (e) { err = e }
+    expect(messageErreurEnvoi(err)).toBe('Tu ne peux pas retirer tous les mots des sous-titres : garde au moins un mot.')
+  })
+})
+
+describe('numéros de mots à jour avant l\'envoi (une suppression les décale)', () => {
+  it('corrections faites sur la version actuelle, file libre : envoi permis', () => {
+    expect(erreurBase({ numeroBase: 3, job: { version_courante: 3 }, tachesActives: [] })).toBeNull()
+  })
+  it('nouvelle version arrivée : refus, sous-titres à relire', () => {
+    expect(erreurBase({ numeroBase: 3, job: { version_courante: 4 }, tachesActives: [] })).toMatch(/nouvelle version \(v4\).*refais tes corrections/)
+  })
+  it('autre demande en attente ou en cours : refus', () => {
+    expect(erreurBase({ numeroBase: 3, job: { version_courante: 3 }, tachesActives: [{ id: 'x' }] })).toMatch(/autre demande/)
+  })
+  it('montage disparu : refus', () => {
+    expect(erreurBase({ numeroBase: 3, job: null, tachesActives: [] })).toMatch(/n'existe plus/)
   })
 })
 
@@ -153,6 +208,12 @@ describe('fil de conversation : tâche de correction', () => {
     expect(texteTache(t)).toBe('Correction des sous-titres à la main (2 mots)')
     expect(texteTache({ ...t, payload: { corrections: [{ mot: 1, texte: 'a' }] } })).toBe('Correction des sous-titres à la main (1 mot)')
     expect(texteTache({ type: 'montage', payload: { prompt: 'Coupe' } })).toBe('Coupe')
+  })
+  it('mots retirés comptés à part', () => {
+    const avec = (corrections) => texteTache({ ...t, payload: { corrections } })
+    expect(avec([{ mot: 1, texte: 'a' }, { mot: 2, supprimer: true }])).toBe('Correction des sous-titres à la main (1 mot corrigé, 1 mot retiré)')
+    expect(avec([{ mot: 2, supprimer: true }, { mot: 4, supprimer: true }])).toBe('Correction des sous-titres à la main (2 mots retirés)')
+    expect(avec([{ mot: 1, texte: 'a' }, { mot: 3, texte: 'c' }, { mot: 2, supprimer: true }])).toBe('Correction des sous-titres à la main (2 mots corrigés, 1 mot retiré)')
   })
   it('demande en attente et refus de l\'agent', () => {
     expect(filConversation({ versions: [], taches: [t] }).at(-1).texte).toBe('Correction des sous-titres à la main (2 mots)')

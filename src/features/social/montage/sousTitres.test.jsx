@@ -62,9 +62,17 @@ describe('PanneauSousTitres', () => {
     expect(bouton(html, 'Appliquer les corrections')).not.toContain('disabled=""')
   })
 
-  it('mot retiré : erreur sur la ligne, envoi bloqué', () => {
+  it('mot retiré : permis, compté sous la liste', () => {
     const html = rendre({ brouillons: { 0: 'passées 40' } })
-    expect(html).toContain('Garde au moins 3 mots')
+    expect(html).not.toContain('Garde au moins')
+    expect(html).toContain('1 mot retiré : les autres mots gardent leur minutage.')
+    expect(bouton(html, 'Appliquer les corrections')).not.toContain('disabled=""')
+  })
+
+  it('tous les mots retirés : erreur, envoi bloqué', () => {
+    const html = rendre({ brouillons: { 0: '', 3: ' ' } })
+    expect(html).toContain('Tu ne peux pas retirer tous les mots des sous-titres')
+    expect(html).not.toContain('mots retirés : les autres')
     expect(bouton(html, 'Appliquer les corrections')).toContain('disabled=""')
   })
 

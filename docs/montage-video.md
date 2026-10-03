@@ -15,6 +15,7 @@ Plan de référence : `PROMPT-CLAUDE-CODE-MONTAGE-VIDEO-2026-10-01.md` (hors dé
 | **2a-2b** | **Upload résumable vers Brut, Google Picker (vidéos), copie dans Brut, galerie de templates, prompt, lancement (montage + tâche), aperçu et progression dans la liste** | **Fait, testé (logique), derrière le flag** |
 | **3a** | **Éditeur : lecteur 9:16 (aperçu du bucket), fil de conversation, demande « Qu'est-ce que tu veux changer ? », bande des versions, Mac en ligne, temps réel** | **Fait, testé (logique, composants, RLS), derrière le flag** |
 | **8** | **Correction des sous-titres à la main dans l'éditeur (tâche `correction_sous_titres`), réponse de l'agent rendue en markdown dans le fil** | **Fait, testé (logique, composants), derrière le flag. Aucune migration, agent inchangé** |
+| **8b** | **Retrait de mots dans le panneau de sous-titres (`{ mot, supprimer: true }`), garde-fous, numéros relus avant l'envoi** | **Fait, testé (logique, composants), derrière le flag. Aucune migration. Agent : ee2a41d (`feat/agent-hub`)** |
 | **9** | **Restaurer une version (tâche `restaurer`), Terminer et exporter (tâche `terminer`), lien « Ouvrir dans Drive » dans l'éditeur et la liste** | **Fait, testé (logique, composants), derrière le flag. Aucune migration, agent inchangé** |
 | **Clips 1** | **Plusieurs clips par montage (Principal et B-roll) : table `video_clips`, liste ordonnée à l'étape 1, clips dans le payload de la tâche, panneau dans l'éditeur ; la file de l'accueil ouvre l'éditeur** | **Fait, testé, appliqué en production le 3 oct. Agent : partie 2, à faire** |
 | 3b et suite | Sous-titres éditables, restaurer une version, Terminer et lien d'export | À faire |
@@ -347,7 +348,7 @@ Toujours derrière `VITE_MONTAGE_VIDEO=true`. **Aucune migration** (la colonne `
 
 Contrat vérifié dans `video-neo/agent/src/taches.ts` (`correctionSousTitres`, `nouvelleVersion`) :
 - À chaque version, l'agent copie `public/sous-titres/m-<id>.json` dans `video_versions.sous_titres` : `{ video, motsParLigne, dureeMs, mots: [{ texte, debutMs, finMs }] }`. Ce sont des **mots**, pas des lignes ; le gabarit `SousTitres` de video-neo les regroupe au rendu.
-- Payload : `{ "corrections": [{ "mot": <index dans mots>, "texte": "..." }] }`. Refus si un index n'existe pas ou si un texte est vide ; l'agent ne sait ni ajouter ni retirer un mot.
+- Payload : `{ "corrections": [{ "mot": <index dans mots>, "texte": "..." }] }`. Refus si un index n'existe pas ou si un texte est vide ; l'agent ne sait ni ajouter ni retirer un mot. (Retrait possible depuis l'étape 8b.)
 - Il corrige le fichier de la **version courante** (branche du montage), fait un commit, rend l'aperçu et crée la version n+1 (prompt « Correction des sous-titres à la main », réponse « « ancien » → « nouveau » »). **Aucun appel Claude** : seulement le rendu Remotion.
 
 Hub :
@@ -358,7 +359,7 @@ Hub :
 - `montageEditeur.js` : dans le fil, une tâche de correction s'affiche « Correction des sous-titres à la main (N mots) » (avant : « Lancer le montage »).
 
 Décisions :
-- **Une ligne modifiée → corrections par mot.** Les mots du texte sont posés un à un sur les mots d'origine ; s'il y en a plus, les derniers rejoignent le dernier mot de la ligne (son minutage ne change pas). S'il y en a moins : erreur sur la ligne (« Garde au moins N mots ») et envoi bloqué, puisque l'agent ne peut pas retirer un mot. Seuls les mots changés partent.
+- **Une ligne modifiée → corrections par mot.** Les mots du texte sont posés un à un sur les mots d'origine ; s'il y en a plus, les derniers rejoignent le dernier mot de la ligne (son minutage ne change pas). ~~S'il y en a moins : erreur sur la ligne (« Garde au moins N mots ») et envoi bloqué, puisque l'agent ne peut pas retirer un mot.~~ Remplacé à l'étape 8b : un mot en moins est retiré. Seuls les mots changés partent.
 - **Avertissements sans blocage** : plus de 5 mots, plus de 24 caractères (règles du skill, `SOUS_TITRES_NEO_CLASSIQUE`), retour à la ligne.
 - **Seule la version actuelle se corrige** (l'agent corrige `version_courante`) : une ancienne version affichée est en lecture seule, avec « Affiche-la pour corriger ses sous-titres ».
 - « Appliquer les corrections » : désactivé sans changement, avec une erreur de ligne, tant qu'une tâche du montage attend ou tourne (même message que le champ de demande), et pour un montage terminé (panneau en lecture seule). Les champs se désactivent aussi.
@@ -374,6 +375,32 @@ Agent en simulation (`npm run simule` dans `video-neo/agent`), un montage avec u
 1. **Panneau** : les lignes et leurs débuts s'affichent sous la bande ; cliquer « 1,2 s » place le lecteur à 1,2 s. Allonger une ligne au-delà de 24 caractères : avertissement orange, « Appliquer » reste actif. Retirer un mot : erreur rouge, « Appliquer » désactivé. « Annuler mes changements » remet le texte d'origine.
 2. **Envoi** : corriger un mot, Appliquer. Le panneau et le champ de demande se désactivent (« attend son tour »), le fil montre « Correction des sous-titres à la main (1 mot) ». Dans l'éditeur SQL, la tâche a `payload` `{"corrections":[{"mot":…,"texte":"…"}]}`. La version suivante arrive, et son `sous_titres` contient le mot corrigé.
 3. **Sortie et markdown** : avec une correction non envoyée, cliquer « Retour aux montages » ou recharger : confirmation demandée. Une réponse de l'agent avec `##` et un tableau s'affiche en titre et en tableau.
+
+## Étape 8b : retirer un mot des sous-titres (3 oct. 2026)
+
+Toujours derrière `VITE_MONTAGE_VIDEO=true`. **Aucune migration** (le `payload` de `video_taches` n'a pas de contrainte ; `10_tests_rls.sql` inchangé) et **agent inchangé dans ce dépôt** : il sait retirer un mot depuis ee2a41d (`feat/agent-hub` de video-neo).
+
+Contrat vérifié dans `video-neo/agent/README.md` (« Sous-titres ») et `agent/src/taches.ts` (`appliquerCorrections`) :
+- `{ "mot": n, "supprimer": true }` retire le mot ; il se mélange aux `{ "mot": n, "texte": "..." }` dans `corrections`. Les autres mots gardent leur minutage.
+- Dans une même tâche, **tous les numéros sont ceux d'avant la tâche** : retirer le mot 3 ne décale pas la correction du mot 7.
+- Refus de l'agent : numéro inexistant, texte vide sans `supprimer`, même mot corrigé et retiré, tous les mots retirés (compte = longueur de `mots` dans le fichier). Réponse de la version : « « Hux » → « Hugues », « euh » supprimé ».
+
+Hub :
+- `montageSousTitres.js`, `correctionsLigne` : avec moins de mots qu'à l'origine, les mots retirés sont ceux qui ressemblent le moins au texte tapé (identique, puis identique aux accents et à la ponctuation près, puis début commun), dans l'ordre. Ex. « passées 40 ans, » → « passé ans, » : `passées` corrigé en « passé », `40` retiré. Une ligne vidée retire tous ses mots. Même nombre de mots ou plus : inchangé (mot par mot, les mots en trop rejoignent le dernier).
+- `erreurCorrections` (garde-fous, mêmes refus que l'agent) : « Un même mot ne peut pas être à la fois corrigé et retiré. » et « Tu ne peux pas retirer tous les mots des sous-titres : garde au moins un mot. ». Affiché sous la liste, « Appliquer » désactivé. `tacheCorrection` le revérifie : une tâche fautive ne part pas.
+- **Numéros à jour** : `corriger(corrections, { numeroBase, totalMots })` (`useMontageEditeur.js`) relit dans la base `version_courante` et les tâches `en_attente`/`en_cours` du montage juste avant l'insertion (`erreurBase`). Si une autre version est arrivée ou si une autre demande attend (la sienne peut retirer des mots), rien ne part : message clair et rechargement de l'éditeur ; les brouillons de l'ancienne version sont oubliés, on corrige sur les sous-titres relus. Comme avant, une ancienne version affichée est en lecture seule et le panneau est désactivé tant qu'une tâche du montage attend ou tourne.
+- `PanneauSousTitres.jsx` : « N mot(s) retiré(s) : les autres mots gardent leur minutage. » sous la liste.
+- `montageEditeur.js` : dans le fil, « Correction des sous-titres à la main (1 mot corrigé, 1 mot retiré) » ou « (2 mots retirés) » ; sans retrait, inchangé (« (2 mots) »). `messageErreurEnvoi` rend tel quel un refus du hub (`err.clair`).
+
+Tests : `montageSousTitres.test.js` (37 : retrait sur la ligne, choix du mot retiré, ligne vidée, mot répété, mélange trié par numéro d'origine, garde-fous, tâche fautive, numéros à jour, libellés du fil) et `sousTitres.test.jsx` (13 : retrait permis et compté, tout retirer bloqué). Pas de test SQL : aucune migration.
+
+### Tester à la main (3 points)
+
+Agent réel (ee2a41d ou plus récent) ou en simulation, un montage avec une version.
+
+1. **Retrait** : effacer « euh » d'une ligne : « 1 mot retiré » sous la liste, Appliquer actif. Appliquer : le fil montre « Correction des sous-titres à la main (1 mot retiré) », la tâche a `payload` `{"corrections":[{"mot":…,"supprimer":true}]}`. La version suivante n'a plus le mot dans `sous_titres` et le panneau affiche ses nouvelles lignes.
+2. **Garde-fou** : vider toutes les lignes : message rouge « Tu ne peux pas retirer tous les mots… », Appliquer désactivé.
+3. **Numéros périmés** : ouvrir le même montage dans deux onglets. Dans le premier, retirer un mot et Appliquer. Dans le second (sans recharger, avant la nouvelle version), corriger un mot et Appliquer : message « Une autre demande vient d'être envoyée… » (ou « Une nouvelle version (vN) est arrivée… »), aucune tâche créée, l'éditeur se recharge.
 
 ## Étape 9 : restaurer une version et Terminer (3 oct. 2026)
 

@@ -103,8 +103,8 @@ function Editeur({ jobId }) {
     })
   }, [job?.version_courante])
   const annulerSousTitres = useCallback(() => setBrouillons({ numero: null, textes: {} }), [])
-  const appliquerSousTitres = useCallback(async (corrections) => {
-    await corriger(corrections)
+  const appliquerSousTitres = useCallback(async (corrections, base) => {
+    await corriger(corrections, base)
     setBrouillons({ numero: null, textes: {} })
   }, [corriger])
   const sauter = useCallback((secondes) => setSaut({ secondes, tour: Date.now() }), [])
