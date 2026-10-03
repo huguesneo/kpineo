@@ -37,7 +37,7 @@ function CarteTemplate({ template, choisi, onChoisir, onApercu }) {
   )
 }
 
-function ApercuTemplate({ template, onClose }) {
+export function ApercuTemplate({ template, onClose }) {
   const [url, setUrl] = useState(null)
   const [erreur, setErreur] = useState(null)
   const chemin = template?.chemin_apercu

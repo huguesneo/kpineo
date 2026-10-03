@@ -88,8 +88,9 @@ export function texteTache(tache) {
 // réponse de l'agent ; un export réussi (tâche terminer faite) se place à sa
 // date entre les versions. Ensuite la demande en cours (pas encore de version)
 // ou le refus de la dernière demande. `job` sert au chemin du dernier export.
-export function filConversation({ versions, taches, job = null }) {
-  const blocs = []
+// `autres` : blocs { date, messages } placés à leur date (ex. templates proposés).
+export function filConversation({ versions, taches, job = null, autres = [] }) {
+  const blocs = [...autres]
   for (const v of trierVersions(versions)) {
     const bloc = []
     if (v.prompt) {

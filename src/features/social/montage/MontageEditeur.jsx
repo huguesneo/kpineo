@@ -18,6 +18,9 @@ import ClipsMontage from './ClipsMontage'
 import ZoneDemande from './ZoneDemande'
 import PanneauSousTitres from './PanneauSousTitres'
 import { RestaurerVersion, BoutonTerminer, BandeauExport } from './FinMontage'
+import { ProposerTemplate } from './TemplatesMontage'
+import { useTemplatesDuMontage } from './useMontageTemplates'
+import { messagesTemplates } from '../../../lib/montageTemplates'
 
 function Retour() {
   return (
@@ -56,8 +59,9 @@ function Editeur({ jobId }) {
     job, versions, taches, clips, loading, error, introuvable, direct, reload, envoyer, corriger, restaurer, terminer,
   } = useMontageEditeur(jobId)
   const agent = useAgentStatus()
+  const propositions = useTemplatesDuMontage(jobId)
   const enLigne = !agent.error && isAgentEnLigne(agent.status?.dernier_signal, agent.maintenant)
-  const noms = useNoms([job?.cree_par, ...versions.map(v => v.auteur), ...taches.map(t => t.cree_par)])
+  const noms = useNoms([job?.cree_par, ...versions.map(v => v.auteur), ...taches.map(t => t.cree_par), ...propositions.templates.map(t => t.propose_par)])
 
   // Version choisie dans la bande (null = suivre la dernière). Quand une
   // nouvelle version arrive, le lecteur passe dessus.
@@ -121,7 +125,7 @@ function Editeur({ jobId }) {
 
   const statut = statutMontage(job.statut)
   const etat = etatEnvoi({ job, taches })
-  const messages = filConversation({ versions, taches, job })
+  const messages = filConversation({ versions, taches, job, autres: messagesTemplates(propositions.templates, propositions.tachesStyle) })
   const active = tacheActive(taches)
   const exportEnCours = job.statut === 'rendu' || active?.type === 'terminer'
   const enPreparation = version && (STATUTS_EN_TRAITEMENT.includes(job.statut) || active)
@@ -206,6 +210,14 @@ function Editeur({ jobId }) {
                   onChoisir={setNumeroChoisi}
                 />
                 <RestaurerVersion job={job} taches={taches} version={version} onRestaurer={restaurer} />
+                <ProposerTemplate
+                  key={version?.numero}
+                  job={job}
+                  taches={taches}
+                  version={version}
+                  templates={propositions.templates}
+                  onProposer={propositions.proposer}
+                />
               </Card>
             )}
             {version && (

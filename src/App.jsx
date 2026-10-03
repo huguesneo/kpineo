@@ -32,6 +32,7 @@ import MontageAccueil from './features/social/montage/MontageAccueil'
 import MontageNouvelle from './features/social/montage/MontageNouvelle'
 import MontageConfiguration from './features/social/montage/MontageConfiguration'
 import MontageEditeur from './features/social/montage/MontageEditeur'
+import MontageTemplates from './features/social/montage/MontageTemplates'
 import { TERMINAL_ENABLED, canUseTerminal } from './lib/terminal/flag'
 import { hasSocialAccess } from './lib/socialAccess'
 import { MONTAGE_VIDEO_ENABLED, canUseMontageVideo, canConfigureMontageVideo } from './lib/montageVideoAccess'
@@ -165,6 +166,7 @@ function AppRoutes() {
           <Route path="/reseaux-sociaux/montage" element={<MontageVideoRoute><MontageAccueil /></MontageVideoRoute>} />
           <Route path="/reseaux-sociaux/montage/nouvelle" element={<MontageVideoRoute><MontageNouvelle /></MontageVideoRoute>} />
           <Route path="/reseaux-sociaux/montage/configuration" element={<MontageConfigRoute><MontageConfiguration /></MontageConfigRoute>} />
+          <Route path="/reseaux-sociaux/montage/templates" element={<MontageVideoRoute><MontageTemplates /></MontageVideoRoute>} />
           <Route path="/reseaux-sociaux/montage/:jobId" element={<MontageVideoRoute><MontageEditeur /></MontageVideoRoute>} />
         </>
       ) : (

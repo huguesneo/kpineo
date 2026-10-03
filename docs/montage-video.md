@@ -19,7 +19,8 @@ Plan de référence : `PROMPT-CLAUDE-CODE-MONTAGE-VIDEO-2026-10-01.md` (hors dé
 | **Clips 1** | **Plusieurs clips par montage (Principal et B-roll) : table `video_clips`, liste ordonnée à l'étape 1, clips dans le payload de la tâche, panneau dans l'éditeur ; la file de l'accueil ouvre l'éditeur** | **Fait, testé, appliqué en production le 3 oct. Agent : partie 2, à faire** |
 | 3b et suite | Sous-titres éditables, restaurer une version, Terminer et lien d'export | À faire |
 | **4-départ** | **Templates de départ « Pub 0929 » et « Entrevue mythe 0924 » (approuvés, aperçus), colonne `style_enregistre`, montage parti de la composition de départ du style** | **Fait, testé, appliqué en production le 3 oct.** |
-| 4 | Templates proposés et approbation par Hugues, variantes | À faire (côté agent : prêt) |
+| **10a** | **Templates proposés depuis l'éditeur, écran Templates, approbation et refus motivé par Hugues, archivage ; galerie limitée aux styles enregistrés** | **Fait, testé (logique, composants, RLS), derrière le flag. Migration `20261003d` écrite et testée, pas encore appliquée en production. Agent inchangé** |
+| 4 (suite) | Variantes | À faire |
 
 Prérequis vérifié : `public.is_hugues()` existe en production.
 
@@ -242,7 +243,7 @@ Vérifié en lecture seule en production : les 2 templates (comme hugues@, avec 
 - Hugues : installer le service (`bash agent/launchd/installer.sh --essai`, puis sans `--essai`) après avoir fusionné `feat/agent-hub` dans `main` de video-neo ; premier vrai montage pour valider Claude de bout en bout.
 - Hugues : partager `NEO vidéo/Brut` (en modification) avec info@ ; à son premier envoi, info@ cliquera une fois « Autoriser le dossier Brut ».
 - Hub 3b et suite : ~~bande de sous-titres éditable~~ (fait, étape 8), ~~restaurer une version~~, ~~Terminer et lien d'export~~ (faits, étape 9). L'éditeur 3a est en place.
-- Hub 4 : proposition de template avec `job_id` et `numero_version`, approbation par Hugues, menu Variantes.
+- ~~Hub 4 : proposition de template avec `job_id` et `numero_version`, approbation par Hugues~~ (fait, étape 10a). Menu Variantes : à faire.
 - Premier vrai montage avec un template de départ (demande la clé Anthropic) : vérifier que Claude copie bien `Pub0929.tsx` ou `Pub0924.tsx`.
 - `lien_drive_export` est un chemin dans Drive, pas une URL. Avec la portée `drive.file`, le hub ne peut pas retrouver le fichier par l'API (il a été créé par Drive pour ordinateur) : « Ouvrir dans Drive » ouvre une recherche sur le nom du fichier (`?safe=strict&q=<nom>`, sans guillemets). Agent : écrire l'URL du fichier (voir étape 9).
 
@@ -438,4 +439,46 @@ Avec un Postgres local vide (jamais un projet Supabase, le script refuse), migra
 PGHOST=/chemin/socket PGPORT=5432 PGUSER=postgres supabase/tests/montage_video/run.sh
 ```
 
-Résultat attendu : `PASS: 139  FAIL: 0` (migrations e, f et 20261003a, puis les templates de départ, puis l'éditeur, puis les clips). Sur le Mac : `brew install postgresql@17`, puis un Postgres jetable (`initdb`, `pg_ctl ... -o "-k '' -p 54329"`) et `PGHOST=localhost PGPORT=54329`.
+Résultat attendu : `PASS: 175  FAIL: 0` (migrations e, f et 20261003a, puis les templates de départ, puis l'éditeur, puis les clips, puis les templates proposés). Sur le Mac : `brew install postgresql@17`, puis un Postgres jetable (`initdb`, `pg_ctl ... -o "-k '' -p 54329"`) et `PGHOST=localhost PGPORT=54329`.
+
+## Étape 10a : templates proposés et approbation (3 oct. 2026)
+
+Toujours derrière `VITE_MONTAGE_VIDEO=true`. **Agent inchangé.**
+
+Contrat vérifié dans `video-neo/agent/src/taches.ts` (`enregistrerStyle`) et dans la base :
+- Tâche `enregistrer_style`, payload `{ "template_id" }`. L'agent **refuse un template qui n'est pas `approuve`** ; sinon il crée `style/<slug du nom>` depuis le commit de la version `numero_version` (à défaut `version_courante`), demande à Claude le skill et le modèle `_Modele<Nom>.tsx`, rend l'aperçu, puis écrit `reference_video_neo`, `chemin_apercu` (`templates/<id>/apercu.mp4`) et `style_enregistre = true`. Sans `job_id` : refus.
+- C'est **la base** qui crée cette tâche quand Hugues passe le statut à `approuve` (trigger `video_templates_approuve`, `job_id` vide, au nom de Hugues). Le RLS interdit à info@ de la créer.
+- Seul `is_hugues()` change le statut (trigger `video_templates_avant_update`) ; info@ ne modifie que sa proposition ouverte (politique `video_templates_update`).
+
+**Écart avec la demande initiale** : « proposer → enregistrer le style → aperçu → approuver » n'est pas possible sans changer l'agent (il refuse un template non approuvé, et info@ ne peut pas créer la tâche). Ordre retenu : proposer (aucune tâche) → Hugues regarde **l'aperçu de la version proposée** (`apercus/<job>/v<n>.mp4`) et approuve → la base crée `enregistrer_style` → l'aperçu du template remplace celui de la version. Le template n'entre dans la galerie de l'étape 2 qu'une fois `style_enregistre` vrai.
+
+Migration `20261003d_montage_video_templates_proposes.sql` (additive, se rejoue ; **pas encore appliquée sur soma-hq** : l'application a été bloquée par le mode automatique, à faire par Hugues) :
+- `video_templates.description` (texte de la proposition) et `motif_refus` (Hugues seulement, vidé à l'insertion depuis le hub).
+- CHECK du statut élargi : `propose`, `approuve`, `refuse`, **`archive`**. Un archivé sort de la galerie et ne peut plus servir à un nouveau montage (`video_jobs_avant_insert` exige `approuve`) ; les montages qui l'ont utilisé gardent leur `template_id`, la branche `style/<nom>` reste.
+- Trigger `video_templates_decision` (nouveau, rien de modifié) : passages permis depuis le hub `propose → approuve | refuse`, `approuve → archive`, `archive → approuve`. `approuve_par` / `approuve_le` = qui a tranché en dernier et quand (l'archivage remplace donc la date d'approbation).
+
+Hub :
+- `src/lib/montageTemplates.js` : validation, ligne insérée (`nom`, `description`, `type_video` = `neo-video-montage`, `job_id`, `numero_version`), état du bouton, statuts affichés (avec la tâche `enregistrer_style`), aperçu (version, puis template), boutons selon l'utilisateur, décisions, tri, messages du fil.
+- `TemplatesMontage.jsx` : `ProposerTemplate` (sous la bande des versions), `DecisionTemplate`, `CarteTemplateListe`.
+- `MontageTemplates.jsx` : page `/reseaux-sociaux/montage/templates` (accès `montageVideoAccess`), bouton « Templates » sur l'accueil à côté de Configuration (visible aussi pour info@).
+- `useMontageTemplates.js` : templates du montage et de l'écran, tâches `enregistrer_style`, temps réel, `proposer`, `decider`.
+- `MontageEditeur.jsx` : bouton et entrées du fil ; `filConversation` accepte `autres` (blocs datés).
+- `useMontageVideo.js` : galerie de l'étape 2 = `statut = 'approuve'` **et** `style_enregistre`.
+
+Décisions :
+- **Version proposée** : celle affichée dans la bande (l'agent enregistre `numero_version`, pas forcément l'actuelle). Bouton désactivé pendant une tâche du montage (même message que le champ) et si cette version a déjà une proposition non refusée.
+- **Fil** : « Proposer la vN comme template « X » » à sa date, puis l'état (attente de Hugues, style en préparation / en attente du Mac / erreur de l'agent, dans la galerie, refusé avec motif, archivé). La tâche `enregistrer_style` n'a pas de montage : son avancement est un état, pas une barre (l'agent n'écrit pas de progression pour elle).
+- **Approuver** : seulement avec un aperçu de la version disponible. Refuser : motif facultatif (200 caractères). « Retirer de la galerie » (archiver) sur un approuvé, avec confirmation. Pas de bouton pour remettre un archivé (la base le permet).
+- **info@** : voit tous les templates et leurs statuts, aucun bouton de décision (et la base refuse de toute façon : tests SQL).
+
+Tests : `montageTemplates.test.js` (20 : validation, payload, bouton, statuts, aperçu, boutons Hugues / info@, décisions, tri, fil), `templates.test.jsx` (15 : formulaire, états désactivés, boutons selon l'utilisateur, liste). `50_tests_templates_proposes.sql` (36 : proposition forcée à `propose` sans tâche ni motif, absente de la galerie, info@ ne peut ni approuver, ni refuser, ni écrire un motif, ni créer `enregistrer_style`, ni archiver ; refus motivé ; approbation → tâche `{ template_id }` ; galerie après `style_enregistre` ; archivage qui garde les montages et bloque les nouveaux ; passages interdits ; hors liste, non connecté). `run.sh` → `PASS: 175  FAIL: 0`. Hub : 398 tests qui passent (les 2 fichiers des commissions échouent toujours, photo de référence absente). Build et ESLint (configuration temporaire hors dépôt) sans remarque.
+
+Pour l'agent (non bloquant) : écrire `etape` / une progression pour `enregistrer_style` (aujourd'hui aucune) permettrait une barre dans l'écran Templates. S'il fallait un aperçu « style enregistré » **avant** l'approbation, l'agent devrait accepter `enregistrer_style` sur un template `propose` et la base laisser info@ créer la tâche.
+
+### Tester à la main (3 points)
+
+Prérequis : migration `20261003d` appliquée sur soma-hq.
+
+1. **Proposer puis approuver (test réel)** : comme info@, dans l'éditeur d'un montage en v2, afficher v2, « Proposer comme template », nom et description, Proposer. Le fil montre la proposition « en attente de l'approbation de Hugues » ; le bouton dit « déjà proposée ». « Nouvelle vidéo » : le template n'est pas dans la galerie. Comme hugues@, Templates : la carte « Proposé », « Voir l'aperçu de la v2 », Approuver. Statut « Approuvé, style en préparation », puis (agent réel, quelques minutes, coûte un appel Claude) « Approuvé », aperçu du template, branche `style/<nom>` dans video-neo ; la carte apparaît dans la galerie de « Nouvelle vidéo ».
+2. **Refus et info@** : proposer une autre version, la refuser avec un motif : connecté comme info@, la page Templates montre « Refusé » et le motif, et aucun bouton Approuver, Refuser ou Retirer sur aucune carte (le refus côté base est couvert par les tests SQL).
+3. **Archiver** : sur le template approuvé, « Retirer de la galerie », confirmer : « Archivé », disparu de la galerie, le montage qui l'a utilisé s'ouvre toujours normalement.

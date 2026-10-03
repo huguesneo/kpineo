@@ -155,7 +155,9 @@ export async function urlSigneeApercu(chemin) {
   return data.signedUrl
 }
 
-// Templates approuvés (galerie de l'étape 2).
+// Templates approuvés dont le style est enregistré (galerie de l'étape 2) :
+// un template approuvé mais pas encore enregistré serait refusé par l'agent ;
+// un proposé, refusé ou archivé n'y apparaît pas.
 export function useTemplatesApprouves() {
   const [templates, setTemplates] = useState([])
   const [loading, setLoading] = useState(true)
@@ -168,6 +170,7 @@ export function useTemplatesApprouves() {
       .from('video_templates')
       .select('id, nom, type_video, chemin_apercu, approuve_le')
       .eq('statut', 'approuve')
+      .eq('style_enregistre', true)
       .order('nom')
     if (err) setError(err.message || 'Erreur inconnue')
     else setTemplates(data ?? [])
