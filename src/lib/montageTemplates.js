@@ -91,6 +91,7 @@ export function statutTemplate(template, tache = null) {
       if (tache?.statut === 'en_cours') detail = "L'agent enregistre le style…"
       else if (tache?.statut === 'erreur') detail = `L'enregistrement du style a échoué : ${tache.erreur || 'erreur sans message'}`
       else if (tache?.statut === 'en_attente') detail = "Enregistrement du style en attente du Mac."
+      else if (tache?.statut === 'annulee') detail = "Enregistrement du style annulé : le template n'entre pas dans la galerie."
       return { cle: 'preparation', label: 'Approuvé, style en préparation', variant: 'primary', detail, erreur: tache?.statut === 'erreur' }
     }
     default:

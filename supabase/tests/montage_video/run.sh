@@ -6,7 +6,8 @@
 # puis les templates de départ (20261003b, deux fois) et leurs tests, puis ceux de l'éditeur,
 # puis les clips (20261003c puis 20261003f, deux fois chacune, sur des montages existants : backfill) et leurs tests,
 # puis les templates proposés (20261003d, deux fois) et leurs tests,
-# puis les variantes (20261003e, deux fois) et leurs tests.
+# puis les variantes (20261003e, deux fois) et leurs tests,
+# puis l'annulation (20261003g, deux fois) et ses tests.
 # Refuse de tourner sur un hôte Supabase : ne sert jamais en production.
 set -euo pipefail
 
@@ -22,6 +23,7 @@ CLIPS="$ICI/../../migrations/20261003c_montage_video_clips.sql"
 CLIPS_APRES_V1="$ICI/../../migrations/20261003f_montage_video_clips_apres_v1.sql"
 PROPOSES="$ICI/../../migrations/20261003d_montage_video_templates_proposes.sql"
 VARIANTES="$ICI/../../migrations/20261003e_montage_video_variantes.sql"
+ANNULATION="$ICI/../../migrations/20261003g_montage_video_annulation.sql"
 BASE=montage_test
 
 psql -q -d postgres -c "DROP DATABASE IF EXISTS $BASE" -c "CREATE DATABASE $BASE"
@@ -60,6 +62,11 @@ for _ in 1 2; do
 done
 SORTIE="$SORTIE
 $($P -f "$ICI/60_tests_variantes.sql" 2>&1)"
+for _ in 1 2; do
+  $P -f "$ANNULATION" >/dev/null 2>&1 || { echo "La migration de l'annulation échoue : $ANNULATION" >&2; $P -f "$ANNULATION"; exit 1; }
+done
+SORTIE="$SORTIE
+$($P -f "$ICI/70_tests_annulation.sql" 2>&1)"
 echo "$SORTIE" | sed '/^$/d'
 PASS=$(grep -c '^ PASS' <<<"$SORTIE" || true)
 FAIL=$(grep -cE '^ FAIL|ERROR' <<<"$SORTIE" || true)

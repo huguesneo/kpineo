@@ -23,6 +23,7 @@ Plan de référence : `PROMPT-CLAUDE-CODE-MONTAGE-VIDEO-2026-10-01.md` (hors dé
 | **10a** | **Templates proposés depuis l'éditeur, écran Templates, approbation et refus motivé par Hugues, archivage ; galerie limitée aux styles enregistrés** | **Fait, testé (logique, composants, RLS), derrière le flag. Migration `20261003d` appliquée en production le 3 oct. Agent inchangé** |
 | **10b** | **Variantes (autre hook, format 4:5 ou 1:1) depuis l'éditeur, lien « Variante de » et liste des variantes, lecteur au ratio du montage** | **Fait, testé (logique, composants, RLS), derrière le flag. Migration `20261003e` appliquée en production le 3 oct. Agent : doit écrire `variante_de` (voir étape 10b)** |
 | **Clips 3** | **Ajouter un clip (B-roll ou Principal oublié) ou remplacer un clip après la v1, depuis le panneau « Clips » de l'éditeur ; aucun clip effacé ; phrase pré-remplie dans la demande** | **Fait, testé (logique, composants, RLS), derrière le flag. Migration `20261003f` appliquée en production le 3 oct. Agent inchangé : le remplacement passe par la phrase de la demande en attendant le filtre côté agent (voir Clips, partie 3)** |
+| **Annulation** | **Bouton « Annuler » sur une tâche en attente ou en cours (les six types), confirmation pour une tâche en cours, « Annulation en cours… », lignes « annulée » et « trop tard » dans le fil ; style : Hugues seulement, dans l'écran Templates** | **Fait, testé (logique, composants, RLS), derrière le flag. Migration `20261003g` appliquée en production le 3 oct. Agent : à faire (liste exacte dans « Annuler une tâche »), en attendant seule l'annulation d'une tâche en attente agit** |
 
 Prérequis vérifié : `public.is_hugues()` existe en production.
 
@@ -467,7 +468,7 @@ Avec un Postgres local vide (jamais un projet Supabase, le script refuse), migra
 PGHOST=/chemin/socket PGPORT=5432 PGUSER=postgres supabase/tests/montage_video/run.sh
 ```
 
-Résultat attendu : `PASS: 218  FAIL: 0` (migrations e, f et 20261003a, puis les templates de départ, puis l'éditeur, puis les clips (20261003c puis 20261003f), puis les templates proposés, puis les variantes). Sur le Mac : `brew install postgresql@17`, puis un Postgres jetable (`initdb`, `pg_ctl ... -o "-k '' -p 54329"`) et `PGHOST=localhost PGPORT=54329`.
+Résultat attendu : `PASS: 247  FAIL: 0` (migrations e, f et 20261003a, puis les templates de départ, puis l'éditeur, puis les clips (20261003c puis 20261003f), puis les templates proposés, puis les variantes, puis l'annulation (20261003g)). Sur le Mac : `brew install postgresql@17`, puis un Postgres jetable (`initdb`, `pg_ctl ... -o "-k '' -p 54329"`) et `PGHOST=localhost PGPORT=54329`.
 
 ## Étape 10a : templates proposés et approbation (3 oct. 2026)
 
@@ -589,3 +590,80 @@ Tests : `montageClips.test.js` (22, dont 10 nouveaux : actifs et remplacés, ét
 2. **Remplacer** : « Remplacer » sur un clip. L'ancien reste, grisé et barré ; SQL : `select ordre, nom, remplace_ordre, ajoute_en_version from video_clips where job_id='<id>' order by ordre;`. Envoyer la phrase, vérifier que la nouvelle version n'utilise plus l'ancien clip.
 3. **Garde-fous** : pendant « Terminer et exporter », les boutons sont grisés (« Un rendu final est en cours… ») ; sur un montage terminé, l'avertissement « Le fichier exporté reste la vN, il faudra Terminer de nouveau. » s'affiche dans le panneau.
 4. **Restaurer** : après un remplacement, restaurer une version d'avant : l'aperçu se fait, rien n'est effacé.
+
+## Annuler une tâche (3 oct. 2026)
+
+Toujours derrière `VITE_MONTAGE_VIDEO=true`. **Agent inchangé dans ce commit** : la liste de ce qu'il doit faire est plus bas.
+
+Besoin : un bouton « Annuler » sur une tâche de montage (`montage`, `correction_sous_titres`, `restaurer`, `terminer`, `variante`, `enregistrer_style`) qui attend ou qui tourne.
+
+### Base : migration `20261003g_montage_video_annulation.sql`
+
+Additive, se rejoue ; appliquée sur soma-hq le 3 oct. sous le nom `montage_video_annulation`. Vérifié après : CHECK avec `annulee`, 3 colonnes vides sur les 14 tâches existantes (13 `fait`, 1 `erreur`), triggers `video_taches_annulation` et `video_taches_insert`, `video_annuler_tache` en SECURITY DEFINER exécutable par `authenticated` et pas par `anon`, `video_recalculer_file` non exécutable par le hub.
+
+- `video_taches.statut` : la contrainte CHECK est élargie à `annulee` (seul changement à l'existant, aucune valeur retirée).
+- Colonnes : `annulation_demandee_le`, `annulation_demandee_par` (qui a cliqué, quand), `annulee_le` (quand la tâche est devenue `annulee`). Forcées à vide quand le hub crée une tâche (trigger `video_taches_annulation`).
+- Le hub n'a toujours **ni UPDATE ni DELETE** sur `video_taches`. Il annule par **`video_annuler_tache(id)`** (SECURITY DEFINER), seule porte d'entrée, qui répond :
+  - `annulee` : la tâche attendait. Elle passe à `annulee` tout de suite, sans le Mac. Verrou de ligne : l'agent qui la prend en même temps (`UPDATE … WHERE statut = 'en_attente'`) ne trouve plus rien. Si c'est le **premier montage** (v0) et qu'aucune autre tâche n'attend sur ce montage, le montage passe en `erreur` « Montage annulé avant de commencer. Tu peux le relancer. » (le bouton « Relancer le montage » revient). Les positions dans la file sont recalculées (`video_recalculer_file`, même règle que `recalculerFile` de l'agent).
+  - `demandee` : la tâche tournait. `annulation_demandee_le/_par` sont remplis, le statut **reste `en_cours`** : c'est l'agent qui s'arrête et écrit `annulee`. Un agent qui ne connaît pas ces colonnes les ignore (rien ne casse).
+  - `deja_demandee` : quelqu'un l'a déjà demandée (l'auteur de la première demande est gardé).
+  - `deja_finie` : la tâche est déjà `fait`, `erreur` ou `annulee`.
+- Droits : `has_montage_access()` (hugues@ et info@), sur toutes les tâches, quel que soit leur auteur. `enregistrer_style` : **Hugues seulement** (comme sa création).
+- Annuler un Terminer en attente libère tout de suite l'ajout de clips (le trigger de `20261003f` ne regarde que `en_attente` et `en_cours`).
+
+### Hub
+
+- `src/lib/montageAnnulation.js` : `etatAnnulation` (visible pour une tâche active ; `enregistrer_style` pour Hugues seulement ; confirmation pour une tâche en cours), `confirmationAnnulation`, `texteAnnulationEnCours`, `texteTacheAnnulee`, `texteAnnulationTardive`, `messageResultatAnnulation`, `messageErreurAnnulation`, `texteARemettre`.
+- **Où est le bouton** : dans la bulle de la demande active du fil (`FilConversation`), sous « En attente de l'agent » ou sous la barre de progression. Ça couvre les cinq types de l'éditeur, Terminer et variante compris (leur demande active est dans le fil). Pour `enregistrer_style` : sur la carte du template dans l'écran Templates, Hugues seulement.
+- **En attente** : un clic, pas de confirmation. Le fil montre la demande puis « Annulée par Hugues avant que le Mac la commence. » Pour une demande de montage, son texte revient dans le champ de demande.
+- **En cours** : confirmation sur place (« Arrêter cette ronde ? Le Mac arrête le travail en cours. Rien de cette ronde n'est gardé : le montage reste à la v3. », boutons « Continuer » et « Arrêter la ronde » ; textes propres au rendu HD, à la variante et au style). Après l'envoi, la barre devient grise et on lit « Annulation en cours… le Mac arrête la ronde, aucune nouvelle version ne sera créée. » Le champ de demande reste bloqué : « Annulation en cours : tu pourras écrire une nouvelle demande quand le Mac aura arrêté. » Au-dessus du lecteur : « · annulation en cours ».
+- **Mac hors ligne** : une tâche en attente s'annule quand même tout de suite. Une tâche en cours : « Annulation demandée. Le Mac est hors ligne : elle sera faite à son retour, aucune nouvelle version ne sera créée. » Pas d'annulation forcée depuis le hub : un Mac en veille reprend la tâche là où il était et écraserait le statut.
+- **Fil** : une tâche `annulee` se place à sa date (« Ronde arrêtée par Cloé : aucune version n'a été créée. », « Rendu HD arrêté… », « Variante arrêtée… »). Une tâche finie en `fait` alors qu'une annulation était demandée montre, après ce qu'elle a livré : « L'annulation est arrivée trop tard : la v4 était déjà prête. » (ou l'export, ou la variante). C'est aussi ce qu'on verra tant que l'agent n'est pas à jour.
+- Écran Templates : détail « Enregistrement du style annulé : le template n'entre pas dans la galerie. »
+- `useMontageEditeur` : `annulerTache(id)` (appel de `video_annuler_tache`), `apresAnnulation` (mise à jour sur place sans attendre le temps réel), `annuler` ; colonnes d'annulation lues avec les tâches. `useTemplates` : `annulerStyle`.
+
+### Étape agent : changements attendus (à donner tels quels)
+
+Dépôt `video-neo`, branche `feat/agent-hub`, dossier `agent/`. La base est prête (migration `20261003g` en production) ; le hub affiche déjà la demande et attend que l'agent la lise.
+
+1. **Détecter la demande.** Pendant une tâche, écouter aussi les `UPDATE` de `video_taches` en temps réel (aujourd'hui seulement `INSERT`), filtrés sur l'id de la tâche en cours, avec un contrôle de secours toutes les 10 s (`select annulation_demandee_le from video_taches where id = …`). Dès que `annulation_demandee_le` n'est pas vide : déclencher un `AbortController` **propre à la tâche**, relié à `arret` (l'arrêt de l'agent annule aussi la tâche), passé dans `Contexte`. Le type `Tache` gagne `annulation_demandee_le`, `annulation_demandee_par`, `annulee_le` et le statut `annulee`.
+2. **Couper le travail en cours** avec ce signal :
+   - Claude : option `abortController` de `query()` dans `outils/claude.ts` ;
+   - Remotion : `cancelSignal` de `renderMedia` (`makeCancelSignal`) dans `outils/remotion.ts`, aperçu et rendu final ;
+   - Whisper et `finaliser-video.mjs` : `execFile(…, { signal })`, en tuant le **groupe de processus** (`detached: true` puis `process.kill(-pid)`) pour que ffmpeg meure aussi ;
+   - attente de Drive (`recupererClips`, `attendreIdDrive`) : elles prennent déjà un `signal` ; le contrôle `continuer` (`tacheActive`) peut rester.
+3. **Exception `TacheAnnulee`** (distincte de `TacheAbandonnee`), levée par des contrôles entre chaque étape, et **un dernier contrôle juste avant le point de non-retour** :
+   - `montage`, `correction_sous_titres`, `restaurer`, `variante` : avant `creerVersion` ;
+   - `terminer` : avant `exporter()` (la copie dans Drive). Une fois le fichier copié, l'agent finit normalement ;
+   - `enregistrer_style` : avant `majTemplate`.
+   Une demande arrivée après ce point est ignorée : la tâche finit en `fait` (le hub affiche « trop tard »).
+4. **Ne laisser aucune version à moitié faite.** Noter au début de la tâche le HEAD de départ et si la branche existait.
+   - Branche qui existait (ronde suivante, correction, restaurer, terminer) : `git reset --hard <HEAD de départ>` puis `git clean -fdq` (le commit de `nouvelleVersion`, s'il est fait, disparaît).
+   - Branche créée par la tâche (premier montage `montage/<id>`, variante `montage/<enfant>`, style `style/<slug>`) : revenir en HEAD détaché sur `brancheBase`, puis `git branch -D`.
+   - Supprimer les fichiers locaux `out/apercus/…` et `out/final/…` de la tâche.
+   - Supprimer l'aperçu `apercus/<job>/v<n>.mp4` du bucket s'il a déjà été envoyé (ou `templates/<id>/apercu.mp4` pour un style).
+   - **Remettre l'ancien `session_id`** : aujourd'hui il est écrit juste après Claude, avant `nouvelleVersion`. Le garder ferait reprendre à la ronde suivante une conversation qui ne correspond plus au code. Soit l'écrire après `creerVersion`, soit remettre la valeur du début.
+5. **Remettre le montage comme avant** : statut, étape et progression notés au début de la tâche, `erreur` à null. Premier montage (v0) : `statut = 'erreur'`, `erreur = 'Montage annulé. Tu peux le relancer.'` (le hub propose « Relancer le montage »). Terminer : `apercu_pret` (ou `termine` si le montage l'était avant), `lien_drive_export` inchangé.
+6. **Libérer le verrou** : `majTache(id, { statut: 'annulee', annulee_le: now, erreur: null })` (libère l'index unique `video_taches_une_en_cours`), puis comme aujourd'hui dans le `finally` : heartbeat avec `tache_en_cours = null`, `recalculerFile()`. Ne jamais écrire `fait` ou `erreur` sur une tâche annulée ; le montage ne passe pas en erreur (sauf v0, point 5). Journal : `■ <type> : annulée par <annulation_demandee_par>`.
+7. **Au redémarrage** (`remettreEnErreur`) : une tâche `en_cours` dont l'annulation était demandée passe à `annulee` (avec `annulee_le`) au lieu de `erreur`, le montage revient comme au point 5, et le même nettoyage git est fait (point 4 : la branche de travail peut contenir un commit sans version).
+
+Cas particuliers :
+- **Variante en cours : c'est l'agent qui supprime le montage enfant.** Comportement attendu : à l'annulation, `delete from video_jobs where id = <enfant>` (les clips copiés suivent en cascade, les versions aussi), `git branch -D montage/<enfant>`, suppression de son aperçu dans le bucket s'il a été envoyé. Aujourd'hui le `catch` de `variante` met l'enfant en `erreur` : pour `TacheAnnulee`, il doit le supprimer à la place. Le montage d'origine n'est jamais touché (ni statut, ni `session_id` : la session de la variante est bifurquée).
+- **enregistrer_style** : supprimer la branche `style/<slug>` créée et l'aperçu du template s'il a été envoyé ; le template reste `approuve` avec `style_enregistre = false` et `reference_video_neo` vide.
+- **Terminer** : annulable pendant le rendu HD (fichier partiel supprimé). Après la copie dans Drive (à partir de 96 %), trop tard : l'agent finit.
+
+Ordre de déploiement : la base et le hub peuvent partir avant l'agent. En attendant, l'annulation d'une tâche en attente marche ; celle d'une tâche en cours reste « demandée » et la tâche finit normalement (le fil affiche « trop tard »).
+
+### Suites possibles (pas faites)
+
+- **« Relancer l'enregistrement » dans l'écran Templates** pour un style annulé ou en erreur (Hugues). Le RLS le permet déjà (`enregistrer_style` créée par Hugues avec `{ template_id }`). D'ici là, un style annulé reste « Approuvé, style en préparation » sans galerie.
+- Corriger, dans l'agent, le commit orphelin laissé par un plantage entre le commit et `creerVersion` (le point 4 le fait pour l'annulation ; un plantage simple le laisse encore).
+
+Tests : `montageAnnulation.test.js` (18 : bouton selon le statut et le type, Hugues seul pour le style, confirmations, textes en ligne et hors ligne, réponses de la base, erreurs, lignes du fil, trop tard, texte remis, champ bloqué pendant l'annulation, place dans le fil, statut du template), `annulation.test.jsx` (11 : bouton en attente sans confirmation, confirmation en cours, annulation en cours, rien pour une tâche finie, fil avec progression puis Annuler, Terminer et variante, barre grise, lecture seule, ligne « annulée » avec le nom, écran Templates pour Hugues et info@, style annulé). `70_tests_annulation.sql` (29 : premier montage annulé et file recalculée, montage avec versions intact, deuxième annulation, tâche inconnue, Terminer annulé qui libère l'ajout de clips, toujours pas d'UPDATE direct, colonnes forcées à vide à la création, l'agent ne prend pas une tâche annulée, demande sur une tâche en cours, déjà demandée, l'agent écrit `annulee` et le verrou se libère, style refusé à info@ et permis à Hugues, hors liste, non connecté). `run.sh` → `PASS: 247  FAIL: 0`. Hub : 489 tests qui passent (les 2 fichiers des commissions échouent toujours, `scripts/baseline/inputs.json` absent). Build sans remarque.
+
+### Tester à la main (4 points)
+
+1. **En attente, Mac hors ligne** (agent arrêté) : envoyer une demande sur un montage en v1 ou plus, puis « Annuler » dans la bulle. La bulle devient « Annulée par … avant que le Mac la commence. », le texte revient dans le champ, le champ se débloque. SQL : `select statut, annulation_demandee_par, annulee_le from video_taches order by created_at desc limit 1;` → `annulee`.
+2. **Premier montage en attente** : lancer un nouveau montage Mac arrêté, l'ouvrir, « Annuler ». Le montage passe en erreur « Montage annulé avant de commencer. Tu peux le relancer. » et « Relancer le montage » marche.
+3. **En cours, agent pas encore à jour** : pendant une ronde, « Annuler », « Arrêter la ronde ». Barre grise, « Annulation en cours… ». À la fin de la ronde, la version arrive quand même et le fil dit « L'annulation est arrivée trop tard : la vN était déjà prête. » (comportement attendu tant que l'étape agent n'est pas faite).
+4. **Style (Hugues)** : connecté comme info@, aucun bouton Annuler sur un style en préparation ; comme Hugues, « Annuler » sur un style en attente le passe à « Enregistrement du style annulé ».

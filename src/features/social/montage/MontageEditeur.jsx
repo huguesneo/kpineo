@@ -3,11 +3,13 @@ import { Link, useParams } from 'react-router-dom'
 import Layout from '../../../components/layout/Layout'
 import Card from '../../../components/shared/Card'
 import Badge from '../../../components/shared/Badge'
+import { useAuth } from '../../../context/AuthContext'
 import { isAgentEnLigne, statutMontage, STATUTS_EN_TRAITEMENT } from '../../../lib/montageVideo'
 import {
   jobIdValide, etatEnvoi, filConversation, versionAffichee, dernierNumero, tacheActive,
 } from '../../../lib/montageEditeur'
 import { etatCorrection, correctionsAEnvoyer } from '../../../lib/montageSousTitres'
+import { annulationDemandee, texteARemettre } from '../../../lib/montageAnnulation'
 import { useAgentStatus } from './useMontageVideo'
 import { useMontageEditeur, useNoms, useUrlApercu, useConfirmerSortie } from './useMontageEditeur'
 import PastilleMac from './PastilleMac'
@@ -59,8 +61,9 @@ export default function MontageEditeur() {
 function Editeur({ jobId }) {
   const {
     job, versions, taches, clips, variantes, origine, loading, error, introuvable, direct, reload,
-    envoyer, corriger, restaurer, terminer, creerVariante, ajouterClip,
+    envoyer, corriger, restaurer, terminer, creerVariante, ajouterClip, annuler,
   } = useMontageEditeur(jobId)
+  const { user } = useAuth()
   const agent = useAgentStatus()
   const propositions = useTemplatesDuMontage(jobId)
   const enLigne = !agent.error && isAgentEnLigne(agent.status?.dernier_signal, agent.maintenant)
@@ -112,6 +115,13 @@ function Editeur({ jobId }) {
   // Phrase mise dans la demande après l'ajout ou le remplacement d'un clip.
   const [phraseClip, setPhraseClip] = useState(null)
   const ajouterPhrase = useCallback((texte) => setPhraseClip({ texte, tour: Date.now() }), [])
+  // Demande annulée avant que le Mac la commence : son texte revient dans le champ.
+  const annulerTache = useCallback(async (tache) => {
+    const code = await annuler(tache)
+    const texte = code === 'annulee' ? texteARemettre(tache) : null
+    if (texte) ajouterPhrase(texte)
+    return code
+  }, [annuler, ajouterPhrase])
 
   if (loading && !job) {
     return <Message titre="Chargement du montage..." texte="Un instant." />
@@ -193,6 +203,7 @@ function Editeur({ jobId }) {
               {STATUTS_EN_TRAITEMENT.includes(job.statut)
                 ? <> · {job.etape || statut.label} · {job.progression ?? 0} %</>
                 : <> · en attente de l'agent</>}
+              {annulationDemandee(active) && <> · annulation en cours</>}
             </div>
           )}
           {version ? (
@@ -267,7 +278,7 @@ function Editeur({ jobId }) {
         <Card className="flex flex-col lg:col-start-2 lg:row-start-1 lg:row-span-2 lg:max-h-[calc(100vh-12rem)]">
           <h2 className="text-base font-bold text-[#1a1a1a] px-4 pt-4 pb-2">Conversation</h2>
           <div className="flex-1 overflow-y-auto px-4 py-2 min-h-[200px] max-h-[60vh] lg:max-h-none">
-            <FilConversation messages={messages} noms={noms} job={job} />
+            <FilConversation messages={messages} noms={noms} job={job} annulation={{ onAnnuler: annulerTache, email: user?.email, enLigne }} />
           </div>
           <div className="border-t border-[#e5e7eb] p-4">
             <ZoneDemande etat={etat} enLigne={enLigne} onEnvoyer={envoyer} ajoutTexte={phraseClip} />

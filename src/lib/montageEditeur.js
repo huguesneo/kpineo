@@ -1,5 +1,6 @@
 // Logique de l'éditeur de montage (phase 3a), sans dépendance à React ni à
 // Supabase (testée dans montageEditeur.test.js).
+import { annulationDemandee, texteAnnulationTardive } from './montageAnnulation'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -37,6 +38,9 @@ export function derniereTache(taches) {
 export function etatEnvoi({ job, taches }) {
   if (!job) return { desactive: true, raison: 'Chargement du montage...', videPermis: false }
   const active = tacheActive(taches)
+  if (annulationDemandee(active)) {
+    return { desactive: true, raison: "Annulation en cours : tu pourras écrire une nouvelle demande quand le Mac aura arrêté.", videPermis: false }
+  }
   if (active?.statut === 'en_cours') {
     return { desactive: true, raison: "L'agent travaille sur la dernière demande. Tu pourras écrire la suivante quand la nouvelle version sera prête.", videPermis: false }
   }
@@ -103,8 +107,10 @@ export function texteTache(tache) {
 
 // Fil de conversation : pour chaque version, la demande (prompt) puis la
 // réponse de l'agent ; un export réussi (tâche terminer faite) se place à sa
-// date entre les versions. Ensuite la demande en cours (pas encore de version)
-// ou le refus de la dernière demande. `job` sert au chemin du dernier export.
+// date entre les versions. Une tâche annulée se place à sa date avec la ligne
+// « annulée » ; une annulation arrivée trop tard, juste après ce que l'agent a
+// livré. Ensuite la demande en cours (pas encore de version, avec la tâche
+// pour le bouton Annuler) ou le refus de la dernière demande. `job` sert au chemin du dernier export.
 // `autres` : blocs { date, messages } placés à leur date (ex. templates proposés).
 export function filConversation({ versions, taches, job = null, autres = [] }) {
   const blocs = [...autres]
@@ -146,12 +152,32 @@ export function filConversation({ versions, taches, job = null, autres = [] }) {
     })
   }
   const temps = (d) => new Date(d).getTime() || 0
+  for (const t of (taches || []).filter(x => x.statut === 'annulee')) {
+    blocs.push({
+      date: t.created_at,
+      messages: [
+        { cle: `t${t.id}`, role: 'demande', texte: texteTache(t), auteur: t.cree_par, date: t.created_at },
+        { cle: `a${t.id}`, role: 'annulee', tache: t, date: t.annulee_le || t.created_at },
+      ],
+    })
+  }
+  // Trop tard : la tâche a fini quand même. Placée après la version qu'elle a
+  // donnée (la première créée après la tâche), ou après l'export / la variante.
+  for (const t of (taches || []).filter(x => x.statut === 'fait' && x.annulation_demandee_le)) {
+    const livree = ['terminer', 'variante'].includes(t.type)
+      ? null
+      : trierVersions(versions).find(v => temps(v.created_at) >= temps(t.created_at))
+    blocs.push({
+      date: livree ? livree.created_at : t.created_at,
+      messages: [{ cle: `l${t.id}`, role: 'annulation_tardive', texte: texteAnnulationTardive(t, livree?.numero), date: t.annulation_demandee_le }],
+    })
+  }
   const messages = blocs.sort((a, b) => temps(a.date) - temps(b.date)).flatMap(b => b.messages)
   const active = tacheActive(taches)
   if (active) {
     messages.push({
       cle: `t${active.id}`, role: 'demande', texte: texteTache(active),
-      auteur: active.cree_par, date: active.created_at, enAttente: active.statut,
+      auteur: active.cree_par, date: active.created_at, enAttente: active.statut, tacheActive: active,
       ...(active.type === 'variante' ? { variante: true } : {}),
     })
     return messages

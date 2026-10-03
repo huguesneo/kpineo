@@ -5,18 +5,34 @@ import { tacheCorrection, erreurBase } from '../../../lib/montageSousTitres'
 import { tacheRestaurer, tacheTerminer } from '../../../lib/montageFin'
 import { tacheVariante } from '../../../lib/montageVariantes'
 import { ligneAjoutClip } from '../../../lib/montageClips'
+import { COLONNES_ANNULATION } from '../../../lib/montageAnnulation'
 import { urlSigneeApercu } from './useMontageVideo'
 
 const COLONNES_JOB =
   'id, titre, cree_par, statut, etape, progression, created_at, updated_at, erreur, format, version_courante, template_id, prompt, lien_drive_export, variante_de'
 const COLONNES_VERSION = 'id, job_id, numero, chemin_apercu, prompt, reponse_agent, auteur, created_at, sous_titres'
-const COLONNES_TACHE = 'id, job_id, type, payload, statut, cree_par, erreur, created_at'
+const COLONNES_TACHE = `id, job_id, type, payload, statut, cree_par, erreur, created_at, ${COLONNES_ANNULATION}`
 const COLONNES_CLIP = 'id, job_id, ordre, role, nom, nom_source, duree_s, remplace_ordre, ajoute_en_version'
 const COLONNES_VARIANTE = 'id, titre, statut, format, version_courante, created_at, variante_de'
 const POLLING_MS = 3000
 
 function remplacer(liste, row) {
   return [...liste.filter(x => x.id !== row.id), row]
+}
+
+// Annule une tâche (public.video_annuler_tache, migration 20261003g). Renvoie
+// 'annulee', 'demandee', 'deja_demandee' ou 'deja_finie'.
+export async function annulerTache(id) {
+  const { data, error } = await supabase.rpc('video_annuler_tache', { p_id: id })
+  if (error) throw error
+  return data
+}
+
+// Tâche telle que la base vient de la laisser, sans attendre le temps réel.
+export function apresAnnulation(tache, code, maintenant = new Date().toISOString()) {
+  if (code === 'annulee') return { ...tache, statut: 'annulee', annulee_le: maintenant, annulation_demandee_le: maintenant }
+  if (code === 'demandee') return { ...tache, annulation_demandee_le: maintenant }
+  return tache
 }
 
 // Un montage, ses versions et ses tâches, en direct (ses clips : relus avec le
@@ -140,6 +156,14 @@ export function useMontageEditeur(jobId) {
     }
     await creerTache(tache)
   }, [creerTache, jobId, reload])
+  // Bouton Annuler du fil : la tâche est mise à jour tout de suite (le temps
+  // réel confirme), puis le montage relu (un premier montage annulé passe en erreur).
+  const annuler = useCallback(async (tache) => {
+    const code = await annulerTache(tache.id)
+    setTaches(prev => prev.map(t => (t.id === tache.id ? apresAnnulation(t, code) : t)))
+    if (code === 'annulee') reload()
+    return code
+  }, [reload])
   const restaurer = useCallback((numero) => creerTache(tacheRestaurer(jobId, numero)), [creerTache, jobId])
   const terminer = useCallback(() => creerTache(tacheTerminer(jobId)), [creerTache, jobId])
   const creerVariante = useCallback((choix) => creerTache(tacheVariante(jobId, choix)), [creerTache, jobId])
@@ -165,7 +189,7 @@ export function useMontageEditeur(jobId) {
 
   return {
     job, versions, taches, clips, variantes, origine, loading, error, introuvable, direct, reload,
-    envoyer, corriger, restaurer, terminer, creerVariante, ajouterClip,
+    envoyer, corriger, restaurer, terminer, creerVariante, ajouterClip, annuler,
   }
 }
 

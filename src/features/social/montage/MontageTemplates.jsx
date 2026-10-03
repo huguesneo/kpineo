@@ -8,12 +8,15 @@ import { useAuth } from '../../../context/AuthContext'
 import { canApproveVideoTemplates } from '../../../lib/montageVideoAccess'
 import { trierTemplates } from '../../../lib/montageTemplates'
 import { useTemplates } from './useMontageTemplates'
+import { useAgentStatus } from './useMontageVideo'
+import { isAgentEnLigne } from '../../../lib/montageVideo'
 import { useNoms } from './useMontageEditeur'
 import { ApercuTemplate } from './EtapeDirection'
 import { CarteTemplateListe } from './TemplatesMontage'
 
 // Liste des templates, sans état ni requête (rendue telle quelle dans les tests).
-export function ListeTemplates({ templates, jobs = {}, versions = [], taches = [], noms = {}, email, onApercu = () => {}, onDecider = async () => {} }) {
+// onAnnulerStyle : bouton Annuler sur un style en cours d'enregistrement (Hugues).
+export function ListeTemplates({ templates, jobs = {}, versions = [], taches = [], noms = {}, email, onApercu = () => {}, onDecider = async () => {}, onAnnulerStyle, enLigne = true }) {
   if (!templates.length) {
     return (
       <p className="text-sm text-[#6b7280] text-center py-10 px-4">
@@ -34,6 +37,8 @@ export function ListeTemplates({ templates, jobs = {}, versions = [], taches = [
           email={email}
           onApercu={onApercu}
           onDecider={onDecider}
+          onAnnulerStyle={onAnnulerStyle}
+          enLigne={enLigne}
         />
       ))}
     </ul>
@@ -42,7 +47,9 @@ export function ListeTemplates({ templates, jobs = {}, versions = [], taches = [
 
 export default function MontageTemplates() {
   const { user } = useAuth()
-  const { templates, jobs, versions, tachesStyle, loading, error, reload, decider } = useTemplates()
+  const { templates, jobs, versions, tachesStyle, loading, error, reload, decider, annulerStyle } = useTemplates()
+  const agent = useAgentStatus()
+  const enLigne = !agent.error && isAgentEnLigne(agent.status?.dernier_signal, agent.maintenant)
   const noms = useNoms(templates.map(t => t.propose_par))
   const [apercu, setApercu] = useState(null)
   const hugues = canApproveVideoTemplates(user?.email)
@@ -79,6 +86,8 @@ export default function MontageTemplates() {
             email={user?.email}
             onApercu={setApercu}
             onDecider={decider}
+            onAnnulerStyle={annulerStyle}
+            enLigne={enLigne}
           />
         )}
       </Card>

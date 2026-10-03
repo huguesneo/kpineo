@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react'
 import { dateFr } from './PastilleMac'
 import TexteMarkdown from './TexteMarkdown'
+import AnnulerTache from './AnnulerTache'
+import { annulationDemandee, texteTacheAnnulee } from '../../../lib/montageAnnulation'
 
 function Entete({ qui, date, version }) {
   return (
@@ -12,11 +14,11 @@ function Entete({ qui, date, version }) {
   )
 }
 
-function EtatDemande({ statut, job, variante }) {
+function Progression({ statut, job, variante, arret }) {
   // Variante : l'agent travaille sur un nouveau montage, pas sur celui-ci.
   if (variante) {
     return (
-      <p className="text-xs text-[#00bbb1] font-semibold mt-2">
+      <p className={`text-xs font-semibold mt-2 ${arret ? 'text-[#6b7280]' : 'text-[#00bbb1]'}`}>
         {statut === 'en_cours' ? 'Le Mac crée la variante (nouveau montage)' : "En attente de l'agent"}
       </p>
     )
@@ -25,9 +27,9 @@ function EtatDemande({ statut, job, variante }) {
     const progression = job?.progression ?? 0
     return (
       <div className="mt-2">
-        <p className="text-xs text-[#00bbb1] font-semibold">{job?.etape || "L'agent travaille sur ta demande"} · {progression} %</p>
+        <p className={`text-xs font-semibold ${arret ? 'text-[#6b7280]' : 'text-[#00bbb1]'}`}>{job?.etape || "L'agent travaille sur ta demande"} · {progression} %</p>
         <div className="mt-1 h-1.5 rounded-full bg-white overflow-hidden">
-          <div className="h-full bg-[#00bbb1] transition-all" style={{ width: `${progression}%` }} />
+          <div className={`h-full transition-all ${arret ? 'bg-[#9ca3af]' : 'bg-[#00bbb1]'}`} style={{ width: `${progression}%` }} />
         </div>
       </div>
     )
@@ -35,9 +37,21 @@ function EtatDemande({ statut, job, variante }) {
   return <p className="text-xs text-[#6b7280] mt-2">En attente de l'agent</p>
 }
 
+// Progression de la demande en cours, puis le bouton Annuler (ou « Annulation
+// en cours… ») quand l'éditeur le permet (annulation = { onAnnuler, email, enLigne }).
+function EtatDemande({ statut, job, variante, tache, annulation }) {
+  return (
+    <>
+      <Progression statut={statut} job={job} variante={variante} arret={annulationDemandee(tache)} />
+      {annulation && tache && <AnnulerTache tache={tache} job={job} {...annulation} />}
+    </>
+  )
+}
+
 // Fil de conversation : demande de l'utilisateur, puis réponse de l'agent,
-// version par version (messages préparés par filConversation).
-export default function FilConversation({ messages, noms = {}, job }) {
+// version par version (messages préparés par filConversation). annulation :
+// voir EtatDemande (absent : pas de bouton Annuler).
+export default function FilConversation({ messages, noms = {}, job, annulation = null }) {
   const fin = useRef(null)
   useEffect(() => {
     fin.current?.scrollIntoView?.({ block: 'end' })
@@ -61,7 +75,17 @@ export default function FilConversation({ messages, noms = {}, job }) {
                 m.enAttente ? 'bg-[#00bbb1]/5 border border-dashed border-[#00bbb1]/40 text-[#1a1a1a]' : 'bg-[#00bbb1] text-white'
               }`}>
                 {m.texte}
-                {m.enAttente && <EtatDemande statut={m.enAttente} job={job} variante={m.variante} />}
+                {m.enAttente && <EtatDemande statut={m.enAttente} job={job} variante={m.variante} tache={m.tacheActive} annulation={annulation} />}
+              </div>
+            </li>
+          )
+        }
+        if (m.role === 'annulee' || m.role === 'annulation_tardive') {
+          const par = m.tache?.annulation_demandee_par
+          return (
+            <li key={m.cle} className="flex flex-col items-start" data-role={m.role}>
+              <div className="max-w-[90%] rounded-2xl px-4 py-2 text-xs bg-gray-50 border border-gray-200 text-[#6b7280] whitespace-pre-wrap break-words">
+                {m.role === 'annulee' ? texteTacheAnnulee(m.tache, noms[par] || par) : m.texte}
               </div>
             </li>
           )

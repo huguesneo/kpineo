@@ -7,6 +7,7 @@ import {
   statutTemplate, tacheStyle, cheminApercuTemplate, actionsTemplate, dateTemplate, messageErreurTemplate,
 } from '../../../lib/montageTemplates'
 import { dateFr } from './PastilleMac'
+import AnnulerTache from './AnnulerTache'
 
 const CHAMP = 'w-full px-3 py-2 border border-[#e5e7eb] rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#00bbb1]/30 focus:border-[#00bbb1]'
 
@@ -138,8 +139,9 @@ export function DecisionTemplate({ template, email, apercuPret, onDecider, refus
 }
 
 // Une ligne de l'écran Templates.
-export function CarteTemplateListe({ template, titreMontage, versions, taches, noms = {}, email, onApercu, onDecider, refusOuvertInitial }) {
-  const statut = statutTemplate(template, tacheStyle(taches, template.id))
+export function CarteTemplateListe({ template, titreMontage, versions, taches, noms = {}, email, onApercu, onDecider, refusOuvertInitial, onAnnulerStyle, enLigne = true }) {
+  const style = tacheStyle(taches, template.id)
+  const statut = statutTemplate(template, style)
   const chemin = cheminApercuTemplate(template, versions)
   const apercuTemplate = template.style_enregistre && template.chemin_apercu
   return (
@@ -152,6 +154,7 @@ export function CarteTemplateListe({ template, titreMontage, versions, taches, n
         <Badge variant={statut.variant}>{statut.label}</Badge>
       </div>
       {statut.detail && <p className={`text-xs mt-2 break-words ${statut.erreur ? 'text-red-600' : 'text-[#6b7280]'}`}>{statut.detail}</p>}
+      {statut.cle === 'preparation' && <AnnulerTache tache={style} email={email} enLigne={enLigne} onAnnuler={onAnnulerStyle} />}
       <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
         <dt className="text-[#9ca3af]">Proposé par</dt>
         <dd className="text-[#374151]">{noms[template.propose_par] || template.propose_par || '—'}</dd>

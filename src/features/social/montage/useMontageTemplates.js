@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { ligneProposition, changementDecision } from '../../../lib/montageTemplates'
+import { COLONNES_ANNULATION } from '../../../lib/montageAnnulation'
+import { annulerTache, apresAnnulation } from './useMontageEditeur'
 
 export const COLONNES_TEMPLATE =
   'id, nom, description, type_video, statut, propose_par, approuve_par, approuve_le, motif_refus, chemin_apercu, style_enregistre, reference_video_neo, job_id, numero_version, created_at'
-const COLONNES_TACHE_STYLE = 'id, type, payload, statut, erreur, created_at'
+const COLONNES_TACHE_STYLE = `id, type, payload, statut, erreur, created_at, ${COLONNES_ANNULATION}`
 
 function remplacer(liste, row) {
   return [...liste.filter(x => x.id !== row.id), row]
@@ -114,5 +116,12 @@ export function useTemplates() {
     if (action === 'approuver') lireTachesStyle().then(setTachesStyle).catch(() => {})
   }, [])
 
-  return { templates, jobs, versions, tachesStyle, loading, error, reload, decider }
+  // Annuler l'enregistrement d'un style (Hugues seulement, la base vérifie).
+  const annulerStyle = useCallback(async (tache) => {
+    const code = await annulerTache(tache.id)
+    setTachesStyle(prev => prev.map(t => (t.id === tache.id ? apresAnnulation(t, code) : t)))
+    return code
+  }, [])
+
+  return { templates, jobs, versions, tachesStyle, loading, error, reload, decider, annulerStyle }
 }
