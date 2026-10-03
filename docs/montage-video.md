@@ -3,7 +3,7 @@
 Branche `feat/montage-video`, feature flag `VITE_MONTAGE_VIDEO` (désactivé par défaut, jamais activé dans Netlify pour l'instant).
 Plan de référence : `PROMPT-CLAUDE-CODE-MONTAGE-VIDEO-2026-10-01.md` (hors dépôt).
 
-## État au 2 octobre 2026
+## État au 3 octobre 2026
 
 | Phase | Contenu | État |
 |---|---|---|
@@ -14,6 +14,7 @@ Plan de référence : `PROMPT-CLAUDE-CODE-MONTAGE-VIDEO-2026-10-01.md` (hors dé
 | **1c** | **Sous-menus Réseaux sociaux (Analyse et pub + Montage vidéo), redirection de `/reseaux-sociaux`, accueil, pastille Mac en ligne, file d'attente, configuration du dossier Brut** | **Fait, testé (logique), derrière le flag** |
 | **2a-2b** | **Upload résumable vers Brut, Google Picker (vidéos), copie dans Brut, galerie de templates, prompt, lancement (montage + tâche), aperçu et progression dans la liste** | **Fait, testé (logique), derrière le flag** |
 | 3 | Éditeur : aperçu (vidéo du bucket), fil des réponses, sous-titres éditables, versions, Terminer | À faire |
+| **4-départ** | **Templates de départ « Pub 0929 » et « Entrevue mythe 0924 » (approuvés, aperçus), colonne `style_enregistre`, montage parti de la composition de départ du style** | **Fait, testé, appliqué en production le 3 oct.** |
 | 4 | Templates proposés et approbation par Hugues, variantes | À faire (côté agent : prêt) |
 
 Prérequis vérifié : `public.is_hugues()` existe en production.
@@ -204,12 +205,41 @@ Prérequis : `.env.local` comme en phase 1c, `npm run dev`, connecté au hub com
 7. **Direction et lancement** : galerie vide avec « Aucun template pour l'instant, décris ce que tu veux ». « Lancer le montage » sans prompt : message sous le champ. Écrire un prompt, lancer : retour à la liste, le montage apparaît en file. Dans l'éditeur SQL : une ligne `video_jobs` (bon `nom_source`, `format` 9:16) et une tâche `montage` `en_attente`, `payload` `{}`. Pour l'erreur réseau : couper le Wi-Fi avant de cliquer, message clair, rallumer, « Réessayer » : un seul montage créé.
 8. **Liste** : agent démarré (`npm run simule` dans `video-neo/agent`) : l'étape et la barre avancent sans recharger, puis « Voir l'aperçu (v1) » ouvre l'aperçu dans un nouvel onglet. Pour une erreur : `update video_jobs set statut='erreur', erreur='Essai d''erreur' where titre='<titre>';` agent arrêté : le message apparaît sous le titre sans recharger.
 
+## Templates de départ (3 oct. 2026)
+
+Deux styles déjà validés par Hugues sont dans la galerie de l'étape 2 dès le départ, sans passer par une proposition :
+
+| Template | `id` | `reference_video_neo` | Composition de départ | Aperçu (10 s, 540 x 960) |
+|---|---|---|---|---|
+| Pub 0929 | `4aa4bc15-1d52-4c4f-a65a-8a3c2e22ad3f` | `style/pub-0929` | `src/pubs/Pub0929.tsx` | extrait de `out/pub-0929-neo-pub.mp4` |
+| Entrevue mythe 0924 | `678ddebc-013f-45ed-b164-cbeaf886c833` | `style/entrevue-mythe-0924` | `src/pubs/Pub0924.tsx` | extrait de `out/pub-0924-hd.mp4` |
+
+`type_video` = `neo-video-montage`, `statut` = `approuve`, `approuve_par` = hugues@, `style_enregistre` = true, `chemin_apercu` = `templates/<id>/apercu.mp4` (déposé dans `video-apercus` avec la clé de l'agent). `out/pub-0929-hd.mp4` n'a jamais été ouvert (empreinte SHA-256 identique avant et après).
+
+Migrations (soma-hq, appliquées sous les noms `montage_video_style_enregistre` et `montage_video_templates_depart`) :
+- `20261003a_montage_video_style_enregistre.sql` : additive. Colonne `video_templates.style_enregistre` (false par défaut) et trigger de garde : un utilisateur du hub ne peut pas la changer (forcée à false à l'insertion). Aucune fonction ni trigger existant modifié.
+- `20261003b_montage_video_templates_depart.sql` : les deux lignes, `ON CONFLICT DO NOTHING`.
+
+**Pourquoi aucune tâche `enregistrer_style`** : le trigger `video_templates_approuve` ne se déclenche que sur un `UPDATE` du statut. Une ligne insérée directement en `approuve` (migration ou `service_role`) n'en crée pas. Vérifié en production : 0 tâche `enregistrer_style`.
+
+Dans video-neo :
+- Branches `style/pub-0929` et `style/entrevue-mythe-0924`, parties de `main`, jamais fusionnées. Chacune ajoute seulement son skill `.claude/skills/<nom>/SKILL.md`, dont l'en-tête déclare `composition_depart`.
+- Agent (`feat/agent-hub`) : avec un template, la composition de départ est celle du skill du style (`composition_depart`), sinon le modèle `_Modele<Nom>.tsx` écrit par « enregistrer le style », sinon `_ModelePub.tsx`. Claude la copie et en remplace la vidéo, la transcription, les textes et les temps : il ne part plus du modèle vide. Une composition déclarée mais absente de la branche est refusée avec un message clair (le montage reste en file). `enregistrer_style` demande maintenant `composition_depart` dans le skill et passe `style_enregistre` à true.
+
+Tests :
+- Base : `run.sh` → `PASS: 105  FAIL: 0` (94 d'avant + 11 : templates de départ, galerie, aucune tâche, garde de `style_enregistre`).
+- Agent : `NEO_HUB_DIR=<ce worktree> npm test` → 56 tests, dont le circuit en simulation d'un template de départ inséré approuvé (aucune tâche `enregistrer_style`, montage parti de `style/pub-0929`, prompt « copié de src/pubs/Pub0929.tsx », jamais `_ModelePub`).
+- Hub : `npm test` → 122 tests qui passent ; les 2 fichiers des commissions échouent toujours faute de photo de référence (`scripts/baseline`), sans lien avec le module.
+
+Vérifié en lecture seule en production : les 2 templates (comme hugues@, avec le RLS, par la requête de la galerie), les 2 fichiers dans `video-apercus/templates/` visibles par hugues@ (URL signée possible). Pas vérifié dans un navigateur : ouvrir « Nouvelle vidéo », étape 2, les deux cartes doivent s'afficher et leur aperçu s'ouvrir au clic.
+
 ## Reste à faire
 
 - Hugues : installer le service (`bash agent/launchd/installer.sh --essai`, puis sans `--essai`) après avoir fusionné `feat/agent-hub` dans `main` de video-neo ; premier vrai montage pour valider Claude de bout en bout.
 - Hugues : partager `NEO vidéo/Brut` (en modification) avec info@ ; à son premier envoi, info@ cliquera une fois « Autoriser le dossier Brut ».
 - Hub 3 : éditeur (aperçu par URL signée, `reponse_agent`, bande de sous-titres depuis `sous_titres`, versions, Terminer, lien d'export).
 - Hub 4 : proposition de template avec `job_id` et `numero_version`, approbation par Hugues, menu Variantes.
+- Premier vrai montage avec un template de départ (demande la clé Anthropic) : vérifier que Claude copie bien `Pub0929.tsx` ou `Pub0924.tsx`.
 - `lien_drive_export` est un chemin dans Drive, pas une URL : le hub pourra retrouver le fichier par l'API Drive (phase 3).
 
 ## Tester la migration en local
@@ -220,4 +250,4 @@ Avec un Postgres local vide (jamais un projet Supabase, le script refuse), migra
 PGHOST=/chemin/socket PGPORT=5432 PGUSER=postgres supabase/tests/montage_video/run.sh
 ```
 
-Résultat attendu : `PASS: 94  FAIL: 0`. Sur le Mac : `brew install postgresql@17`, puis un Postgres jetable (`initdb`, `pg_ctl ... -o "-k '' -p 54329"`) et `PGHOST=localhost PGPORT=54329`.
+Résultat attendu : `PASS: 105  FAIL: 0` (migrations e, f et 20261003a, puis les templates de départ). Sur le Mac : `brew install postgresql@17`, puis un Postgres jetable (`initdb`, `pg_ctl ... -o "-k '' -p 54329"`) et `PGHOST=localhost PGPORT=54329`.
