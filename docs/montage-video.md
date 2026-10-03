@@ -15,6 +15,7 @@ Plan de référence : `PROMPT-CLAUDE-CODE-MONTAGE-VIDEO-2026-10-01.md` (hors dé
 | **2a-2b** | **Upload résumable vers Brut, Google Picker (vidéos), copie dans Brut, galerie de templates, prompt, lancement (montage + tâche), aperçu et progression dans la liste** | **Fait, testé (logique), derrière le flag** |
 | **3a** | **Éditeur : lecteur 9:16 (aperçu du bucket), fil de conversation, demande « Qu'est-ce que tu veux changer ? », bande des versions, Mac en ligne, temps réel** | **Fait, testé (logique, composants, RLS), derrière le flag** |
 | **8** | **Correction des sous-titres à la main dans l'éditeur (tâche `correction_sous_titres`), réponse de l'agent rendue en markdown dans le fil** | **Fait, testé (logique, composants), derrière le flag. Aucune migration, agent inchangé** |
+| **9** | **Restaurer une version (tâche `restaurer`), Terminer et exporter (tâche `terminer`), lien « Ouvrir dans Drive » dans l'éditeur et la liste** | **Fait, testé (logique, composants), derrière le flag. Aucune migration, agent inchangé** |
 | **Clips 1** | **Plusieurs clips par montage (Principal et B-roll) : table `video_clips`, liste ordonnée à l'étape 1, clips dans le payload de la tâche, panneau dans l'éditeur ; la file de l'accueil ouvre l'éditeur** | **Fait, testé, appliqué en production le 3 oct. Agent : partie 2, à faire** |
 | 3b et suite | Sous-titres éditables, restaurer une version, Terminer et lien d'export | À faire |
 | **4-départ** | **Templates de départ « Pub 0929 » et « Entrevue mythe 0924 » (approuvés, aperçus), colonne `style_enregistre`, montage parti de la composition de départ du style** | **Fait, testé, appliqué en production le 3 oct.** |
@@ -240,10 +241,10 @@ Vérifié en lecture seule en production : les 2 templates (comme hugues@, avec 
 
 - Hugues : installer le service (`bash agent/launchd/installer.sh --essai`, puis sans `--essai`) après avoir fusionné `feat/agent-hub` dans `main` de video-neo ; premier vrai montage pour valider Claude de bout en bout.
 - Hugues : partager `NEO vidéo/Brut` (en modification) avec info@ ; à son premier envoi, info@ cliquera une fois « Autoriser le dossier Brut ».
-- Hub 3b et suite : ~~bande de sous-titres éditable~~ (fait, étape 8), restaurer une version (tâche `restaurer`), Terminer et lien d'export. L'éditeur 3a est en place.
+- Hub 3b et suite : ~~bande de sous-titres éditable~~ (fait, étape 8), ~~restaurer une version~~, ~~Terminer et lien d'export~~ (faits, étape 9). L'éditeur 3a est en place.
 - Hub 4 : proposition de template avec `job_id` et `numero_version`, approbation par Hugues, menu Variantes.
 - Premier vrai montage avec un template de départ (demande la clé Anthropic) : vérifier que Claude copie bien `Pub0929.tsx` ou `Pub0924.tsx`.
-- `lien_drive_export` est un chemin dans Drive, pas une URL : le hub pourra retrouver le fichier par l'API Drive (phase 3).
+- `lien_drive_export` est un chemin dans Drive, pas une URL. Avec la portée `drive.file`, le hub ne peut pas retrouver le fichier par l'API (il a été créé par Drive pour ordinateur) : « Ouvrir dans Drive » ouvre une recherche sur le nom exact. Agent : écrire l'URL du fichier (voir étape 9).
 
 ## Phase 3a : éditeur de montage (hub)
 
@@ -372,6 +373,41 @@ Agent en simulation (`npm run simule` dans `video-neo/agent`), un montage avec u
 1. **Panneau** : les lignes et leurs débuts s'affichent sous la bande ; cliquer « 1,2 s » place le lecteur à 1,2 s. Allonger une ligne au-delà de 24 caractères : avertissement orange, « Appliquer » reste actif. Retirer un mot : erreur rouge, « Appliquer » désactivé. « Annuler mes changements » remet le texte d'origine.
 2. **Envoi** : corriger un mot, Appliquer. Le panneau et le champ de demande se désactivent (« attend son tour »), le fil montre « Correction des sous-titres à la main (1 mot) ». Dans l'éditeur SQL, la tâche a `payload` `{"corrections":[{"mot":…,"texte":"…"}]}`. La version suivante arrive, et son `sous_titres` contient le mot corrigé.
 3. **Sortie et markdown** : avec une correction non envoyée, cliquer « Retour aux montages » ou recharger : confirmation demandée. Une réponse de l'agent avec `##` et un tableau s'affiche en titre et en tableau.
+
+## Étape 9 : restaurer une version et Terminer (3 oct. 2026)
+
+Toujours derrière `VITE_MONTAGE_VIDEO=true`. **Aucune migration** (le RLS laisse déjà le module créer `restaurer` et `terminer`, et `lien_drive_export` se lit déjà) et **agent inchangé**.
+
+Contrat vérifié dans `video-neo/agent/src/taches.ts` (`restaurer`, `terminer`) et `agent/src/drive.ts` (`cheminExport`, `exporter`) :
+- `restaurer` : payload `{ "version": k }`. Refus si k est la version actuelle ou introuvable (le montage garde son statut). L'agent remet les fichiers du commit de la vk sur la branche, fait un commit et **crée la version n+1 identique à la vk** : aperçu recopié (pas de rendu), `sous_titres` de la vk, prompt « Revenir à la version k », réponse « Retour à la version k. ». Rien n'est supprimé, les clips ne changent pas, la session Claude continue (le tour suivant reprend la conversation).
+- `terminer` : payload `{}` (comme `npm run essai:terminer`). Rendu HD de la **version actuelle** à la taille de la composition (1080 x 1920 en 9:16, 1080 x 1350 en 4:5, 1080 x 1080 en 1:1), CRF 16, -14 LUFS. Pendant le rendu : `statut='rendu'`, `etape` « Rendu final HD (x %) », `progression` de 1 à 95, puis « Export dans Google Drive ». Copie dans `NEO vidéo/Out/<titre nettoyé>/<titre>_v<n>.mp4` (jamais d'écrasement : refus si le fichier existe, le montage garde son statut). Fin : `statut='termine'`, `lien_drive_export` = ce **chemin** (pas une URL).
+- Erreur pendant le rendu ou la copie : tâche et montage en `erreur` avec le message.
+- L'agent ne refuse aucune tâche sur un montage `termine` : le verrou après Terminer est une règle du hub.
+
+Hub :
+- `src/lib/montageFin.js` : tâches `restaurer` et `terminer`, états des boutons, textes de confirmation, chemin d'export prévu (même règle `nomExport` que l'agent), `lienExport`.
+- `ActionConfirmee.jsx` : bouton puis confirmation sur place (ce que ça fait, Annuler, Confirmer), erreur d'envoi affichée.
+- `FinMontage.jsx` : `RestaurerVersion` (sous la bande des versions), `BoutonTerminer` (en haut à droite, sous la pastille Mac), `BandeauTermine`, `LienExport`.
+- `useMontageEditeur.js` : `lien_drive_export` lu avec le montage ; `restaurer(k)` et `terminer()` créent la tâche (ajoutée tout de suite à l'écran, comme une demande).
+- `montageEditeur.js` : dans le fil, « Restaurer la version k », « Terminer et exporter en HD » ; un export réussi s'affiche à sa date avec le chemin dans Drive ; une erreur d'export invite à relancer Terminer.
+- `MontageAccueil.jsx` : colonne Google Drive = « Ouvrir dans Drive » (export) puis « Vidéo source ». `lienDriveMontage` ne donne plus que la source.
+
+Décisions :
+- **Restaurer** : seulement sur une ancienne version affichée (la version actuelle n'a pas le bouton). Confirmation : « Ça crée une nouvelle version, v(n+1), identique à la vk (…). Les versions v1 à vn restent dans la bande : rien n'est perdu. Les clips ne changent pas. » Désactivé tant qu'une tâche du montage attend ou tourne (même message que le champ de demande) et pour un montage terminé.
+- **Terminer et exporter** : aucune approbation (la personne qui clique valide). Confirmation : rendu HD de la vN (taille, 30 images/s), dossier `NEO vidéo/Out/<titre>/`, nom du fichier, passage à Terminé. Désactivé sans version et pendant une tâche ; caché une fois terminé. Pendant le rendu, le lecteur garde l'aperçu avec « Rendu HD pour Google Drive · étape · % » et le fil montre la demande avec la barre habituelle.
+- **Erreur d'export** : bandeau rouge et message de l'agent dans le fil (« Tu peux relancer « Terminer et exporter » en haut de la page »). Terminer redevient actif dès que plus rien n'est en cours. Si la vN a déjà été exportée, l'agent refuse (« existe déjà ») : il faut une nouvelle version pour réexporter.
+- **Lien** : `lien_drive_export` en URL → lien direct ; en chemin → recherche Drive sur le nom exact du fichier (`drive.google.com/drive/search?q="<nom>_v<n>.mp4"`), chemin affiché dans le bandeau Terminé et en infobulle dans la liste.
+- **Après Terminer** : demande, corrections de sous-titres et Restaurer désactivés. Pas de bouton « Rouvrir » pour l'instant. Il serait simple côté hub (aucune migration, l'agent accepte déjà une tâche sur un montage terminé et le remet en `montage`, puis en `apercu_pret` avec une nouvelle version ; un nouveau Terminer exporte `_v<n+1>.mp4` à côté de l'ancien, sans rien écraser). Mais `lien_drive_export` resterait sur l'ancien export jusqu'au nouveau Terminer, et le statut Terminé disparaîtrait de la liste dès la première demande.
+
+Ce que l'agent devrait ajouter (non bloquant) : écrire dans `lien_drive_export` l'URL du fichier exporté (`https://drive.google.com/file/d/<id>/view`) au lieu du chemin. Sur le Mac, Drive pour ordinateur expose l'id dans l'attribut étendu `com.google.drivefs.item-id#S` du fichier, une fois celui-ci synchronisé (à vérifier sur le Mac). Le hub prend déjà une URL telle quelle.
+
+Tests : `montageFin.test.js` (20 : payloads, états, confirmations, nom du dossier, lien, fil), `fin.test.jsx` (17 : bouton Restaurer absent sur la version actuelle, désactivé pendant une tâche et après Terminer, confirmations, Terminer pendant le rendu et après une erreur, bandeau Terminé, liens de la liste), `montageVideo.test.js` ajusté. Hub : 354 tests qui passent (les 2 fichiers des commissions échouent toujours, photo de référence absente). Build et ESLint (configuration temporaire hors dépôt, sans `react/no-unescaped-entities` que les fichiers existants ne respectent pas) sans remarque. Pas de test SQL : aucune migration.
+
+### Tester à la main (3 points)
+
+1. **Restaurer** (agent en simulation) : sur un montage en v3, afficher v1 : « Restaurer cette version » apparaît (pas sur v3). Cliquer : la confirmation parle de v4 identique à v1. Confirmer : le bouton et le champ se désactivent, puis v4 arrive (même aperçu que v1). SQL : la tâche a `payload` `{"version":1}`.
+2. **Terminer réel** sur un petit montage (agent réel, quelques secondes de vidéo) : « Terminer et exporter », confirmer. Le fil montre « Rendu final HD (x %) », puis le montage passe à Terminé : bandeau vert avec le chemin, champ, sous-titres et Restaurer désactivés. Le fichier est dans `NEO vidéo/Out/<titre>/` sur le Mac et dans Drive (web).
+3. **Lien** : « Ouvrir dans Drive » (éditeur et liste) ouvre la recherche Drive et le fichier y apparaît (prévoir le délai de synchro de Drive pour ordinateur).
 
 ## Tester la migration en local
 

@@ -17,6 +17,7 @@ import BandeVersions from './BandeVersions'
 import ClipsMontage from './ClipsMontage'
 import ZoneDemande from './ZoneDemande'
 import PanneauSousTitres from './PanneauSousTitres'
+import { RestaurerVersion, BoutonTerminer, BandeauTermine } from './FinMontage'
 
 function Retour() {
   return (
@@ -51,7 +52,9 @@ export default function MontageEditeur() {
 }
 
 function Editeur({ jobId }) {
-  const { job, versions, taches, clips, loading, error, introuvable, direct, reload, envoyer, corriger } = useMontageEditeur(jobId)
+  const {
+    job, versions, taches, clips, loading, error, introuvable, direct, reload, envoyer, corriger, restaurer, terminer,
+  } = useMontageEditeur(jobId)
   const agent = useAgentStatus()
   const enLigne = !agent.error && isAgentEnLigne(agent.status?.dernier_signal, agent.maintenant)
   const noms = useNoms([job?.cree_par, ...versions.map(v => v.auteur), ...taches.map(t => t.cree_par)])
@@ -118,8 +121,10 @@ function Editeur({ jobId }) {
 
   const statut = statutMontage(job.statut)
   const etat = etatEnvoi({ job, taches })
-  const messages = filConversation({ versions, taches })
-  const enPreparation = version && (STATUTS_EN_TRAITEMENT.includes(job.statut) || tacheActive(taches))
+  const messages = filConversation({ versions, taches, job })
+  const active = tacheActive(taches)
+  const exportEnCours = job.statut === 'rendu' || active?.type === 'terminer'
+  const enPreparation = version && (STATUTS_EN_TRAITEMENT.includes(job.statut) || active)
 
   return (
     <Layout>
@@ -134,8 +139,13 @@ function Editeur({ jobId }) {
             {job.version_courante > 0 && <span className="text-xs text-[#6b7280]">Version actuelle : v{job.version_courante}</span>}
           </div>
         </div>
-        <PastilleMac {...agent} compacte />
+        <div className="flex flex-col items-end gap-2">
+          <PastilleMac {...agent} compacte />
+          <BoutonTerminer job={job} taches={taches} onTerminer={terminer} />
+        </div>
       </div>
+
+      <BandeauTermine job={job} />
 
       {!agent.loading && !enLigne && (
         <Card className="p-4 mb-4 border-amber-200 bg-amber-50">
@@ -166,7 +176,7 @@ function Editeur({ jobId }) {
         <Card className="p-4 lg:col-start-1 lg:row-start-1">
           {enPreparation && (
             <div className="mb-3 rounded-lg bg-[#00bbb1]/5 border border-[#00bbb1]/30 px-3 py-2 text-xs text-[#374151]">
-              <span className="font-semibold text-[#00bbb1]">Nouvelle version en préparation</span>
+              <span className="font-semibold text-[#00bbb1]">{exportEnCours ? 'Rendu HD pour Google Drive' : 'Nouvelle version en préparation'}</span>
               {STATUTS_EN_TRAITEMENT.includes(job.statut)
                 ? <> · {job.etape || statut.label} · {job.progression ?? 0} %</>
                 : <> · en attente de l'agent</>}
@@ -195,6 +205,7 @@ function Editeur({ jobId }) {
                   versionCourante={job.version_courante}
                   onChoisir={setNumeroChoisi}
                 />
+                <RestaurerVersion job={job} taches={taches} version={version} onRestaurer={restaurer} />
               </Card>
             )}
             {version && (

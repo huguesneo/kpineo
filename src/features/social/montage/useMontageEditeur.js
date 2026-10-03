@@ -2,10 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { tacheDemande, delaiRenouvellement } from '../../../lib/montageEditeur'
 import { tacheCorrection } from '../../../lib/montageSousTitres'
+import { tacheRestaurer, tacheTerminer } from '../../../lib/montageFin'
 import { urlSigneeApercu } from './useMontageVideo'
 
 const COLONNES_JOB =
-  'id, titre, cree_par, statut, etape, progression, created_at, updated_at, erreur, format, version_courante, template_id, prompt'
+  'id, titre, cree_par, statut, etape, progression, created_at, updated_at, erreur, format, version_courante, template_id, prompt, lien_drive_export'
 const COLONNES_VERSION = 'id, job_id, numero, chemin_apercu, prompt, reponse_agent, auteur, created_at, sous_titres'
 const COLONNES_TACHE = 'id, job_id, type, payload, statut, cree_par, erreur, created_at'
 const COLONNES_CLIP = 'id, job_id, ordre, role, nom, nom_source, duree_s'
@@ -102,14 +103,17 @@ export function useMontageEditeur(jobId) {
     setTaches(prev => remplacer(prev, data))
   }, [jobId])
 
-  // Corrections de sous-titres à la main : même principe que envoyer.
-  const corriger = useCallback(async (corrections) => {
-    const { data, error: err } = await supabase.from('video_taches').insert(tacheCorrection(jobId, corrections)).select(COLONNES_TACHE).single()
+  // Corrections de sous-titres, restauration, export : même principe que envoyer.
+  const creerTache = useCallback(async (tache) => {
+    const { data, error: err } = await supabase.from('video_taches').insert(tache).select(COLONNES_TACHE).single()
     if (err) throw err
     setTaches(prev => remplacer(prev, data))
-  }, [jobId])
+  }, [])
+  const corriger = useCallback((corrections) => creerTache(tacheCorrection(jobId, corrections)), [creerTache, jobId])
+  const restaurer = useCallback((numero) => creerTache(tacheRestaurer(jobId, numero)), [creerTache, jobId])
+  const terminer = useCallback(() => creerTache(tacheTerminer(jobId)), [creerTache, jobId])
 
-  return { job, versions, taches, clips, loading, error, introuvable, direct, reload, envoyer, corriger }
+  return { job, versions, taches, clips, loading, error, introuvable, direct, reload, envoyer, corriger, restaurer, terminer }
 }
 
 export const MESSAGE_SORTIE = "Tes corrections de sous-titres n'ont pas été envoyées. Quitter la page quand même ?"

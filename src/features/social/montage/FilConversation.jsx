@@ -64,7 +64,9 @@ export default function FilConversation({ messages, noms = {}, job }) {
               <Entete qui="Agent de montage" date={m.date} />
               <div className="max-w-[90%] rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm bg-red-50 border border-red-200 text-red-700 whitespace-pre-wrap break-words">
                 {m.texte}
-                <p className="text-xs mt-2 text-red-600">Tu peux renvoyer une demande ci-dessous.</p>
+                <p className="text-xs mt-2 text-red-600">
+                  {m.tache === 'terminer' ? 'Tu peux relancer « Terminer et exporter » en haut de la page.' : 'Tu peux renvoyer une demande ci-dessous.'}
+                </p>
               </div>
             </li>
           )

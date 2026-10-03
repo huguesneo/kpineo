@@ -60,13 +60,9 @@ export function lireDossierBrut(lignes) {
   return id ? { id, nom: nom || 'Dossier sans nom' } : null
 }
 
-// Lien Drive à afficher pour un montage : l'export s'il est une URL, sinon la
-// vidéo source (fichier_drive_id). lien_drive_export est aujourd'hui un chemin
-// dans Drive (NEO vidéo/Out/…), affiché tel quel par l'écran.
+// Lien vers la vidéo source du montage (fichier_drive_id). L'export a son
+// propre lien (lienExport, montageFin.js).
 export function lienDriveMontage(job) {
-  if (job?.lien_drive_export && /^https?:\/\//.test(job.lien_drive_export)) {
-    return { url: job.lien_drive_export, label: 'Vidéo finale' }
-  }
   if (job?.fichier_drive_id) {
     return {
       url: `https://drive.google.com/file/d/${encodeURIComponent(job.fichier_drive_id)}/view`,

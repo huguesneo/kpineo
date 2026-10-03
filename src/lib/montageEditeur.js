@@ -82,26 +82,46 @@ export function texteTache(tache) {
     const n = Array.isArray(tache.payload?.corrections) ? tache.payload.corrections.length : 0
     return `Correction des sous-titres à la main (${n} mot${n > 1 ? 's' : ''})`
   }
+  if (tache?.type === 'restaurer') return `Restaurer la version ${tache.payload?.version ?? '?'}`
+  if (tache?.type === 'terminer') return 'Terminer et exporter en HD'
   return tache?.payload?.prompt || 'Lancer le montage'
 }
 
 // Fil de conversation : pour chaque version, la demande (prompt) puis la
-// réponse de l'agent. Ensuite la demande en cours (pas encore de version) ou
-// le refus de la dernière demande.
-export function filConversation({ versions, taches }) {
-  const messages = []
+// réponse de l'agent ; un export réussi (tâche terminer faite) se place à sa
+// date entre les versions. Ensuite la demande en cours (pas encore de version)
+// ou le refus de la dernière demande. `job` sert au chemin du dernier export.
+export function filConversation({ versions, taches, job = null }) {
+  const blocs = []
   for (const v of trierVersions(versions)) {
+    const bloc = []
     if (v.prompt) {
-      messages.push({ cle: `p${v.numero}`, role: 'demande', texte: v.prompt, auteur: v.auteur, date: v.created_at, version: v.numero })
+      bloc.push({ cle: `p${v.numero}`, role: 'demande', texte: v.prompt, auteur: v.auteur, date: v.created_at, version: v.numero })
     }
-    messages.push({
+    bloc.push({
       cle: `r${v.numero}`,
       role: 'agent',
       texte: v.reponse_agent || 'Version prête, sans commentaire de l\'agent.',
       date: v.created_at,
       version: v.numero,
     })
+    blocs.push({ date: v.created_at, messages: bloc })
   }
+  const exports = [...(taches || [])]
+    .filter(t => t.type === 'terminer' && t.statut === 'fait')
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+  exports.forEach((t, i) => {
+    const chemin = i === exports.length - 1 ? job?.lien_drive_export : null
+    blocs.push({
+      date: t.created_at,
+      messages: [
+        { cle: `t${t.id}`, role: 'demande', texte: texteTache(t), auteur: t.cree_par, date: t.created_at },
+        { cle: `x${t.id}`, role: 'agent', texte: chemin ? `Rendu HD exporté dans Google Drive : \`${chemin}\`` : 'Rendu HD exporté dans Google Drive.', date: t.created_at },
+      ],
+    })
+  })
+  const temps = (d) => new Date(d).getTime() || 0
+  const messages = blocs.sort((a, b) => temps(a.date) - temps(b.date)).flatMap(b => b.messages)
   const active = tacheActive(taches)
   if (active) {
     messages.push({
@@ -118,7 +138,10 @@ export function filConversation({ versions, taches }) {
       cle: `t${derniere.id}`, role: 'demande', texte: texteTache(derniere),
       auteur: derniere.cree_par, date: derniere.created_at,
     })
-    messages.push({ cle: `e${derniere.id}`, role: 'erreur', texte: derniere.erreur || "L'agent a signalé une erreur sans message.", date: derniere.created_at })
+    messages.push({
+      cle: `e${derniere.id}`, role: 'erreur', texte: derniere.erreur || "L'agent a signalé une erreur sans message.",
+      date: derniere.created_at, tache: derniere.type,
+    })
   }
   return messages
 }

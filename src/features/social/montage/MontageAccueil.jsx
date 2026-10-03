@@ -12,6 +12,7 @@ import {
 } from '../../../lib/montageVideo'
 import { useMontageJobs, useAgentStatus, useDernieresTaches, ouvrirDernierApercu } from './useMontageVideo'
 import PastilleMac, { dateFr } from './PastilleMac'
+import { LienExport } from './FinMontage'
 
 function EtatVide({ titre, texte, action }) {
   return (
@@ -42,19 +43,20 @@ function BoutonNouvelleVideo() {
   )
 }
 
-function LienDrive({ job }) {
-  const lien = lienDriveMontage(job)
-  if (lien) {
-    return (
-      <a href={lien.url} target="_blank" rel="noreferrer" className="text-sm font-semibold text-[#00bbb1] hover:underline">
-        {lien.label}
-      </a>
-    )
-  }
-  if (job.lien_drive_export) {
-    return <span className="text-xs text-[#6b7280] break-all" title="Chemin dans Google Drive">{job.lien_drive_export}</span>
-  }
-  return <span className="text-sm text-[#9ca3af]">Aucun lien</span>
+// Export (« Ouvrir dans Drive ») d'abord, puis la vidéo source.
+export function LienDrive({ job }) {
+  const source = lienDriveMontage(job)
+  if (!job.lien_drive_export && !source) return <span className="text-sm text-[#9ca3af]">Aucun lien</span>
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <LienExport job={job} compact />
+      {source && (
+        <a href={source.url} target="_blank" rel="noreferrer" className={`${job.lien_drive_export ? 'text-xs text-[#6b7280]' : 'text-sm font-semibold text-[#00bbb1]'} hover:underline`}>
+          {source.label}
+        </a>
+      )}
+    </div>
+  )
 }
 
 // Dépannage avant l'éditeur (phase 3) : la dernière version dans un nouvel onglet.

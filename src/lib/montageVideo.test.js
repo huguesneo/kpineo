@@ -124,10 +124,10 @@ describe('dossier Brut (video_config)', () => {
 })
 
 describe('lien Drive d’un montage', () => {
-  it('export en URL, sinon vidéo source, sinon rien', () => {
-    expect(lienDriveMontage({ lien_drive_export: 'https://drive.google.com/x' }).label).toBe('Vidéo finale')
+  it('vidéo source seulement (l\'export a son propre lien), sinon rien', () => {
     expect(lienDriveMontage({ lien_drive_export: 'NEO vidéo/Out/a/a_v1.mp4', fichier_drive_id: 'f9' }))
       .toEqual({ url: 'https://drive.google.com/file/d/f9/view', label: 'Vidéo source' })
+    expect(lienDriveMontage({ lien_drive_export: 'https://drive.google.com/x' })).toBeNull()
     expect(lienDriveMontage({})).toBeNull()
   })
 })
