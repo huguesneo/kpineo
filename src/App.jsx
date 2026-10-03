@@ -35,7 +35,8 @@ import MontageEditeur from './features/social/montage/MontageEditeur'
 import MontageTemplates from './features/social/montage/MontageTemplates'
 import { TERMINAL_ENABLED, canUseTerminal } from './lib/terminal/flag'
 import { hasSocialAccess } from './lib/socialAccess'
-import { MONTAGE_VIDEO_ENABLED, canUseMontageVideo, canConfigureMontageVideo } from './lib/montageVideoAccess'
+import { MONTAGE_VIDEO_ENABLED, routeMontage, canConfigureMontageVideo } from './lib/montageVideoAccess'
+import { useMontageVideoAccess } from './hooks/useMontageVideoAccess'
 // Espace de vente v2 (derrière VITE_ESPACE_VENTE_V2)
 import { ESPACE_VENTE_V2 } from './lib/v2/featureFlag'
 import MonEspaceV2 from './pages/v2/MonEspace'
@@ -96,12 +97,14 @@ function SocialRoute({ children }) {
   return children
 }
 
-// Montage vidéo : flag VITE_MONTAGE_VIDEO + liste de montageVideoAccess
+// Montage vidéo : flag VITE_MONTAGE_VIDEO + has_montage_access() de la base.
+// Un autre compte qui tape l'adresse revient au tableau de bord.
 function MontageVideoRoute({ children }) {
   const { user, loading } = useAuth()
-  if (loading) return <LoadingScreen />
-  if (!user) return <Navigate to="/login" replace />
-  if (!canUseMontageVideo(user.email)) return <Navigate to="/dashboard" replace />
+  const montage = useMontageVideoAccess()
+  const route = routeMontage({ user, loading: loading || montage.loading, acces: montage.acces })
+  if (route === 'chargement') return <LoadingScreen />
+  if (route !== 'ok') return <Navigate to={route} replace />
   return children
 }
 

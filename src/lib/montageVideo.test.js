@@ -4,32 +4,63 @@ import {
   lireDossierBrut, lienDriveMontage,
 } from './montageVideo'
 import {
-  hasMontageVideoAccess, canUseMontageVideo, canConfigureMontageVideo,
+  lireAccesMontage, routeMontage, entreesReseauxSociaux, canConfigureMontageVideo,
 } from './montageVideoAccess'
 import { dossierChoisi, numeroProjet } from './googlePicker'
 
-describe('accès au module Montage vidéo', () => {
-  it('liste d’accès, insensible à la casse', () => {
-    expect(hasMontageVideoAccess('hugues@neoperformance.ca')).toBe(true)
-    expect(hasMontageVideoAccess('INFO@neoperformance.ca')).toBe(true)
-    expect(hasMontageVideoAccess('cloe@neoperformance.ca')).toBe(false)
-    expect(hasMontageVideoAccess(undefined)).toBe(false)
+// has_montage_access() simulée : la base répond selon le courriel du JWT.
+const HUGUES = 'hugues@neoperformance.ca'
+const INFO = 'info@neoperformance.ca'
+const AUTRE = 'cloe@neoperformance.ca'
+const baseSimulee = email => ({
+  rpc: async nom => (nom === 'has_montage_access'
+    ? { data: [HUGUES, INFO].includes(email), error: null }
+    : { data: null, error: { message: 'inconnue' } }),
+})
+
+describe('accès au module Montage vidéo (has_montage_access)', () => {
+  it('la réponse vient de la base', async () => {
+    expect(await lireAccesMontage(baseSimulee(HUGUES))).toBe(true)
+    expect(await lireAccesMontage(baseSimulee(INFO))).toBe(true)
+    expect(await lireAccesMontage(baseSimulee(AUTRE))).toBe(false)
   })
 
-  it('flag désactivé : personne ne voit le module', () => {
-    expect(canUseMontageVideo('hugues@neoperformance.ca', false)).toBe(false)
-    expect(canConfigureMontageVideo('hugues@neoperformance.ca', false)).toBe(false)
+  it('erreur ou panne : null, jamais l’accès', async () => {
+    expect(await lireAccesMontage({ rpc: async () => ({ data: null, error: { message: 'JWT expired' } }) })).toBeNull()
+    expect(await lireAccesMontage({ rpc: async () => { throw new Error('réseau') } })).toBeNull()
+    expect(await lireAccesMontage({ rpc: async () => ({ data: 'true', error: null }) })).toBe(false)
   })
 
-  it('flag actif : la liste décide', () => {
-    expect(canUseMontageVideo('hugues@neoperformance.ca', true)).toBe(true)
-    expect(canUseMontageVideo('info@neoperformance.ca', true)).toBe(true)
-    expect(canUseMontageVideo('autre@neoperformance.ca', true)).toBe(false)
+  it('compte autorisé : voit Montage vidéo dans le menu et ouvre la route', async () => {
+    const acces = await lireAccesMontage(baseSimulee(INFO))
+    expect(entreesReseauxSociaux({ social: false, montage: acces, enabled: true }))
+      .toEqual({ groupe: true, analyse: false, montage: true, ancienLien: false })
+    expect(routeMontage({ user: { email: INFO }, loading: false, acces, enabled: true })).toBe('ok')
+  })
+
+  it('autre compte : pas d’entrée Montage vidéo, la route renvoie au tableau de bord', async () => {
+    const acces = await lireAccesMontage(baseSimulee(AUTRE))
+    expect(entreesReseauxSociaux({ social: true, montage: acces, enabled: true }))
+      .toEqual({ groupe: true, analyse: true, montage: false, ancienLien: false })
+    expect(entreesReseauxSociaux({ social: false, montage: acces, enabled: true }).groupe).toBe(false)
+    expect(routeMontage({ user: { email: AUTRE }, loading: false, acces, enabled: true })).toBe('/dashboard')
+  })
+
+  it('pendant la lecture : écran de chargement ; déconnecté : connexion', () => {
+    expect(routeMontage({ user: { email: HUGUES }, loading: true, acces: false, enabled: true })).toBe('chargement')
+    expect(routeMontage({ user: null, loading: false, acces: false, enabled: true })).toBe('/login')
+  })
+
+  it('flag éteint : personne ne voit le module, menu comme avant', () => {
+    expect(routeMontage({ user: { email: HUGUES }, loading: false, acces: true, enabled: false })).toBe('/dashboard')
+    expect(entreesReseauxSociaux({ social: true, montage: true, enabled: false }))
+      .toEqual({ groupe: false, analyse: false, montage: false, ancienLien: true })
+    expect(canConfigureMontageVideo(HUGUES, false)).toBe(false)
   })
 
   it('configuration : Hugues seulement', () => {
-    expect(canConfigureMontageVideo('hugues@neoperformance.ca', true)).toBe(true)
-    expect(canConfigureMontageVideo('info@neoperformance.ca', true)).toBe(false)
+    expect(canConfigureMontageVideo(HUGUES, true)).toBe(true)
+    expect(canConfigureMontageVideo(INFO, true)).toBe(false)
   })
 })
 

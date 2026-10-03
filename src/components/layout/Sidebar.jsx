@@ -9,7 +9,8 @@ import { useUnassignedSales } from '../../hooks/useCloserData'
 import { useCloserEODMissedBadge } from '../../hooks/useCloserEOD'
 import { useNaturoPerfAccess } from '../../hooks/useNaturoPerformance'
 import { hasSocialAccess } from '../../lib/socialAccess'
-import { MONTAGE_VIDEO_ENABLED, canUseMontageVideo } from '../../lib/montageVideoAccess'
+import { entreesReseauxSociaux } from '../../lib/montageVideoAccess'
+import { useMontageVideoAccess } from '../../hooks/useMontageVideoAccess'
 import { ESPACE_VENTE_V2 } from '../../lib/v2/featureFlag'
 
 const NEO_LOGO = 'https://assets.cdn.filesafe.space/YG2spvWJqnD75L3V95UJ/media/6941c9327109a899ec69b43c.png'
@@ -75,8 +76,8 @@ function NavItem({ to, icon, label, badge }) {
 export default function Sidebar() {
   const { signOut, user, profile, isAdmin, isRespVente, hasCloserRole, hasSetterRole } = useAuth()
   const isHugues = user?.email === 'hugues@neoperformance.ca'
-  const showSocial = hasSocialAccess(user?.email)
-  const showMontage = canUseMontageVideo(user?.email)
+  const { acces: accesMontage } = useMontageVideoAccess()
+  const reseaux = entreesReseauxSociaux({ social: hasSocialAccess(user?.email), montage: accesMontage })
   const naturoPerfAccess = useNaturoPerfAccess()
   const isAdminOrRespVente = isAdmin || isRespVente
   const isPrimaryCloserOrSetter = profile?.role === 'closer' || profile?.role === 'setter'
@@ -223,7 +224,7 @@ export default function Sidebar() {
           />
         )}
         {/* Réseaux sociaux en groupe seulement avec le flag Montage vidéo */}
-        {(showSocial || showMontage) && MONTAGE_VIDEO_ENABLED && (
+        {reseaux.groupe && (
           <NavGroup
             label="Réseaux sociaux"
             matchPaths={['/reseaux-sociaux']}
@@ -233,7 +234,7 @@ export default function Sidebar() {
               </svg>
             }
           >
-            {showSocial && (
+            {reseaux.analyse && (
               <NavItem
                 to="/reseaux-sociaux/analyse"
                 label="Analyse et pub"
@@ -244,7 +245,7 @@ export default function Sidebar() {
                 }
               />
             )}
-            {showMontage && (
+            {reseaux.montage && (
               <NavItem
                 to="/reseaux-sociaux/montage"
                 label="Montage vidéo"
@@ -257,7 +258,7 @@ export default function Sidebar() {
             )}
           </NavGroup>
         )}
-        {showSocial && !MONTAGE_VIDEO_ENABLED && (
+        {reseaux.ancienLien && (
           <NavItem
             to="/reseaux-sociaux"
             label="Réseaux sociaux"

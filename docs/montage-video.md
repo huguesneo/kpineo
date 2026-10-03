@@ -42,11 +42,11 @@ Prérequis vérifié : `public.is_hugues()` existe en production.
 
 Fichiers :
 - `supabase/migrations/20261002112114_montage_video.sql` : la migration (se rejoue sans erreur).
-- `src/lib/montageVideoAccess.js` : liste d'accès côté hub, miroir de `has_montage_access()`.
+- `src/lib/montageVideoAccess.js` : règles d'accès côté hub (depuis le 3 oct., plus de liste de courriels : voir « Accès au module dans le hub »).
 - `supabase/tests/montage_video/` : imitation Supabase + 73 tests RLS et triggers.
 
 Accès :
-- `has_montage_access()` : `hugues@neoperformance.ca`, `info@neoperformance.ca`. Pour ajouter un courriel : modifier la fonction (nouvelle migration `CREATE OR REPLACE`) **et** `montageVideoAccess.js`.
+- `has_montage_access()` : `hugues@neoperformance.ca`, `info@neoperformance.ca`. Pour ajouter un courriel : modifier la fonction seulement (nouvelle migration `CREATE OR REPLACE`). Le hub la lit par RPC, rien à changer dans le code.
 - Approbation des templates : `is_hugues()` seulement.
 - L'agent vidéo écrit avec la clé `service_role`, dans `video-neo/agent/.env` sur le Mac (jamais dans le hub, Supabase ou Netlify).
 
@@ -129,12 +129,12 @@ Routes avec le flag actif :
 |---|---|---|
 | `/reseaux-sociaux` | Redirige vers `/reseaux-sociaux/analyse` | |
 | `/reseaux-sociaux/analyse` | Analyse et pub (l'écran Réseaux sociaux actuel, inchangé) | `socialAccess` |
-| `/reseaux-sociaux/montage` | Accueil Montage vidéo | `montageVideoAccess` |
-| `/reseaux-sociaux/montage/nouvelle` | Étape 1, la vidéo (vide jusqu'à la phase 2) | `montageVideoAccess` |
+| `/reseaux-sociaux/montage` | Accueil Montage vidéo | `has_montage_access()` |
+| `/reseaux-sociaux/montage/nouvelle` | Étape 1, la vidéo (vide jusqu'à la phase 2) | `has_montage_access()` |
 | `/reseaux-sociaux/montage/configuration` | Dossier Brut | Hugues seulement |
 
 Décisions :
-- Avec le flag, « Réseaux sociaux » est toujours un groupe ; « Montage vidéo » n'y apparaît que pour la liste `montageVideoAccess`. Une personne de cette liste qui n'est pas dans `socialAccess` verrait le groupe avec Montage vidéo seulement.
+- Avec le flag, « Réseaux sociaux » est toujours un groupe ; « Montage vidéo » n'y apparaît que si `has_montage_access()` répond vrai. Une personne de cette liste qui n'est pas dans `socialAccess` verrait le groupe avec Montage vidéo seulement.
 - Position dans la file calculée dans le hub : montages `en_file` triés par `created_at` (puis `id`). Les montages en transcription, montage ou rendu sont affichés « En cours » avec leur progression. `position_file` écrit par l'agent n'est pas utilisé par l'écran.
 - Temps réel : `video_jobs` (insertion, mise à jour, suppression appliquées à la liste) et `video_agent_status`. La pastille est recalculée toutes les 5 s, donc elle passe hors ligne même sans nouvel événement. Si le canal coupe, un bandeau propose d'actualiser et la liste se recharge à la reconnexion.
 - Auteur : nom du profil (`profiles.email`), sinon le courriel.
@@ -667,3 +667,17 @@ Tests : `montageAnnulation.test.js` (18 : bouton selon le statut et le type, Hug
 2. **Premier montage en attente** : lancer un nouveau montage Mac arrêté, l'ouvrir, « Annuler ». Le montage passe en erreur « Montage annulé avant de commencer. Tu peux le relancer. » et « Relancer le montage » marche.
 3. **En cours, agent pas encore à jour** : pendant une ronde, « Annuler », « Arrêter la ronde ». Barre grise, « Annulation en cours… ». À la fin de la ronde, la version arrive quand même et le fil dit « L'annulation est arrivée trop tard : la vN était déjà prête. » (comportement attendu tant que l'étape agent n'est pas faite).
 4. **Style (Hugues)** : connecté comme info@, aucun bouton Annuler sur un style en préparation ; comme Hugues, « Annuler » sur un style en attente le passe à « Enregistrement du style annulé ».
+
+## Accès au module dans le hub (3 oct.)
+
+Le module n'est visible que pour `hugues@neoperformance.ca` et `info@neoperformance.ca`, **avec une seule source de vérité : `public.has_montage_access()`**, la fonction qui protège déjà les tables `video_*` (RLS). Avant, le menu et la route lisaient une copie de la liste codée dans `montageVideoAccess.js` ; cette copie est retirée. Hub seulement, **aucune migration** (la fonction est déjà exécutable par `authenticated`, vérifié en lecture seule sur soma-hq).
+
+- `src/hooks/useMontageVideoAccess.js` : `{ acces, loading }`. Un seul appel `supabase.rpc('has_montage_access')` par compte connecté, partagé entre le menu et les routes. Flag éteint : faux, sans appel. Erreur (réseau, session expirée) : pas d'accès, et la réponse n'est pas gardée (nouvel essai au prochain affichage).
+- `src/lib/montageVideoAccess.js` : `lireAccesMontage(client)` (vrai, faux, ou `null` sur erreur), `routeMontage({ user, loading, acces })` et `entreesReseauxSociaux({ social, montage })`. `canConfigureMontageVideo` et `canApproveVideoTemplates` (Hugues, miroir de `is_hugues()`) ne changent pas.
+- Route (`MontageVideoRoute` dans `App.jsx`) : écran de chargement pendant la lecture, puis un compte hors liste qui tape `/reseaux-sociaux/montage…` est renvoyé au tableau de bord, sans message d'erreur.
+- Menu : l'entrée « Montage vidéo » n'apparaît que si la base répond vrai. Une personne de `socialAccess` hors liste ne voit que « Analyse et pub ».
+- `VITE_MONTAGE_VIDEO` reste l'interrupteur général par-dessus : éteint, personne ne voit le module et le menu est comme avant.
+
+Tests (`montageVideo.test.js`, base simulée) : info@ et hugues@ voient l'entrée et ouvrent la route ; un autre compte n'a pas l'entrée et la route le renvoie à `/dashboard` ; erreur ou panne de la base = pas d'accès ; chargement et déconnexion ; flag éteint. Hub : 492 tests qui passent (les 2 fichiers des commissions échouent toujours, `scripts/baseline/inputs.json` absent). Build sans remarque.
+
+Tester à la main : connecté comme info@, « Montage vidéo » est dans le menu ; avec un autre compte (ex. un closeur), pas d'entrée, et `/reseaux-sociaux/montage` ramène au tableau de bord.
