@@ -19,7 +19,7 @@ Plan de référence : `PROMPT-CLAUDE-CODE-MONTAGE-VIDEO-2026-10-01.md` (hors dé
 | **Clips 1** | **Plusieurs clips par montage (Principal et B-roll) : table `video_clips`, liste ordonnée à l'étape 1, clips dans le payload de la tâche, panneau dans l'éditeur ; la file de l'accueil ouvre l'éditeur** | **Fait, testé, appliqué en production le 3 oct. Agent : partie 2, à faire** |
 | 3b et suite | Sous-titres éditables, restaurer une version, Terminer et lien d'export | À faire |
 | **4-départ** | **Templates de départ « Pub 0929 » et « Entrevue mythe 0924 » (approuvés, aperçus), colonne `style_enregistre`, montage parti de la composition de départ du style** | **Fait, testé, appliqué en production le 3 oct.** |
-| **10a** | **Templates proposés depuis l'éditeur, écran Templates, approbation et refus motivé par Hugues, archivage ; galerie limitée aux styles enregistrés** | **Fait, testé (logique, composants, RLS), derrière le flag. Migration `20261003d` écrite et testée, pas encore appliquée en production. Agent inchangé** |
+| **10a** | **Templates proposés depuis l'éditeur, écran Templates, approbation et refus motivé par Hugues, archivage ; galerie limitée aux styles enregistrés** | **Fait, testé (logique, composants, RLS), derrière le flag. Migration `20261003d` appliquée en production le 3 oct. Agent inchangé** |
 | 4 (suite) | Variantes | À faire |
 
 Prérequis vérifié : `public.is_hugues()` existe en production.
@@ -452,7 +452,7 @@ Contrat vérifié dans `video-neo/agent/src/taches.ts` (`enregistrerStyle`) et d
 
 **Écart avec la demande initiale** : « proposer → enregistrer le style → aperçu → approuver » n'est pas possible sans changer l'agent (il refuse un template non approuvé, et info@ ne peut pas créer la tâche). Ordre retenu : proposer (aucune tâche) → Hugues regarde **l'aperçu de la version proposée** (`apercus/<job>/v<n>.mp4`) et approuve → la base crée `enregistrer_style` → l'aperçu du template remplace celui de la version. Le template n'entre dans la galerie de l'étape 2 qu'une fois `style_enregistre` vrai.
 
-Migration `20261003d_montage_video_templates_proposes.sql` (additive, se rejoue ; **pas encore appliquée sur soma-hq** : l'application a été bloquée par le mode automatique, à faire par Hugues) :
+Migration `20261003d_montage_video_templates_proposes.sql` (additive, se rejoue ; appliquée sur soma-hq le 3 oct. sous le nom `montage_video_templates_proposes`. Vérifié après : 2 colonnes vides, CHECK avec `archive`, trigger `video_templates_decision`, « Pub 0929 » et « Entrevue mythe 0924 » inchangés : `approuve`, `style_enregistre` vrai, `updated_at` d'avant) :
 - `video_templates.description` (texte de la proposition) et `motif_refus` (Hugues seulement, vidé à l'insertion depuis le hub).
 - CHECK du statut élargi : `propose`, `approuve`, `refuse`, **`archive`**. Un archivé sort de la galerie et ne peut plus servir à un nouveau montage (`video_jobs_avant_insert` exige `approuve`) ; les montages qui l'ont utilisé gardent leur `template_id`, la branche `style/<nom>` reste.
 - Trigger `video_templates_decision` (nouveau, rien de modifié) : passages permis depuis le hub `propose → approuve | refuse`, `approuve → archive`, `archive → approuve`. `approuve_par` / `approuve_le` = qui a tranché en dernier et quand (l'archivage remplace donc la date d'approbation).
@@ -476,8 +476,6 @@ Tests : `montageTemplates.test.js` (20 : validation, payload, bouton, statuts, a
 Pour l'agent (non bloquant) : écrire `etape` / une progression pour `enregistrer_style` (aujourd'hui aucune) permettrait une barre dans l'écran Templates. S'il fallait un aperçu « style enregistré » **avant** l'approbation, l'agent devrait accepter `enregistrer_style` sur un template `propose` et la base laisser info@ créer la tâche.
 
 ### Tester à la main (3 points)
-
-Prérequis : migration `20261003d` appliquée sur soma-hq.
 
 1. **Proposer puis approuver (test réel)** : comme info@, dans l'éditeur d'un montage en v2, afficher v2, « Proposer comme template », nom et description, Proposer. Le fil montre la proposition « en attente de l'approbation de Hugues » ; le bouton dit « déjà proposée ». « Nouvelle vidéo » : le template n'est pas dans la galerie. Comme hugues@, Templates : la carte « Proposé », « Voir l'aperçu de la v2 », Approuver. Statut « Approuvé, style en préparation », puis (agent réel, quelques minutes, coûte un appel Claude) « Approuvé », aperçu du template, branche `style/<nom>` dans video-neo ; la carte apparaît dans la galerie de « Nouvelle vidéo ».
 2. **Refus et info@** : proposer une autre version, la refuser avec un motif : connecté comme info@, la page Templates montre « Refusé » et le motif, et aucun bouton Approuver, Refuser ou Retirer sur aucune carte (le refus côté base est couvert par les tests SQL).
