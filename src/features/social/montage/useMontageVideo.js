@@ -6,7 +6,7 @@ import {
 import { lignesClips } from '../../../lib/montageClips'
 
 const COLONNES_JOB =
-  'id, titre, cree_par, statut, etape, progression, created_at, updated_at, fichier_drive_id, nom_source, lien_drive_export, erreur, format, version_courante'
+  'id, titre, cree_par, statut, etape, progression, created_at, updated_at, fichier_drive_id, nom_source, lien_drive_export, erreur, format, version_courante, variante_de'
 
 function trierParDate(jobs) {
   return [...jobs].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))

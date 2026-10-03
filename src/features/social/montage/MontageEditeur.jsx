@@ -21,6 +21,7 @@ import { RestaurerVersion, BoutonTerminer, BandeauExport } from './FinMontage'
 import { ProposerTemplate } from './TemplatesMontage'
 import { useTemplatesDuMontage } from './useMontageTemplates'
 import { messagesTemplates } from '../../../lib/montageTemplates'
+import { CreerVariante, LienOrigine, ListeVariantes } from './VariantesMontage'
 
 function Retour() {
   return (
@@ -56,7 +57,8 @@ export default function MontageEditeur() {
 
 function Editeur({ jobId }) {
   const {
-    job, versions, taches, clips, loading, error, introuvable, direct, reload, envoyer, corriger, restaurer, terminer,
+    job, versions, taches, clips, variantes, origine, loading, error, introuvable, direct, reload,
+    envoyer, corriger, restaurer, terminer, creerVariante,
   } = useMontageEditeur(jobId)
   const agent = useAgentStatus()
   const propositions = useTemplatesDuMontage(jobId)
@@ -128,7 +130,8 @@ function Editeur({ jobId }) {
   const messages = filConversation({ versions, taches, job, autres: messagesTemplates(propositions.templates, propositions.tachesStyle) })
   const active = tacheActive(taches)
   const exportEnCours = job.statut === 'rendu' || active?.type === 'terminer'
-  const enPreparation = version && (STATUTS_EN_TRAITEMENT.includes(job.statut) || active)
+  // Une variante se prépare dans un nouveau montage : ce lecteur ne change pas.
+  const enPreparation = version && (STATUTS_EN_TRAITEMENT.includes(job.statut) || (active && active.type !== 'variante'))
 
   return (
     <Layout>
@@ -141,7 +144,9 @@ function Editeur({ jobId }) {
           <div className="flex flex-wrap items-center gap-2 mt-1">
             <Badge variant={statut.variant}>{statut.label}</Badge>
             {job.version_courante > 0 && <span className="text-xs text-[#6b7280]">Version actuelle : v{job.version_courante}</span>}
+            {job.format && job.format !== '9:16' && <span className="text-xs text-[#6b7280]">Format {job.format}</span>}
           </div>
+          <LienOrigine origine={origine} />
         </div>
         <div className="flex flex-col items-end gap-2">
           <PastilleMac {...agent} compacte />
@@ -188,7 +193,7 @@ function Editeur({ jobId }) {
           )}
           {version ? (
             <>
-              <LecteurApercu numero={version.numero} url={apercu.url} erreur={apercu.erreur} onErreurChargement={erreurChargement} saut={saut} />
+              <LecteurApercu numero={version.numero} url={apercu.url} erreur={apercu.erreur} onErreurChargement={erreurChargement} saut={saut} format={job.format} />
               <p className="text-center text-xs text-[#6b7280] mt-2">
                 Version {version.numero}{version.numero === job.version_courante ? ' (actuelle)' : ''}
               </p>
@@ -199,7 +204,7 @@ function Editeur({ jobId }) {
         </Card>
 
         {/* Bande des versions, sous-titres, puis les clips (sous le lecteur) */}
-        {(versions.length > 0 || clips.length > 0) && (
+        {(versions.length > 0 || clips.length > 0 || variantes.length > 0) && (
           <div className="space-y-4 lg:col-start-1 lg:row-start-2">
             {versions.length > 0 && (
               <Card className="p-3">
@@ -218,6 +223,12 @@ function Editeur({ jobId }) {
                   templates={propositions.templates}
                   onProposer={propositions.proposer}
                 />
+                <CreerVariante job={job} taches={taches} version={version} onCreer={creerVariante} />
+              </Card>
+            )}
+            {variantes.length > 0 && (
+              <Card className="p-4">
+                <ListeVariantes variantes={variantes} />
               </Card>
             )}
             {version && (

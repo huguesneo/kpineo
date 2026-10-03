@@ -3,13 +3,15 @@ import { supabase } from '../../../lib/supabase'
 import { tacheDemande, delaiRenouvellement } from '../../../lib/montageEditeur'
 import { tacheCorrection } from '../../../lib/montageSousTitres'
 import { tacheRestaurer, tacheTerminer } from '../../../lib/montageFin'
+import { tacheVariante } from '../../../lib/montageVariantes'
 import { urlSigneeApercu } from './useMontageVideo'
 
 const COLONNES_JOB =
-  'id, titre, cree_par, statut, etape, progression, created_at, updated_at, erreur, format, version_courante, template_id, prompt, lien_drive_export'
+  'id, titre, cree_par, statut, etape, progression, created_at, updated_at, erreur, format, version_courante, template_id, prompt, lien_drive_export, variante_de'
 const COLONNES_VERSION = 'id, job_id, numero, chemin_apercu, prompt, reponse_agent, auteur, created_at, sous_titres'
 const COLONNES_TACHE = 'id, job_id, type, payload, statut, cree_par, erreur, created_at'
 const COLONNES_CLIP = 'id, job_id, ordre, role, nom, nom_source, duree_s'
+const COLONNES_VARIANTE = 'id, titre, statut, format, version_courante, created_at, variante_de'
 const POLLING_MS = 3000
 
 function remplacer(liste, row) {
@@ -24,6 +26,10 @@ export function useMontageEditeur(jobId) {
   const [versions, setVersions] = useState([])
   const [taches, setTaches] = useState([])
   const [clips, setClips] = useState([])
+  // Variantes de ce montage (video_jobs.variante_de = ce montage) et, pour une
+  // variante, son montage d'origine { id, titre }.
+  const [variantes, setVariantes] = useState([])
+  const [origine, setOrigine] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [introuvable, setIntrouvable] = useState(false)
@@ -31,11 +37,12 @@ export function useMontageEditeur(jobId) {
   const [direct, setDirect] = useState(null)
 
   const reload = useCallback(async () => {
-    const [j, v, t, c] = await Promise.all([
+    const [j, v, t, c, va] = await Promise.all([
       supabase.from('video_jobs').select(COLONNES_JOB).eq('id', jobId).maybeSingle(),
       supabase.from('video_versions').select(COLONNES_VERSION).eq('job_id', jobId).order('numero'),
       supabase.from('video_taches').select(COLONNES_TACHE).eq('job_id', jobId).order('created_at'),
       supabase.from('video_clips').select(COLONNES_CLIP).eq('job_id', jobId).order('ordre'),
+      supabase.from('video_jobs').select(COLONNES_VARIANTE).eq('variante_de', jobId).order('created_at'),
     ])
     const err = j.error || v.error || t.error
     if (err) {
@@ -47,6 +54,7 @@ export function useMontageEditeur(jobId) {
       setVersions(v.data ?? [])
       setTaches(t.data ?? [])
       if (!c.error) setClips(c.data ?? [])
+      if (!va.error) setVariantes(va.data ?? [])
     }
     setLoading(false)
   }, [jobId])
@@ -61,6 +69,10 @@ export function useMontageEditeur(jobId) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'video_jobs', filter: `id=eq.${jobId}` }, (payload) => {
         if (payload.eventType === 'DELETE') { setJob(null); setIntrouvable(true); return }
         setJob(prev => ({ ...prev, ...payload.new }))
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'video_jobs', filter: `variante_de=eq.${jobId}` }, (payload) => {
+        if (payload.eventType === 'DELETE') { setVariantes(prev => prev.filter(x => x.id !== payload.old?.id)); return }
+        setVariantes(prev => remplacer(prev, payload.new).sort((a, b) => new Date(a.created_at) - new Date(b.created_at)))
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'video_versions', filter: filtre }, (payload) => {
         if (payload.eventType === 'DELETE') { setVersions(prev => prev.filter(x => x.id !== payload.old?.id)); return }
@@ -112,8 +124,22 @@ export function useMontageEditeur(jobId) {
   const corriger = useCallback((corrections) => creerTache(tacheCorrection(jobId, corrections)), [creerTache, jobId])
   const restaurer = useCallback((numero) => creerTache(tacheRestaurer(jobId, numero)), [creerTache, jobId])
   const terminer = useCallback(() => creerTache(tacheTerminer(jobId)), [creerTache, jobId])
+  const creerVariante = useCallback((choix) => creerTache(tacheVariante(jobId, choix)), [creerTache, jobId])
 
-  return { job, versions, taches, clips, loading, error, introuvable, direct, reload, envoyer, corriger, restaurer, terminer }
+  // Montage d'origine d'une variante : son titre pour le lien.
+  const varianteDe = job?.variante_de ?? null
+  useEffect(() => {
+    if (!varianteDe) { setOrigine(null); return }
+    let annule = false
+    supabase.from('video_jobs').select('id, titre').eq('id', varianteDe).maybeSingle()
+      .then(({ data }) => { if (!annule) setOrigine(data ?? { id: varianteDe, titre: null }) })
+    return () => { annule = true }
+  }, [varianteDe])
+
+  return {
+    job, versions, taches, clips, variantes, origine, loading, error, introuvable, direct, reload,
+    envoyer, corriger, restaurer, terminer, creerVariante,
+  }
 }
 
 export const MESSAGE_SORTIE = "Tes corrections de sous-titres n'ont pas été envoyées. Quitter la page quand même ?"

@@ -1,9 +1,13 @@
 import { useEffect, useRef } from 'react'
 import { statutMontage, STATUTS_EN_TRAITEMENT } from '../../../lib/montageVideo'
+import { cadreFormat } from '../../../lib/montageVariantes'
 
-function Cadre({ children }) {
+// Cadre au ratio du montage (9:16, 4:5 ou 1:1) : un aperçu de variante 4:5
+// n'est pas posé dans un cadre 9:16.
+function Cadre({ format, children }) {
+  const cadre = cadreFormat(format)
   return (
-    <div className="mx-auto w-full max-w-[340px] aspect-[9/16] rounded-xl overflow-hidden bg-[#111827] flex items-center justify-center">
+    <div data-format={cadre.label} className={`mx-auto w-full ${cadre.classe} rounded-xl overflow-hidden bg-[#111827] flex items-center justify-center`}>
       {children}
     </div>
   )
@@ -15,7 +19,7 @@ export function EtatProgression({ job, enLigne }) {
   const progression = job?.progression ?? 0
   const enTraitement = STATUTS_EN_TRAITEMENT.includes(job?.statut)
   return (
-    <Cadre>
+    <Cadre format={job?.format}>
       <div className="w-full px-6 text-center text-white" data-etat="progression">
         <p className="text-sm font-semibold">{statut.label}</p>
         {job?.statut === 'erreur' ? (
@@ -36,11 +40,11 @@ export function EtatProgression({ job, enLigne }) {
   )
 }
 
-// Lecteur 9:16 de l'aperçu (URL signée). Quand l'URL est renouvelée pour la
+// Lecteur de l'aperçu, au format du montage (URL signée). Quand l'URL est renouvelée pour la
 // même version, la lecture reprend où elle en était. `saut` ({ secondes, tour }) :
 // chaque clic sur une ligne de sous-titres place la lecture à ce moment (aussi
 // sur la version suivante, pour revoir la ligne corrigée).
-export default function LecteurApercu({ numero, url, erreur, onErreurChargement, saut }) {
+export default function LecteurApercu({ numero, url, erreur, onErreurChargement, saut, format }) {
   const video = useRef(null)
   const position = useRef({ numero: null, t: 0, enPause: true })
 
@@ -67,7 +71,7 @@ export default function LecteurApercu({ numero, url, erreur, onErreurChargement,
 
   if (erreur) {
     return (
-      <Cadre>
+      <Cadre format={format}>
         <div className="px-6 text-center">
           <p className="text-sm text-red-300">{erreur}</p>
           <button type="button" onClick={onErreurChargement} className="mt-3 text-sm font-semibold text-[#00bbb1] hover:underline">Réessayer</button>
@@ -76,10 +80,10 @@ export default function LecteurApercu({ numero, url, erreur, onErreurChargement,
     )
   }
   if (!url) {
-    return <Cadre><p className="text-sm text-white/70">Chargement de l'aperçu v{numero}...</p></Cadre>
+    return <Cadre format={format}><p className="text-sm text-white/70">Chargement de l'aperçu v{numero}...</p></Cadre>
   }
   return (
-    <Cadre>
+    <Cadre format={format}>
       <video
         key={numero}
         ref={video}

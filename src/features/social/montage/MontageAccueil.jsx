@@ -13,6 +13,8 @@ import {
 import { useMontageJobs, useAgentStatus, useDernieresTaches, ouvrirDernierApercu } from './useMontageVideo'
 import PastilleMac, { dateFr } from './PastilleMac'
 import { LienExport } from './FinMontage'
+import { LienOrigine, LiensVariantes } from './VariantesMontage'
+import { variantesDe } from '../../../lib/montageVariantes'
 
 function EtatVide({ titre, texte, action }) {
   return (
@@ -86,7 +88,7 @@ function BoutonApercu({ job }) {
   )
 }
 
-function ListeMontages({ jobs, noms, loading, error, reload, positions, taches }) {
+export function ListeMontages({ jobs, noms, loading, error, reload, positions, taches }) {
   if (loading && jobs.length === 0) return <div className="p-5"><SkeletonTable rows={3} /></div>
   if (error) {
     return (
@@ -126,12 +128,15 @@ function ListeMontages({ jobs, noms, loading, error, reload, positions, taches }
           {jobs.map(job => {
             const statut = statutMontage(job.statut)
             const position = positions[job.id]
+            const origine = job.variante_de ? (jobs.find(j => j.id === job.variante_de) ?? { id: job.variante_de }) : null
             return (
               <tr key={job.id} className="border-b border-[#f0f0f2] last:border-0 align-top">
                 <td className="px-5 py-4">
                   <Link to={`/reseaux-sociaux/montage/${job.id}`} className="font-semibold text-[#1a1a1a] hover:text-[#00bbb1] hover:underline">
                     {job.titre}
                   </Link>
+                  <LienOrigine origine={origine} compact />
+                  <LiensVariantes variantes={variantesDe(job.id, jobs)} />
                   {erreurAgent(job, taches[job.id]) && (
                     <p className="text-xs text-red-600 mt-1 max-w-md">{erreurAgent(job, taches[job.id])}</p>
                   )}

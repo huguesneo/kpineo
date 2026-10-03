@@ -12,7 +12,15 @@ function Entete({ qui, date, version }) {
   )
 }
 
-function EtatDemande({ statut, job }) {
+function EtatDemande({ statut, job, variante }) {
+  // Variante : l'agent travaille sur un nouveau montage, pas sur celui-ci.
+  if (variante) {
+    return (
+      <p className="text-xs text-[#00bbb1] font-semibold mt-2">
+        {statut === 'en_cours' ? 'Le Mac crée la variante (nouveau montage)' : "En attente de l'agent"}
+      </p>
+    )
+  }
   if (statut === 'en_cours') {
     const progression = job?.progression ?? 0
     return (
@@ -53,7 +61,7 @@ export default function FilConversation({ messages, noms = {}, job }) {
                 m.enAttente ? 'bg-[#00bbb1]/5 border border-dashed border-[#00bbb1]/40 text-[#1a1a1a]' : 'bg-[#00bbb1] text-white'
               }`}>
                 {m.texte}
-                {m.enAttente && <EtatDemande statut={m.enAttente} job={job} />}
+                {m.enAttente && <EtatDemande statut={m.enAttente} job={job} variante={m.variante} />}
               </div>
             </li>
           )
@@ -65,7 +73,11 @@ export default function FilConversation({ messages, noms = {}, job }) {
               <div className="max-w-[90%] rounded-2xl rounded-tl-sm px-4 py-2.5 text-sm bg-red-50 border border-red-200 text-red-700 whitespace-pre-wrap break-words">
                 {m.texte}
                 <p className="text-xs mt-2 text-red-600">
-                  {m.tache === 'terminer' ? 'Tu peux relancer « Terminer et exporter » en haut de la page.' : 'Tu peux renvoyer une demande ci-dessous.'}
+                  {m.tache === 'terminer'
+                    ? 'Tu peux relancer « Terminer et exporter » en haut de la page.'
+                    : m.tache === 'variante'
+                      ? 'Tu peux redemander une variante sous la bande des versions.'
+                      : 'Tu peux renvoyer une demande ci-dessous.'}
                 </p>
               </div>
             </li>

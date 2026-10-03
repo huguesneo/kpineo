@@ -20,7 +20,7 @@ Plan de référence : `PROMPT-CLAUDE-CODE-MONTAGE-VIDEO-2026-10-01.md` (hors dé
 | 3b et suite | Sous-titres éditables, restaurer une version, Terminer et lien d'export | À faire |
 | **4-départ** | **Templates de départ « Pub 0929 » et « Entrevue mythe 0924 » (approuvés, aperçus), colonne `style_enregistre`, montage parti de la composition de départ du style** | **Fait, testé, appliqué en production le 3 oct.** |
 | **10a** | **Templates proposés depuis l'éditeur, écran Templates, approbation et refus motivé par Hugues, archivage ; galerie limitée aux styles enregistrés** | **Fait, testé (logique, composants, RLS), derrière le flag. Migration `20261003d` appliquée en production le 3 oct. Agent inchangé** |
-| 4 (suite) | Variantes | À faire |
+| **10b** | **Variantes (autre hook, format 4:5 ou 1:1) depuis l'éditeur, lien « Variante de » et liste des variantes, lecteur au ratio du montage** | **Fait, testé (logique, composants, RLS), derrière le flag. Migration `20261003e` appliquée en production le 3 oct. Agent : doit écrire `variante_de` (voir étape 10b)** |
 
 Prérequis vérifié : `public.is_hugues()` existe en production.
 
@@ -243,7 +243,7 @@ Vérifié en lecture seule en production : les 2 templates (comme hugues@, avec 
 - Hugues : installer le service (`bash agent/launchd/installer.sh --essai`, puis sans `--essai`) après avoir fusionné `feat/agent-hub` dans `main` de video-neo ; premier vrai montage pour valider Claude de bout en bout.
 - Hugues : partager `NEO vidéo/Brut` (en modification) avec info@ ; à son premier envoi, info@ cliquera une fois « Autoriser le dossier Brut ».
 - Hub 3b et suite : ~~bande de sous-titres éditable~~ (fait, étape 8), ~~restaurer une version~~, ~~Terminer et lien d'export~~ (faits, étape 9). L'éditeur 3a est en place.
-- ~~Hub 4 : proposition de template avec `job_id` et `numero_version`, approbation par Hugues~~ (fait, étape 10a). Menu Variantes : à faire.
+- ~~Hub 4 : proposition de template avec `job_id` et `numero_version`, approbation par Hugues~~ (fait, étape 10a). ~~Menu Variantes~~ (fait, étape 10b ; l'agent doit écrire `variante_de`).
 - Premier vrai montage avec un template de départ (demande la clé Anthropic) : vérifier que Claude copie bien `Pub0929.tsx` ou `Pub0924.tsx`.
 - `lien_drive_export` est un chemin dans Drive, pas une URL. Avec la portée `drive.file`, le hub ne peut pas retrouver le fichier par l'API (il a été créé par Drive pour ordinateur) : « Ouvrir dans Drive » ouvre une recherche sur le nom du fichier (`?safe=strict&q=<nom>`, sans guillemets). Agent : écrire l'URL du fichier (voir étape 9).
 
@@ -439,7 +439,7 @@ Avec un Postgres local vide (jamais un projet Supabase, le script refuse), migra
 PGHOST=/chemin/socket PGPORT=5432 PGUSER=postgres supabase/tests/montage_video/run.sh
 ```
 
-Résultat attendu : `PASS: 175  FAIL: 0` (migrations e, f et 20261003a, puis les templates de départ, puis l'éditeur, puis les clips, puis les templates proposés). Sur le Mac : `brew install postgresql@17`, puis un Postgres jetable (`initdb`, `pg_ctl ... -o "-k '' -p 54329"`) et `PGHOST=localhost PGPORT=54329`.
+Résultat attendu : `PASS: 191  FAIL: 0` (migrations e, f et 20261003a, puis les templates de départ, puis l'éditeur, puis les clips, puis les templates proposés, puis les variantes). Sur le Mac : `brew install postgresql@17`, puis un Postgres jetable (`initdb`, `pg_ctl ... -o "-k '' -p 54329"`) et `PGHOST=localhost PGPORT=54329`.
 
 ## Étape 10a : templates proposés et approbation (3 oct. 2026)
 
@@ -480,3 +480,41 @@ Pour l'agent (non bloquant) : écrire `etape` / une progression pour `enregistre
 1. **Proposer puis approuver (test réel)** : comme info@, dans l'éditeur d'un montage en v2, afficher v2, « Proposer comme template », nom et description, Proposer. Le fil montre la proposition « en attente de l'approbation de Hugues » ; le bouton dit « déjà proposée ». « Nouvelle vidéo » : le template n'est pas dans la galerie. Comme hugues@, Templates : la carte « Proposé », « Voir l'aperçu de la v2 », Approuver. Statut « Approuvé, style en préparation », puis (agent réel, quelques minutes, coûte un appel Claude) « Approuvé », aperçu du template, branche `style/<nom>` dans video-neo ; la carte apparaît dans la galerie de « Nouvelle vidéo ».
 2. **Refus et info@** : proposer une autre version, la refuser avec un motif : connecté comme info@, la page Templates montre « Refusé » et le motif, et aucun bouton Approuver, Refuser ou Retirer sur aucune carte (le refus côté base est couvert par les tests SQL).
 3. **Archiver** : sur le template approuvé, « Retirer de la galerie », confirmer : « Archivé », disparu de la galerie, le montage qui l'a utilisé s'ouvre toujours normalement.
+
+## Étape 10b : variantes (3 oct. 2026)
+
+Toujours derrière `VITE_MONTAGE_VIDEO=true`. **Agent inchangé** (lu seulement, branche `feat/agent-hub`).
+
+Contrat vérifié dans `video-neo/agent/src/taches.ts` (`variante`), `prompts.ts` (`promptVariante`, `DIMENSIONS`), `clips.ts` (`copierClipsVariante`) et `outils/remotion.ts` :
+- Tâche `variante` posée sur le **montage d'origine** (`job_id`), payload `{ "format"?: "4:5" | "1:1", "hook"?: "...", "prompt"?: "consigne" }`, au moins un. Un format égal à celui du montage, sans hook ni consigne, est refusé. Montage sans version : refus.
+- L'agent crée un **nouveau montage** `<titre> (variante <étiquette>)` (étiquette `4:5`, `1:1`, `hook` ou `4:5, hook`) avec `format`, `prompt` (la description), `nom_source`, `cree_par` de la tâche, statut `montage`. Il recopie tous les clips (ordre, rôles), les sous-titres, part de la branche de l'original (version actuelle), bifurque la session Claude, **appelle Claude** puis rend la **v1** (aperçu, commit). Le template n'est pas recopié. L'original ne bouge pas. En cas d'échec : la variante passe en erreur et la tâche aussi (« La variante n'a pas pu être créée : … »).
+- Aperçu réel : 540 de large, à la taille de la composition, donc 540 x 960, 540 x 675 (4:5) ou 540 x 540 (1:1). En simulation (`--simule`), l'aperçu factice reste 540 x 960 quel que soit le format.
+- **Aucun lien vers l'origine n'est écrit** (seulement dans le message du commit git). D'où la migration ci-dessous, que l'agent doit remplir.
+
+Migration `20261003e_montage_video_variantes.sql` (additive, se rejoue ; appliquée sur soma-hq le 3 oct. sous le nom `montage_video_variantes`. Vérifié après : colonne vide sur les 5 montages, trigger `video_jobs_variante` présent à côté des trois d'avant) :
+- `video_jobs.variante_de` (uuid, référence `video_jobs`, `ON DELETE SET NULL`) et un index partiel.
+- Trigger `video_jobs_variante` (nouveau) : forcé à vide quand le hub insère un montage. Une modification depuis le hub est déjà refusée par `video_jobs_avant_update` (titre seul). L'agent (`service_role`) l'écrit librement.
+
+Hub :
+- `src/lib/montageVariantes.js` : types (un seul à la fois, le format actuel du montage n'est pas proposé), validation (hook obligatoire, 500 caractères ; consigne facultative, 1000), payload, titre prévu (même règle que l'agent), état du bouton, variantes d'un montage, cadre du lecteur par format.
+- `montageEditeur.js` : texte d'une tâche `variante` dans le fil ; variante faite = demande puis « Variante créée » à sa date ; variante en cours marquée (pas de barre : la progression est sur le nouveau montage).
+- `VariantesMontage.jsx` : `CreerVariante` (sous la bande des versions), `LienOrigine`, `ListeVariantes` (éditeur), `LiensVariantes` (liste).
+- `LecteurApercu.jsx` : cadre au format du montage (9:16, 4:5, 1:1) pour l'aperçu et l'état de préparation, `object-contain`.
+- `useMontageEditeur.js` : `variante_de` lu, variantes du montage (temps réel filtré sur `variante_de`), titre de l'origine, `creerVariante()`.
+- `MontageEditeur.jsx` : « Variante de <origine> » sous le titre, « Format 4:5 » à côté de la version, panneau « Variantes (n) », pas de bandeau « Nouvelle version en préparation » pendant une variante (ce lecteur ne change pas).
+- `MontageAccueil.jsx` / `useMontageVideo.js` : `variante_de` lu ; sous le titre, « Variante de <origine> » ou « Variante : <liens> ».
+
+Décisions :
+- **Version actuelle seulement** : l'agent part de la version actuelle, donc le bouton n'apparaît que lorsqu'elle est affichée. Il est désactivé pendant une tâche du montage (même message que le champ), mais reste actif sur un montage terminé.
+- **Titre** : celui de l'agent (`<titre> (variante hook)`), affiché d'avance dans le formulaire. Le hub ne le choisit pas. Deux variantes « hook » du même montage ont le même titre, et on peut les renommer (titre modifiable depuis le hub).
+- **Pas de contournement** : tant que l'agent n'écrit pas `variante_de`, la variante apparaît dans la liste comme un montage normal, sans lien. Le hub ne devine pas l'origine par le titre.
+
+**Ce que l'agent doit ajouter** (bloquant pour les liens) : dans `variante`, `creerJob({ …, variante_de: parent.id })` (`Job` : ajouter `variante_de: string | null`), et un test du circuit qui vérifie `v.variante_de === parent.id`. Non bloquant : accepter un titre ou un suffixe (`payload.titre`) pour distinguer deux variantes « hook » ; en simulation, rendre l'aperçu factice au format (`DIMENSIONS[format]` mis à 540 de large).
+
+Tests : `montageVariantes.test.js` (19 : payloads des trois types, validation, types selon le format, titre prévu, états, variantes d'un montage, fil, cadres), `variantes.test.jsx` (17 : formulaire, un seul type coché, hook obligatoire, consigne facultative, 4:5 absent d'un montage 4:5, états désactivés, lecteur 9:16 / 4:5 / 1:1, liens éditeur et liste, fil de l'origine). `60_tests_variantes.sql` (16 : demande hook et 4:5 forcée `en_attente` au nom de info@, `variante_de` forcé à vide depuis le hub et non modifiable, écrit par l'agent, lu par Hugues, renommage permis, hors liste, non connecté, suppression de l'origine qui garde la variante). `run.sh` → `PASS: 191  FAIL: 0`. Hub : 434 tests qui passent (les 2 fichiers des commissions échouent toujours, photo de référence absente). Build et ESLint (configuration temporaire hors dépôt) sans remarque.
+
+### Tester à la main (3 points)
+
+1. **Autre hook (test réel, agent réel, coûte un appel Claude)** : sur un montage en v2 (version actuelle affichée), « Créer une variante », « Autre hook », écrire un hook, Créer. Bouton et champ désactivés (« attend son tour »), le fil montre « Créer une variante (autre hook : « … ») ». SQL : tâche `variante`, `payload` `{"hook":"…"}`. Le nouveau montage `<titre> (variante hook)` apparaît dans la liste et arrive à sa v1 avec la nouvelle ouverture ; l'original reste en v2. Les liens « Variante de » n'apparaîtront qu'une fois l'agent modifié (`variante_de`).
+2. **Format 4:5** : même chose avec « Format 4:5 » sans consigne. Dans l'éditeur de la variante, le lecteur est en 4:5 (pas étiré, pas dans un cadre 9:16), avec « Format 4:5 » sous le titre. Sur la variante, « Créer une variante » ne propose plus 4:5.
+3. **Liens** (après l'ajout de `variante_de` dans l'agent, ou en SQL sur une variante de test : `update video_jobs set variante_de='<origine>' where id='<variante>';`) : « Variante de <origine> » dans l'éditeur et la liste, panneau « Variantes (1) » dans l'éditeur de l'origine, « Variante : <titre> » sous l'origine dans la liste.

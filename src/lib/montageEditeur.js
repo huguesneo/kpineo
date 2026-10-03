@@ -73,6 +73,17 @@ export function dernierNumero(versions) {
   return (versions || []).reduce((max, v) => Math.max(max, v.numero || 0), 0)
 }
 
+// Demande de variante (payload { format?, hook?, prompt? }) dans le fil du
+// montage d'origine.
+export function texteTacheVariante(payload) {
+  const p = payload || {}
+  const morceaux = []
+  if (p.format) morceaux.push(`format ${p.format}`)
+  if (p.hook) morceaux.push(`autre hook : « ${p.hook} »`)
+  const debut = `Créer une variante${morceaux.length ? ` (${morceaux.join(', ')})` : ''}`
+  return p.prompt ? `${debut}\n${p.prompt}` : debut
+}
+
 // Texte d'une tâche dans le fil : son prompt, sinon ce qu'elle fait.
 export function texteTache(tache) {
   if (tache?.type === 'correction_sous_titres') {
@@ -81,6 +92,7 @@ export function texteTache(tache) {
   }
   if (tache?.type === 'restaurer') return `Restaurer la version ${tache.payload?.version ?? '?'}`
   if (tache?.type === 'terminer') return 'Terminer et exporter en HD'
+  if (tache?.type === 'variante') return texteTacheVariante(tache.payload)
   return tache?.payload?.prompt || 'Lancer le montage'
 }
 
@@ -118,6 +130,16 @@ export function filConversation({ versions, taches, job = null, autres = [] }) {
       ],
     })
   })
+  // Variante créée : un nouveau montage, listé sous la bande des versions.
+  for (const t of (taches || []).filter(x => x.type === 'variante' && x.statut === 'fait')) {
+    blocs.push({
+      date: t.created_at,
+      messages: [
+        { cle: `t${t.id}`, role: 'demande', texte: texteTache(t), auteur: t.cree_par, date: t.created_at },
+        { cle: `x${t.id}`, role: 'agent', texte: 'Variante créée : c\'est un nouveau montage, dans « Variantes » sous la bande des versions et dans la liste des montages.', date: t.created_at },
+      ],
+    })
+  }
   const temps = (d) => new Date(d).getTime() || 0
   const messages = blocs.sort((a, b) => temps(a.date) - temps(b.date)).flatMap(b => b.messages)
   const active = tacheActive(taches)
@@ -125,6 +147,7 @@ export function filConversation({ versions, taches, job = null, autres = [] }) {
     messages.push({
       cle: `t${active.id}`, role: 'demande', texte: texteTache(active),
       auteur: active.cree_par, date: active.created_at, enAttente: active.statut,
+      ...(active.type === 'variante' ? { variante: true } : {}),
     })
     return messages
   }
