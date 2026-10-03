@@ -1,5 +1,5 @@
 // Accès au module Montage vidéo. Garder cette liste identique à
-// public.has_montage_access() (supabase/migrations/20261001e_montage_video.sql).
+// public.has_montage_access() (supabase/migrations/20261002112114_montage_video.sql).
 export const MONTAGE_VIDEO_ACCESS_EMAILS = [
   'hugues@neoperformance.ca',
   'info@neoperformance.ca',

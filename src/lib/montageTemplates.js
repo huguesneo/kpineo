@@ -3,7 +3,7 @@
 // montageTemplates.test.js).
 //
 // Contrat vérifié dans video-neo/agent/src/taches.ts (enregistrerStyle) et
-// supabase/migrations/20261001e_montage_video.sql :
+// supabase/migrations/20261002112114_montage_video.sql :
 // - le hub crée le template (statut forcé à « propose » par la base) avec
 //   job_id et numero_version : c'est la version que l'agent enregistrera ;
 // - la tâche enregistrer_style ({ template_id }) est créée PAR LA BASE quand

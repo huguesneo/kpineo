@@ -2,7 +2,7 @@
 # Teste les migrations du module Montage vidéo dans un Postgres LOCAL jetable.
 # Usage : PGHOST=/chemin/socket PGPORT=5432 PGUSER=postgres ./run.sh
 # Crée la base « montage_test », applique l'imitation Supabase, les migrations
-# 20261001e, 20261001f et 20261003a (deux fois, pour vérifier qu'elles se rejouent), puis les tests,
+# 20261002112114, 20261002112126 et 20261003a (deux fois, pour vérifier qu'elles se rejouent), puis les tests,
 # puis les templates de départ (20261003b, deux fois) et leurs tests, puis ceux de l'éditeur,
 # puis les clips (20261003c, deux fois, sur des montages existants : backfill) et leurs tests,
 # puis les templates proposés (20261003d, deux fois) et leurs tests,
@@ -16,7 +16,7 @@ if [[ "${PGHOST:-}" == *supabase* || "${DATABASE_URL:-}" == *supabase* ]]; then
 fi
 
 ICI="$(cd "$(dirname "$0")" && pwd)"
-MIGRATIONS=("$ICI/../../migrations/20261001e_montage_video.sql" "$ICI/../../migrations/20261001f_montage_video_ajouts.sql" "$ICI/../../migrations/20261003a_montage_video_style_enregistre.sql")
+MIGRATIONS=("$ICI/../../migrations/20261002112114_montage_video.sql" "$ICI/../../migrations/20261002112126_montage_video_ajouts.sql" "$ICI/../../migrations/20261003a_montage_video_style_enregistre.sql")
 DEPART="$ICI/../../migrations/20261003b_montage_video_templates_depart.sql"
 CLIPS="$ICI/../../migrations/20261003c_montage_video_clips.sql"
 PROPOSES="$ICI/../../migrations/20261003d_montage_video_templates_proposes.sql"

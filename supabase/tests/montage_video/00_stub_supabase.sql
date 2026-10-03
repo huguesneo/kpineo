@@ -1,5 +1,5 @@
 -- Imitation minimale de Supabase (rôles, auth.jwt(), storage, publication)
--- pour tester 20261001e_montage_video.sql dans un Postgres local vide.
+-- pour tester 20261002112114_montage_video.sql dans un Postgres local vide.
 -- Ne jamais exécuter sur un vrai projet Supabase.
 -- Les rôles sont partagés par tout le serveur : on ne les crée qu'une fois
 DO $$ BEGIN

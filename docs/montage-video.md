@@ -39,7 +39,7 @@ Prérequis vérifié : `public.is_hugues()` existe en production.
 ## Phase 1a : ce qui est fait
 
 Fichiers :
-- `supabase/migrations/20261001e_montage_video.sql` : la migration (se rejoue sans erreur).
+- `supabase/migrations/20261002112114_montage_video.sql` : la migration (se rejoue sans erreur).
 - `src/lib/montageVideoAccess.js` : liste d'accès côté hub, miroir de `has_montage_access()`.
 - `supabase/tests/montage_video/` : imitation Supabase + 73 tests RLS et triggers.
 
@@ -70,7 +70,7 @@ Règles garanties par la base :
 
 Bucket `video-apercus` : privé, mp4, 500 Mo max. Chemins `apercus/<job_id>/v<n>.mp4` et `templates/<template_id>/apercu.mp4`. Lecture par URL signée pour le module ; écriture par l'agent seulement.
 
-## Phase 1a-bis : migration `20261001f_montage_video_ajouts.sql`
+## Phase 1a-bis : migration `20261002112126_montage_video_ajouts.sql`
 
 Additive, se rejoue sans erreur :
 - `video_jobs` : `session_id` (session Claude, écrite par l'agent seulement), `nom_source` (nom du fichier dans Brut), `format` (`'9:16'` par défaut, `4:5`, `1:1`).
@@ -80,7 +80,7 @@ Additive, se rejoue sans erreur :
 
 ## Application en production (2 oct. 2026)
 
-Projet **soma-hq** (`cbqwrmyctsfdqmenczhm`) seulement, rien sur Clinique neo. Avant : aucun objet `video_*`, ni `has_montage_access`, ni bucket `video-apercus`. Appliquées par le connecteur Supabase sous les noms `montage_video` et `montage_video_ajouts` (le nom « 20261001e_… » était déjà pris en production par `20261001e_terminal_therapeute_setter`). SQL identique aux fichiers, sans les `DROP ... IF EXISTS` (rien à retirer sur une base vierge). Vérifié après : 6 tables avec RLS, 16 politiques, temps réel sur les 5 tables, bucket privé 500 Mo, ligne `video_agent_status` présente. Un essai de l'agent en simulation a écrit son heartbeat et s'est abonné au temps réel.
+Projet **soma-hq** (`cbqwrmyctsfdqmenczhm`) seulement, rien sur Clinique neo. Avant : aucun objet `video_*`, ni `has_montage_access`, ni bucket `video-apercus`. Appliquées par le connecteur Supabase sous les noms `montage_video` et `montage_video_ajouts` (le nom « 20261001e_… » était déjà pris en production par `20261001e_terminal_therapeute_setter`). Les fichiers portent depuis le 3 oct. les versions exactes enregistrées en production : `20261002112114_montage_video.sql` et `20261002112126_montage_video_ajouts.sql`. SQL identique aux fichiers, sans les `DROP ... IF EXISTS` (rien à retirer sur une base vierge). Vérifié après : 6 tables avec RLS, 16 politiques, temps réel sur les 5 tables, bucket privé 500 Mo, ligne `video_agent_status` présente. Un essai de l'agent en simulation a écrit son heartbeat et s'est abonné au temps réel.
 
 ## Phase 1b : agent vidéo (`video-neo/agent/`)
 

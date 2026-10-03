@@ -1,6 +1,6 @@
 -- =============================================================================
 -- Module Montage vidéo, phase 1b : ajouts pour l'agent vidéo
--- Additive seulement, se rejoue sans erreur. Suppose 20261001e_montage_video.sql.
+-- Additive seulement, se rejoue sans erreur. Suppose 20261002112114_montage_video.sql.
 --   video_jobs     : session_id (session Claude, gérée par l'agent),
 --                    nom_source (nom du fichier dans NEO vidéo/Brut),
 --                    format ('9:16' par défaut, '4:5' ou '1:1' pour une variante)
@@ -30,7 +30,7 @@ ALTER TABLE public.video_templates
 ALTER TABLE public.video_templates ADD COLUMN IF NOT EXISTS numero_version integer;
 
 -- Montages : session_id appartient à l'agent, comme les autres colonnes qu'il gère.
--- (Reprend 20261001e, avec session_id en plus.)
+-- (Reprend 20261002112114, avec session_id en plus.)
 CREATE OR REPLACE FUNCTION public.video_jobs_avant_insert()
 RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN

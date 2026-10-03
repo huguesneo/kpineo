@@ -161,7 +161,7 @@ SELECT t.ecrit('supprime un aperçu', $q$delete from storage.objects where bucke
 RESET ROLE;
 
 \echo
-\echo '=== 8. Ajouts phase 1b (20261001f) ==='
+\echo '=== 8. Ajouts phase 1b (20261002112126) ==='
 SET ROLE authenticated; SELECT set_config('request.jwt.claims','{"email":"info@neoperformance.ca"}',false), set_config('t.qui','info',false) \g /dev/null
 SELECT t.ecrit('crée un montage avec nom_source, en trichant sur session_id', $q$insert into video_jobs (id, titre, prompt, nom_source, session_id) values ('22222222-0000-0000-0000-000000000003','Hormones','Monte-la','IMG_1234.MOV','session-pirate')$q$, '1');
 SELECT t.lit('  → format 9:16 par défaut, session_id vidé, nom_source gardé', $q$select 1 from video_jobs where id='22222222-0000-0000-0000-000000000003' and format='9:16' and session_id is null and nom_source='IMG_1234.MOV'$q$, 1);
