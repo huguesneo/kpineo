@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { refusDroits, refusRdv, texteNote, fmtDateHeure, prenomDe, closerCorrespond, resumerAppels, CALENDARS_DECOUVERTE } from './confirmation'
+import { refusDroits, refusRdv, texteNote, fmtDateHeure, prenomDe, closerCorrespond, resumerAppels, tagsDeLAction, CALENDARS_DECOUVERTE } from './confirmation'
 
 const NOW = new Date('2026-10-05T15:00:00Z').getTime()
 const rdv = (extra = {}) => ({
@@ -80,6 +80,17 @@ describe('resumerAppels', () => {
         { date: '2026-10-04T20:00:00.000Z', statut: 'completed', duree: 55, sortant: true },
       ],
       b: [{ date: '2026-10-03T10:00:00.000Z', statut: 'completed', duree: 12, sortant: false }],
+    })
+  })
+})
+
+describe('tagsDeLAction', () => {
+  it('confirmer : confirme-manuel seulement, jamais statut-confirme (LEAD-21b le pose)', () => {
+    expect(tagsDeLAction('confirmer')).toEqual({ retirer: [], poser: ['confirme-manuel'] })
+  })
+  it('annuler : retire confirme-manuel et statut-confirme, pose app-confirmation-retiree', () => {
+    expect(tagsDeLAction('annuler')).toEqual({
+      retirer: ['confirme-manuel', 'statut-confirme'], poser: ['app-confirmation-retiree'],
     })
   })
 })

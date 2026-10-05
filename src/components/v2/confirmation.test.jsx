@@ -23,8 +23,9 @@ describe('ConfirmerRencontre', () => {
     const html = rendre(<ConfirmerRencontre {...base} etat="nonConfirme" ouvertInitial="confirmer" />)
     expect(html).toContain('alertdialog')
     expect(html).toContain('Confirmer la rencontre de Julie Roy (Demain 7 h 00) ?')
-    expect(html).toContain('statut-confirme est posé dans GHL')
-    expect(html).toContain('Julie reçoit « Ta rencontre est confirmée. »')
+    expect(html).toContain('Le tag confirme-manuel est posé dans GHL')
+    expect(html).not.toContain('statut-confirme est posé')
+    expect(html).toContain('Julie reçoit le SMS de confirmation')
   })
   it('libellé closeur', () => {
     expect(rendre(<ConfirmerRencontre {...base} etat="nonConfirme" libelle="Confirmer manuellement" />)).toContain('Confirmer manuellement')
@@ -35,6 +36,7 @@ describe('ConfirmerRencontre', () => {
     expect(html).toContain('Annuler la confirmation')
     const dlg = rendre(<ConfirmerRencontre {...base} etat="confirme" manuelle={{ confirme_par_nom: 'Maude NEO' }} ouvertInitial="annuler" />)
     expect(dlg).toContain('Annuler la confirmation de Julie Roy ?')
+    expect(dlg).toContain('Les tags confirme-manuel et statut-confirme sont retirés')
     expect(dlg).toContain('revient en « RDV booké »')
   })
   it('confirmée par le lead : pas de retrait possible', () => {

@@ -4,7 +4,7 @@ GHL n'envoie ses événements natifs (`OpportunityStageUpdate`, suppressions…)
 apps Marketplace : `ghl-webhook` n'a rien reçu en 90 jours. La source fiable, ce sont
 les **actions Webhook des workflows**. Ces 3 recettes (workflows 1 à 3) font bouger les écrans v2 en
 temps réel (Supabase Realtime est déjà actif sur `ghl_opportunities` et `ghl_appointments`).
-La confirmation manuelle des rencontres ajoute NEOHUB-04 et NEOHUB-05 (section plus bas).
+La confirmation manuelle des rencontres ajoute NEOHUB-05 (section plus bas).
 
 ## État au 2 oct. 2026 : les workflows 1 à 3 sont créés et fonctionnent
 
@@ -117,29 +117,20 @@ Une seule source : **l'étape de la carte 🎯 Vente** du contact (`✅ RDV conf
 sur 30 jours). L'app ne l'écrit pas non plus : changer un statut de RDV relance les workflows
 *Appointment Status* (NEOHUB-02, App · RDV statut changé, LEAD-22, LEAD-21b).
 
-- Le lead clique « Je confirme » → LEAD-21b pose `statut-confirme` et met la carte en
-  `✅ RDV confirmé`.
+- Le lead clique « Je confirme » → LEAD-21b pose `statut-confirme`, met la carte en
+  `✅ RDV confirmé` et envoie le SMS.
 - Un setter ou un closeur clique « Confirmer la rencontre » dans l'app → la fonction
-  `ghl-confirmer-rencontre` pose `statut-confirme`, ajoute une note « confirmée manuellement
-  depuis le hub par Prénom, le … » et écrit une ligne dans `v2_confirmations`. LEAD-20b envoie
-  « Ta rencontre est confirmée. » (voulu). **NEOHUB-04** met la carte en `✅ RDV confirmé`.
+  `ghl-confirmer-rencontre` pose **`confirme-manuel`** (jamais `statut-confirme`), ajoute une
+  note « confirmée manuellement depuis le hub par Prénom, le … » et écrit une ligne dans
+  `v2_confirmations`. Dans GHL, `confirme-manuel` déclenche LEAD-21b, qui fait la même chose
+  qu'au clic du lead : `statut-confirme`, carte en `✅ RDV confirmé`, SMS.
 - « Annuler la confirmation » (seulement pour une confirmation faite depuis l'app) → la
-  fonction retire `statut-confirme`, pose `app-confirmation-retiree`, ajoute une note et annule
-  la ligne. **NEOHUB-05** ramène la carte en `📅 RDV booké`.
+  fonction retire `confirme-manuel` **et** `statut-confirme`, pose `app-confirmation-retiree`,
+  ajoute une note et annule la ligne. **NEOHUB-05** ramène la carte en `📅 RDV booké`.
+  Le SMS de confirmation déjà parti ne peut pas être repris.
 
 Dans les deux cas, le déplacement déclenche NEOHUB-01, qui met l'app à jour en quelques secondes.
-
-### Workflow NEOHUB-04 : « Tag statut-confirme ajouté → RDV confirmé »
-
-Aucun workflow publié ne réagit à l'ajout du tag (LEAD-21b se déclenche sur le clic du lien,
-d'après le registre du 29 sept.). Si LEAD-20b réagit déjà au tag **et** déplace la carte, ce
-workflow est inutile ; le créer quand même ne fait que redéplacer vers la même étape.
-
-- **Déclencheur** : *Contact Tag* → *Tag Added* = `statut-confirme`
-- **Action 1** : *If/Else* : opportunité du contact dans `🎯 Vente` à l'étape `📅 RDV booké`
-  - Oui → *Create/Update Opportunity* : pipeline `🎯 Vente`, étape `✅ RDV confirmé`
-  - Non → rien (carte déjà confirmée, présentée, annulée…)
-- Aucun message au lead ici : LEAD-20b s'en charge.
+Pas de workflow « statut-confirme ajouté » : LEAD-21b déplace déjà la carte.
 
 ### Workflow NEOHUB-05 : « Confirmation retirée → RDV booké »
 
@@ -167,9 +158,10 @@ et les filtres d'appel sont désactivés, le reste de la file fonctionne.
 
 1. Appliquer `supabase/migrations/20261005a_v2_confirmations.sql` sur soma-hq.
 2. Déployer `ghl-confirmer-rencontre` et `ghl-appels-recents`.
-3. Créer NEOHUB-04 (sauf si LEAD-20b fait déjà le déplacement) et NEOHUB-05.
-4. Test avec le contact test : confirmer → tag + note dans GHL, carte en `✅ RDV confirmé`,
-   couleur verte dans l'app ; annuler → tag retiré, carte en `📅 RDV booké`.
+3. Vérifier que LEAD-21b se déclenche sur l'ajout du tag `confirme-manuel` ; créer NEOHUB-05.
+4. Test avec le contact test : confirmer → `confirme-manuel` + note dans GHL, LEAD-21b pose
+   `statut-confirme`, carte en `✅ RDV confirmé`, couleur verte dans l'app ; annuler →
+   `confirme-manuel` et `statut-confirme` retirés, carte en `📅 RDV booké`.
 
 ## Workflow 4 : « Tag app-tentative-faite ajouté → étape suivante » (OBSOLÈTE, ne pas créer)
 

@@ -7,12 +7,24 @@
 // deno-lint-ignore no-explicit-any
 type J = any
 
+// Posé par l'app pour confirmer : dans GHL, il déclenche LEAD-21b, qui pose
+// statut-confirme, met la carte Vente en « ✅ RDV confirmé » et envoie le SMS.
+// L'app ne pose jamais statut-confirme elle-même.
+export const TAG_CONFIRME_MANUEL = 'confirme-manuel'
+// Posé par LEAD-21b (clic « Je confirme » du lead ou confirme-manuel)
 export const TAG_CONFIRME = 'statut-confirme'
 // Posé au retrait d'une confirmation : déclenche NEOHUB-05 (carte Vente ramenée en
 // « 📅 RDV booké »), qui le retire ensuite. Un tag dédié plutôt que « statut-confirme
 // retiré » : les workflows de no-show, d'annulation et de présentation retirent aussi
 // statut-confirme, et la carte ne doit pas revenir en arrière dans ces cas-là.
 export const TAG_CONFIRMATION_RETIREE = 'app-confirmation-retiree'
+
+// Tags à retirer puis à poser sur le contact GHL pour chaque action
+export function tagsDeLAction(action: 'confirmer' | 'annuler'): { retirer: string[]; poser: string[] } {
+  return action === 'confirmer'
+    ? { retirer: [], poser: [TAG_CONFIRME_MANUEL] }
+    : { retirer: [TAG_CONFIRME_MANUEL, TAG_CONFIRME], poser: [TAG_CONFIRMATION_RETIREE] }
+}
 
 // Les 3 calendriers découverte (src/lib/v2/salesConfig.js, CALENDARS_DECOUVERTE)
 export const CALENDARS_DECOUVERTE = ['DIN6EPtG7eNU3Gf6ZRoC', 'ucyJmhYKKDDm7U5JmaJ8', '4227QzeKvFczi5BZyHOC']

@@ -1,15 +1,15 @@
 // Confirmer (ou retirer la confirmation d')une rencontre découverte depuis le hub.
-// Confirmer : tag statut-confirme sur le contact GHL (comme le clic « Je confirme »
-// du lead) + note « confirmée par … le … » + ligne dans v2_confirmations.
-// Retirer : retire le tag, pose app-confirmation-retiree, note, annule la ligne.
+// Confirmer : tag confirme-manuel sur le contact GHL + note « confirmée par … le … »
+// + ligne dans v2_confirmations. Dans GHL, confirme-manuel déclenche LEAD-21b, qui
+// pose statut-confirme, met la carte Vente en « ✅ RDV confirmé » et envoie le SMS.
+// Retirer : retire confirme-manuel et statut-confirme, pose app-confirmation-retiree
+// (NEOHUB-05 ramène la carte en « 📅 RDV booké »), note, annule la ligne.
 // Seulement pour une confirmation faite depuis le hub : celle d'un lead qui a cliqué
 // « Je confirme » ne se retire pas ici.
-// L'app ne déplace aucune carte : les workflows GHL (NEOHUB-04 sur statut-confirme,
-// NEOHUB-05 sur app-confirmation-retiree, docs/V2-WEBHOOKS-GHL.md) mettent la carte
-// Vente en « ✅ RDV confirmé » ou la ramènent en « 📅 RDV booké ».
-// Le statut du RDV dans le calendrier n'est pas touché.
+// L'app ne déplace aucune carte et ne touche pas le statut du RDV dans le calendrier
+// (docs/V2-WEBHOOKS-GHL.md).
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { TAG_CONFIRME, TAG_CONFIRMATION_RETIREE, refusDroits, refusRdv, texteNote } from '../_shared/confirmation.ts'
+import { tagsDeLAction, refusDroits, refusRdv, texteNote } from '../_shared/confirmation.ts'
 
 declare const Deno: {
   env: { get(key: string): string | undefined }
@@ -95,30 +95,30 @@ Deno.serve(async (req) => {
     if (errJournal) console.error('[confirmer] v2_confirmations illisible :', errJournal.message)
 
     if (action === 'annuler') {
-      if (journalAbsent) return json({ error: 'Le journal des confirmations (v2_confirmations) n’est pas encore en place : retire le tag dans GHL.' }, 503)
+      if (journalAbsent) return json({ error: 'Le journal des confirmations (v2_confirmations) n’est pas encore en place : retire confirme-manuel et statut-confirme dans GHL.' }, 503)
       if (!active) return json({ error: 'Cette rencontre n’a pas été confirmée depuis le hub : rien à retirer ici.' }, 409)
     }
 
-    // 1. Tag (POST ajoute, DELETE retire)
-    const tagRes = await fetch(`${GHL_BASE}/contacts/${contactId}/tags`, {
-      method: action === 'confirmer' ? 'POST' : 'DELETE',
-      headers: ghlHeaders(apiKey),
-      body: JSON.stringify({ tags: [TAG_CONFIRME] }),
+    // 1. Tags : retirer d'abord (annulation), puis poser
+    const tags = tagsDeLAction(action)
+    const tagsGhl = (method: 'POST' | 'DELETE', liste: string[]) => fetch(`${GHL_BASE}/contacts/${contactId}/tags`, {
+      method, headers: ghlHeaders(apiKey), body: JSON.stringify({ tags: liste }),
     })
-    if (!tagRes.ok) {
-      const t = await tagRes.text()
-      console.error(`[confirmer] tag ${action} ${tagRes.status}:`, t.slice(0, 300))
-      return json({ error: `GHL a refusé le tag (${tagRes.status}).` }, 502)
-    }
-    // Retrait : tag dédié qui déclenche NEOHUB-05 (carte ramenée en « RDV booké »)
-    if (action === 'annuler') {
-      const retRes = await fetch(`${GHL_BASE}/contacts/${contactId}/tags`, {
-        method: 'POST', headers: ghlHeaders(apiKey), body: JSON.stringify({ tags: [TAG_CONFIRMATION_RETIREE] }),
-      })
-      if (!retRes.ok) {
-        console.error(`[confirmer] tag ${TAG_CONFIRMATION_RETIREE} ${retRes.status}:`, (await retRes.text()).slice(0, 300))
-        return json({ error: `Le tag statut-confirme est retiré, mais GHL a refusé ${TAG_CONFIRMATION_RETIREE} (${retRes.status}) : ramène la carte Vente en « RDV booké » à la main.` }, 502)
+    if (tags.retirer.length > 0) {
+      const res = await tagsGhl('DELETE', tags.retirer)
+      if (!res.ok) {
+        console.error(`[confirmer] retrait ${tags.retirer.join(', ')} ${res.status}:`, (await res.text()).slice(0, 300))
+        return json({ error: `GHL a refusé le retrait des tags (${res.status}).` }, 502)
       }
+    }
+    const poseRes = await tagsGhl('POST', tags.poser)
+    if (!poseRes.ok) {
+      console.error(`[confirmer] pose ${tags.poser.join(', ')} ${poseRes.status}:`, (await poseRes.text()).slice(0, 300))
+      return json({
+        error: action === 'confirmer'
+          ? `GHL a refusé le tag confirme-manuel (${poseRes.status}).`
+          : `Les tags confirme-manuel et statut-confirme sont retirés, mais GHL a refusé app-confirmation-retiree (${poseRes.status}) : ramène la carte Vente en « RDV booké » à la main.`,
+      }, 502)
     }
 
     // 2. Note : qui et quand (attribuée à la personne dans GHL si on connaît son userId)

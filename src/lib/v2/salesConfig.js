@@ -95,13 +95,16 @@ export const DELAIS = {
 // puis retire le tag (voir docs/V2-WEBHOOKS-GHL.md).
 export const TAG_TENTATIVE_FAITE = 'app-tentative-faite'
 
-// Tag de confirmation d'une rencontre découverte : posé par le clic « Je confirme »
-// du lead (LEAD-21b) ou par « Confirmer la rencontre » dans l'app
-// (ghl-confirmer-rencontre). Un workflow met alors la carte Vente en « ✅ RDV confirmé » :
-// c'est cette étape que l'app lit pour savoir qu'un RDV est confirmé.
+// Confirmation d'une rencontre découverte. L'app pose confirme-manuel
+// (ghl-confirmer-rencontre) ; dans GHL, il déclenche LEAD-21b, qui pose
+// statut-confirme (comme au clic « Je confirme » du lead), met la carte Vente en
+// « ✅ RDV confirmé » et envoie le SMS. C'est cette étape que l'app lit pour savoir
+// qu'un RDV est confirmé.
+export const TAG_CONFIRME_MANUEL = 'confirme-manuel'
 export const TAG_CONFIRME = 'statut-confirme'
-// Posé quand une confirmation faite depuis l'app est retirée : NEOHUB-05 ramène la
-// carte Vente en « 📅 RDV booké » puis retire ce tag (docs/V2-WEBHOOKS-GHL.md).
+// Posé quand une confirmation faite depuis l'app est retirée (avec le retrait de
+// confirme-manuel et statut-confirme) : NEOHUB-05 ramène la carte Vente en
+// « 📅 RDV booké » puis retire ce tag (docs/V2-WEBHOOKS-GHL.md).
 export const TAG_CONFIRMATION_RETIREE = 'app-confirmation-retiree'
 
 // Sources considérées « chaudes » dans la file À appeler

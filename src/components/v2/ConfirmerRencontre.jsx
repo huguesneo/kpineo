@@ -76,15 +76,15 @@ export default function ConfirmerRencontre({
             <>
               <p className="text-sm font-bold text-[#1a1a1a]">Confirmer la rencontre de {qui}{quand ? ` (${quand})` : ''} ?</p>
               <p className="text-[13px] text-[#4b5563]">
-                Le tag statut-confirme est posé dans GHL, avec une note à ton nom.
-                {' '}{prenom(nom) || 'Le lead'} reçoit « Ta rencontre est confirmée. »
+                Le tag confirme-manuel est posé dans GHL, avec une note à ton nom :
+                la carte passe en « RDV confirmé » et {prenom(nom) || 'le lead'} reçoit le SMS de confirmation.
               </p>
             </>
           ) : (
             <>
               <p className="text-sm font-bold text-[#1a1a1a]">Annuler la confirmation de {qui} ?</p>
               <p className="text-[13px] text-[#4b5563]">
-                Le tag statut-confirme est retiré et la carte Vente revient en « RDV booké ».
+                Les tags confirme-manuel et statut-confirme sont retirés et la carte Vente revient en « RDV booké ».
                 Le message de confirmation déjà envoyé au lead ne peut pas être repris.
               </p>
             </>
