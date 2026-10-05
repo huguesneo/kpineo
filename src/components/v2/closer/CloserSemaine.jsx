@@ -10,8 +10,12 @@ import BlockSlotModal from '../../calendar/BlockSlotModal'
 import { SkeletonCard } from '../../shared/Skeleton'
 import { useEstMobile } from '../../../hooks/v2/useEstMobile'
 import Button from '../../shared/Button'
+import { useEtatsConfirmation } from '../../../hooks/v2/useEtatsConfirmation'
+import ConfirmerRencontre, { PastilleConfirmation } from '../ConfirmerRencontre'
 
 // Onglet « Semaine » : WeekView, AppointmentDrawer et BlockSlotModal existants.
+// Rencontres découverte à venir : pleines si confirmées, en contour sinon ;
+// « Confirmer manuellement » dans le tiroir du RDV.
 // Créer un blocage suit la même logique que CloserCalendar (Supabase puis GHL) ;
 // modifier ou supprimer un blocage existant se fait dans le calendrier complet.
 export default function CloserSemaine({ profile }) {
@@ -30,6 +34,14 @@ export default function CloserSemaine({ profile }) {
   )
   const [rdvs, setRdvs] = useState([])
   useEffect(() => { setRdvs(appointments ?? []) }, [appointments])
+
+  // Horloge : une rencontre qui commence ne se confirme plus
+  const [now, setNow] = useState(Date.now())
+  useEffect(() => {
+    const iv = setInterval(() => setNow(Date.now()), 60_000)
+    return () => clearInterval(iv)
+  }, [])
+  const { etatDe, confirmation: conf } = useEtatsConfirmation(rdvs, { now })
 
   const [bloques, setBloques] = useState([])
   const [selection, setSelection] = useState(null)
@@ -101,6 +113,11 @@ export default function CloserSemaine({ profile }) {
 
       {info && <p className="text-xs text-[#b45309] bg-[#fffbeb] border border-[#fde68a] rounded-lg px-3 py-2">{info}</p>}
 
+      <p className="flex items-center gap-1.5 text-xs text-[#6b7280]">
+        <span className="w-3 h-3 rounded-sm bg-white border border-[#d97706] flex-shrink-0" />
+        Contour ambre : rencontre découverte pas encore confirmée (clique dessus pour la confirmer)
+      </p>
+
       <div className="rounded-xl border border-[#e5e7eb] bg-white overflow-hidden">
         {loading ? (
           <div className="p-6 space-y-3">{[0, 1, 2].map(i => <SkeletonCard key={i} />)}</div>
@@ -112,6 +129,7 @@ export default function CloserSemaine({ profile }) {
             onApptClick={setSelection}
             onBlockedSlotClick={() => navigate('/calendrier')}
             selectedApptId={selection?.ghl_id}
+            etatDe={etatDe}
           />
         )}
       </div>
@@ -122,6 +140,16 @@ export default function CloserSemaine({ profile }) {
           onClose={() => { setSelection(null); refetch() }}
           onStatusUpdate={majStatut}
           userId={profile?.id ?? null}
+          blocConfirmation={etatDe(selection) && (
+            <div className="flex flex-col items-start gap-2">
+              <PastilleConfirmation etat={etatDe(selection)} />
+              <ConfirmerRencontre gauche libelle="Confirmer manuellement"
+                nom={selection.contact_name} debut={selection.start_time} now={now} etat={etatDe(selection)}
+                manuelle={conf.manuelles[selection.ghl_id] ?? null} enCours={conf.enCours[selection.ghl_id] ?? null}
+                erreur={conf.erreurs[selection.ghl_id] ?? null}
+                onConfirmer={() => conf.confirmer(selection.ghl_id)} onAnnuler={() => conf.annuler(selection.ghl_id)} />
+            </div>
+          )}
         />
       )}
       {modalBlocage && (

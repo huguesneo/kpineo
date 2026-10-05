@@ -50,9 +50,10 @@ describe('computeSetterFiles', () => {
     expect(contactEtabli.map(l => l.contactId)).toEqual(['b', 'a'])
   })
 
-  it('totalFiles compte les cinq files', async () => {
+  it('totalFiles compte les cinq files (À confirmer : seulement les non confirmés)', async () => {
     const { totalFiles } = await import('./setterFiles')
-    expect(totalFiles({ nouveauxLeads: [1], aRappeler: [1, 2], aRebooker: [1], aConfirmer: [1], contactEtabli: [1, 2, 3] })).toBe(8)
+    const aConfirmer = [{ confirmation: 'nonConfirme' }, { confirmation: 'confirme' }, { confirmation: null }]
+    expect(totalFiles({ nouveauxLeads: [1], aRappeler: [1, 2], aRebooker: [1], aConfirmer, contactEtabli: [1, 2, 3] })).toBe(8)
   })
 
   it('À rebooker : no-show et annulés des 72 dernières heures, sans RDV déjà repris', () => {
@@ -68,26 +69,59 @@ describe('computeSetterFiles', () => {
     expect(aRebooker.map(l => l.contactId)).toEqual(['c', 'a'])
   })
 
-  it('À confirmer : RDV des 24 prochaines heures dont la carte Vente est en RDV booké', () => {
-    const appts = [
-      appt('c1', 'a', h(3), 'confirmed'),
-      appt('c2', 'b', h(1), 'new'),
-      appt('c3', 'c', h(30), 'confirmed'),   // trop loin
-      appt('c4', 'd', h(2), 'confirmed'),    // carte déjà « RDV confirmé »
-    ]
+  it('À confirmer : toutes les cartes « Lead rencontre book », par heure du prochain RDV découverte', () => {
+    const setterField = nom => ({ customFields: [{ id: FIELDS.setterNom, fieldValueString: nom }] })
     const opps = [
+      oppSetting('a', S.rencontreBook, { raw: setterField('Maude NEO') }),
+      oppSetting('b', S.rencontreBook),
+      oppSetting('c', S.rencontreBook),               // RDV dans 5 jours : plus de limite de 24 h
+      oppSetting('d', S.rencontreBook),               // RDV passé
+      oppSetting('e', S.rencontreBook),               // aucun RDV lu
+      oppSetting('f', S.contactEtabli),               // autre étape
       { ghl_id: 'v-a', contact_id: 'a', pipeline_id: PIPELINE_VENTE.id, pipeline_stage_id: PIPELINE_VENTE.stages.rdvBooke,
         raw: { customFields: [{ id: FIELDS.closer, fieldValueString: 'Pascal NEO' }] } },
-      { ghl_id: 'v-d', contact_id: 'd', pipeline_id: PIPELINE_VENTE.id, pipeline_stage_id: PIPELINE_VENTE.stages.rdvConfirme, raw: {} },
+    ]
+    const appts = [
+      appt('c1', 'a', h(3), 'confirmed', CALENDARS.decouvertePublic, { date_added: h(-20), assigned_user_id: 'u1' }),
+      appt('c2', 'b', h(1), 'new'),
+      appt('c3', 'c', h(120), 'confirmed'),
+      appt('c4', 'd', h(-5), 'confirmed'),
+      appt('c5', 'b', h(2), 'confirmed', CALENDARS.decision),  // pas découverte
     ]
     const { aConfirmer } = computeSetterFiles({ opps, appts, now: NOW, userNames: {} })
-    expect(aConfirmer.map(l => l.contactId)).toEqual(['b', 'a'])
-    expect(aConfirmer[1].closeur).toBe('Pascal NEO')
+    expect(aConfirmer.map(l => [l.contactId, l.rdvAVenir])).toEqual([['b', true], ['a', true], ['c', true], ['d', false], ['e', false]])
+    expect(aConfirmer.map(l => l.confirmation)).toEqual(['nonConfirme', 'nonConfirme', 'nonConfirme', null, null])
+    const a = aConfirmer[1]
+    expect(a.setter).toBe('Maude NEO')
+    expect(a.closeur).toBe('Pascal NEO')
+    expect(a.rdvRef).toMatchObject({ ghlId: 'c1', calendarId: CALENDARS.decouvertePublic, assignedUserId: 'u1', dateAjout: h(-20) })
+    expect(aConfirmer[3].rdvRef.ghlId).toBe('c4')
+    expect(aConfirmer[4].rdvRef).toBe(null)
+  })
+
+  it('À confirmer : confirmé = carte Vente en « RDV confirmé »', () => {
+    const opps = [
+      oppSetting('a', S.rencontreBook),
+      oppSetting('b', S.rencontreBook),
+      { ghl_id: 'v-a', contact_id: 'a', pipeline_id: PIPELINE_VENTE.id, pipeline_stage_id: PIPELINE_VENTE.stages.rdvConfirme, raw: {} },
+      { ghl_id: 'v-b', contact_id: 'b', pipeline_id: PIPELINE_VENTE.id, pipeline_stage_id: PIPELINE_VENTE.stages.rdvBooke, raw: {} },
+    ]
+    const appts = [appt('x', 'a', h(4), 'confirmed'), appt('y', 'b', h(6), 'confirmed')]
+    const { aConfirmer } = computeSetterFiles({ opps, appts, now: NOW })
+    expect(aConfirmer.map(l => [l.contactId, l.confirmation])).toEqual([['a', 'confirme'], ['b', 'nonConfirme']])
+  })
+
+  it('À confirmer : un RDV annulé ne compte pas comme prochain RDV', () => {
+    const opps = [oppSetting('a', S.rencontreBook)]
+    const appts = [appt('x', 'a', h(4), 'cancelled')]
+    const { aConfirmer } = computeSetterFiles({ opps, appts, now: NOW })
+    expect(aConfirmer[0].rdvAVenir).toBe(false)
   })
 
   it('Closeur : repli sur l’utilisateur assigné au RDV', () => {
+    const opps = [oppSetting('a', S.rencontreBook)]
     const appts = [appt('c1', 'a', h(3), 'confirmed', CALENDARS.decouverteCloseurs, { assigned_user_id: 'u1' })]
-    const { aConfirmer } = computeSetterFiles({ appts, now: NOW, userNames: { u1: 'Vicky NEO' } })
+    const { aConfirmer } = computeSetterFiles({ opps, appts, now: NOW, userNames: { u1: 'Vicky NEO' } })
     expect(aConfirmer[0].closeur).toBe('Vicky NEO')
   })
 })

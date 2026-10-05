@@ -5,6 +5,7 @@ import {
   PIPELINE_SETTING, PIPELINE_VENTE, CALENDARS_DECOUVERTE, DELAIS, FIELDS,
   TENTATIVE_PAR_ETAPE, SOURCES_CHAUDES, CONTACTS_TEST,
 } from './salesConfig'
+import { indexConfirmations, etatConfirmation } from './confirmation'
 
 const HEURE = 3_600_000
 
@@ -86,8 +87,14 @@ export function carteLead({ contactId, nom, source, creeLe, stageId = null, opp 
     chaud: (stageId ?? setterOpp?.pipeline_stage_id) === PIPELINE_SETTING.stages.chaudRelancer,
     etape: setterOpp?.stage_name ?? null,
     prochainRdv: rdv ? { start: rdv.start_time, status: rdv.status, calendarId: rdv.calendar_id } : null,
-    rdvRef: rdvRef ? { ghlId: rdvRef.ghl_id, start: rdvRef.start_time, status: rdvRef.status } : null,
+    rdvRef: rdvRef ? {
+      ghlId: rdvRef.ghl_id, start: rdvRef.start_time, status: rdvRef.status,
+      calendarId: rdvRef.calendar_id ?? null, assignedUserId: rdvRef.assigned_user_id ?? null,
+      dateAjout: rdvRef.date_added ?? null,
+    } : null,
     closeur: nomCloseur({ venteOpp, rdv: rdvRef ?? rdv, userNames: ctx.userNames }),
+    // Setter de la carte setting (champ setter__nom, ex. « Maude NEO »)
+    setter: setterOpp ? (String(champ(setterOpp.raw, FIELDS.setterNom) ?? '').trim() || null) : null,
     changementEtape: setterOpp ? dernierChangementEtape(setterOpp) : null,
   }
 }
@@ -124,22 +131,43 @@ export function computeSetterFiles({ opps: toutesOpps = [], appts: tousAppts = [
       }, ctx)
     })
 
-  // ── À confirmer : RDV découverte dans les 24 prochaines heures, carte Vente en « RDV booké »
-  const jusqua = now + DELAIS.confirmerHeures * HEURE
-  const aConfirmer = appts
-    .filter(a => decouverte.has(a.calendar_id) && ACTIFS.has(a.status) && a.contact_id)
-    .filter(a => { const t = ms(a.start_time); return t != null && t > now && t <= jusqua })
-    .filter(a => {
-      const vente = idx.venteParContact.get(a.contact_id)
-      return !vente || vente.pipeline_stage_id === PIPELINE_VENTE.stages.rdvBooke
+  // ── À confirmer : toutes les cartes setting à l'étape « ✅ Lead rencontre book »,
+  // par heure du prochain RDV découverte ; sans RDV découverte à venir (passé ou
+  // absent de la fenêtre lue) : à la fin. L'état confirmé (carte Vente) et
+  // l'info « appelé » (journal d'appels GHL) s'ajoutent à l'écran (confirmation.js).
+  const prochainDecouverte = new Map()
+  const dernierDecouverte = new Map()
+  for (const a of appts) {
+    if (!decouverte.has(a.calendar_id) || !a.contact_id) continue
+    const t = ms(a.start_time)
+    if (t == null) continue
+    if (t > now && ACTIFS.has(a.status)) {
+      const cur = prochainDecouverte.get(a.contact_id)
+      if (!cur || t < ms(cur.start_time)) prochainDecouverte.set(a.contact_id, a)
+    } else if (t <= now) {
+      const cur = dernierDecouverte.get(a.contact_id)
+      if (!cur || t > ms(cur.start_time)) dernierDecouverte.set(a.contact_id, a)
+    }
+  }
+  const confirmations = indexConfirmations(opps)
+  const aConfirmer = opps
+    .filter(o => o.pipeline_id === PIPELINE_SETTING.id && o.pipeline_stage_id === S.rencontreBook && o.contact_id)
+    .map(o => {
+      const rdv = prochainDecouverte.get(o.contact_id) ?? null
+      const ref = rdv ?? dernierDecouverte.get(o.contact_id) ?? null
+      return {
+        ...carteLead({
+          contactId: o.contact_id, nom: o.contact_name || ref?.contact_name, source: o.source,
+          creeLe: o.created_at_ghl, stageId: o.pipeline_stage_id, opp: o, rdvRef: ref,
+        }, ctx),
+        rdvAVenir: !!rdv,
+        // État de la carte Vente ; null sans RDV à venir (rien à confirmer)
+        confirmation: rdv ? etatConfirmation(o.contact_id, confirmations) : null,
+      }
     })
-    .sort((a, b) => ms(a.start_time) - ms(b.start_time))
-    .map(a => {
-      const o = settingParContact.get(a.contact_id)
-      return carteLead({
-        contactId: a.contact_id, nom: a.contact_name || o?.contact_name, source: o?.source,
-        creeLe: o?.created_at_ghl, opp: o ?? null, rdvRef: a,
-      }, ctx)
+    .sort((a, b) => {
+      if (a.rdvAVenir !== b.rdvAVenir) return a.rdvAVenir ? -1 : 1
+      return (ms(a.rdvRef?.start) ?? Infinity) - (ms(b.rdvRef?.start) ?? Infinity)
     })
 
   const cartesDesEtapes = etapes => opps
@@ -193,10 +221,15 @@ export function rdvBookesAujourdhui({ appts = [], opps = [], setterName, now = D
   return vus.size
 }
 
+// À confirmer « à faire » : RDV à venir pas encore confirmés
+export function aConfirmerAFaire(leads) {
+  return (leads ?? []).filter(l => l.confirmation === 'nonConfirme')
+}
+
 // Total des éléments en attente dans les files (compteur du commutateur)
 export function totalFiles(files) {
-  return ['nouveauxLeads', 'aRappeler', 'aRebooker', 'aConfirmer', 'contactEtabli']
-    .reduce((n, cle) => n + (files?.[cle]?.length ?? 0), 0)
+  return ['nouveauxLeads', 'aRappeler', 'aRebooker', 'contactEtabli']
+    .reduce((n, cle) => n + (files?.[cle]?.length ?? 0), aConfirmerAFaire(files?.aConfirmer).length)
 }
 
 // Tentatives déjà faites (0 à 4) d'après l'étape ; 0 hors pipeline de tentatives

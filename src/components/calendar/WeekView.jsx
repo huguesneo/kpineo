@@ -27,6 +27,14 @@ function getBlockStyle(status) {
   }
 }
 
+// Rencontre découverte à venir (espace vente v2, `etatDe` fourni) : pleine si
+// confirmée (carte Vente « ✅ RDV confirmé »), en contour si pas encore confirmée.
+function styleConfirmation(etat) {
+  if (etat === 'nonConfirme') return { bg: '#ffffff', border: '#d97706', text: '#b45309', outline: true }
+  if (etat === 'confirmationEnCours' || etat === 'annulationEnCours') return { bg: '#e5e7eb', border: '#9ca3af', text: '#374151' }
+  return null
+}
+
 // ─── Position helpers ─────────────────────────────────────────
 function apptTop(startTime) {
   const d = new Date(startTime)
@@ -38,11 +46,11 @@ function apptHeight(duration) {
 }
 
 // ─── Single appointment block ─────────────────────────────────
-function ApptBlock({ appt, onClick }) {
+function ApptBlock({ appt, onClick, etat = null }) {
   const duration = appt.raw?.duration ?? appt.raw?.durationMinutes ?? 60
   const top    = apptTop(appt.start_time)
   const height = apptHeight(duration)
-  const style  = getBlockStyle(appt.status)
+  const style  = styleConfirmation(etat) ?? getBlockStyle(appt.status)
   const hasMeet = appt.meeting_url?.startsWith('http')
   const short   = height < 40
 
@@ -58,6 +66,7 @@ function ApptBlock({ appt, onClick }) {
         height:          height,
         backgroundColor: style.bg,
         borderLeft:      `3px solid ${style.border}`,
+        boxShadow:       style.outline ? `inset 0 0 0 1px ${style.border}` : undefined,
         color:           style.text,
         zIndex:          10,
       }}
@@ -71,7 +80,7 @@ function ApptBlock({ appt, onClick }) {
         )}
         {!short && hasMeet && (
           <div className="mt-auto">
-            <span className="text-[8px] opacity-90 font-bold bg-white/20 px-1 py-0.5 rounded">Meet</span>
+            <span className={`text-[8px] opacity-90 font-bold px-1 py-0.5 rounded ${style.outline ? 'bg-[#fef3c7]' : 'bg-white/20'}`}>Meet</span>
           </div>
         )}
       </div>
@@ -127,7 +136,7 @@ function BlockedSlotBlock({ slot, onClick }) {
 }
 
 // ─── Day column ───────────────────────────────────────────────
-function DayColumn({ date, appointments, blockedSlots, onApptClick, onBlockedSlotClick, isCurrentDay, showNow }) {
+function DayColumn({ date, appointments, blockedSlots, onApptClick, onBlockedSlotClick, isCurrentDay, showNow, etatDe }) {
   const appts   = appointments.filter(a => isSameDay(new Date(a.start_time), date))
   const blocked = (blockedSlots ?? []).filter(s => isSameDay(new Date(s.start_time), date))
 
@@ -160,14 +169,15 @@ function DayColumn({ date, appointments, blockedSlots, onApptClick, onBlockedSlo
 
       {/* Appointment blocks */}
       {appts.map(a => (
-        <ApptBlock key={a.id || a.ghl_id} appt={a} onClick={onApptClick} />
+        <ApptBlock key={a.id || a.ghl_id} appt={a} onClick={onApptClick} etat={etatDe?.(a) ?? null} />
       ))}
     </div>
   )
 }
 
 // ─── Week View ────────────────────────────────────────────────
-export default function WeekView({ days, appointments, blockedSlots = [], onApptClick, onBlockedSlotClick, selectedApptId }) {
+// etatDe(appt) (optionnel) : état de confirmation d'une rencontre découverte à venir
+export default function WeekView({ days, appointments, blockedSlots = [], onApptClick, onBlockedSlotClick, selectedApptId, etatDe = null }) {
   const scrollRef = useRef(null)
 
   // Scroll to 8am on mount
@@ -232,6 +242,7 @@ export default function WeekView({ days, appointments, blockedSlots = [], onAppt
               onBlockedSlotClick={onBlockedSlotClick}
               isCurrentDay={isToday(day)}
               showNow={true}
+              etatDe={etatDe}
             />
           ))}
         </div>

@@ -6,6 +6,7 @@ import { PIPELINE_VENTE, PIPELINE_SETTING } from '../../lib/v2/salesConfig'
 import { listeDuJour, prochainRdv, mesDecisions } from '../../lib/v2/closerAgenda'
 import { jourMontreal } from '../../lib/v2/setterFiles'
 import { useRealtimeRefetch } from './useRealtimeRefetch'
+import { useEtatsConfirmation } from './useEtatsConfirmation'
 
 function plusJours(jour, n) {
   const d = new Date(jour + 'T12:00:00Z')
@@ -83,6 +84,8 @@ export function useCloserAgenda(profile, { enabled = true } = {}) {
   const jour = useMemo(() => listeDuJour(duJour, eodRows, now), [duJour, eodRows, now])
   const prochain = useMemo(() => prochainRdv(appointments, now), [appointments, now])
   const decisions = useMemo(() => mesDecisions(opps, profile?.full_name, now), [opps, profile?.full_name, now])
+  // Rencontres découverte à venir : confirmé ou non (carte Vente), confirmer manuellement
+  const confirmations = useEtatsConfirmation(appointments, { now, enabled })
 
   // Statuer un RDV : rapport EOD + GHL (même logique que AppointmentStatusPopup),
   // objection sur la carte Vente quand ce n'est pas une vente (CloserEODForm).
@@ -126,6 +129,6 @@ export function useCloserAgenda(profile, { enabled = true } = {}) {
     today, now, appointments, jour, prochain, decisions, opps, eodRows,
     loading: apptLoading || oppsLoading,
     aStatuerCount: jour.epingles.length,
-    statuer, refetch,
+    statuer, refetch, confirmations,
   }
 }

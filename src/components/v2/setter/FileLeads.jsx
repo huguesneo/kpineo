@@ -2,8 +2,12 @@ import { useMemo, useState } from 'react'
 import { fmtAge, styleSource } from '../../../lib/v2/format'
 import { verrouAutre } from '../../../hooks/v2/useLeadLocks'
 import { trierLeads, triSuivant, TRI_DEFAUT } from '../../../lib/v2/setterFiles'
+import { fmtAppel } from '../../../lib/v2/confirmation'
+import ConfirmerRencontre, { PastilleConfirmation } from '../ConfirmerRencontre'
 
 const COLONNES = 'xl:grid-cols-[minmax(0,1.4fr)_96px_52px_78px_minmax(0,1fr)_96px_300px]'
+// File « À confirmer » : Lead, Source, RDV, Confirmation, Appel, Setter, Closeur, Actions
+const COLONNES_CONFIRMATION = 'xl:grid-cols-[minmax(0,1.3fr)_96px_104px_112px_minmax(0,1.1fr)_minmax(0,0.8fr)_minmax(0,0.8fr)_250px]'
 const LIMITE = { desktop: 10, mobile: 3 }
 
 const IconeExterne = (
@@ -72,9 +76,8 @@ function PastilleSource({ source }) {
   )
 }
 
-// Zone d'actions selon l'état de la ligne
-function Actions({ lead, etat, pris, actions, file, mobile = false }) {
-  const fiche = (
+function BoutonFiche({ lead, actions, mobile = false }) {
+  return (
     <button
       onClick={() => actions.ouvrirFiche(lead)}
       title="Fiche GHL"
@@ -85,6 +88,11 @@ function Actions({ lead, etat, pris, actions, file, mobile = false }) {
       {!mobile && 'Fiche GHL'}{IconeExterne}
     </button>
   )
+}
+
+// Zone d'actions selon l'état de la ligne
+function Actions({ lead, etat, pris, actions, mobile = false }) {
+  const fiche = <BoutonFiche lead={lead} actions={actions} mobile={mobile} />
 
   if (pris) {
     return (
@@ -110,11 +118,6 @@ function Actions({ lead, etat, pris, actions, file, mobile = false }) {
         {!mobile && fiche}
       </div>
     )
-  }
-
-  // « À confirmer » : le RDV existe déjà, pas de prise de rendez-vous
-  if (file.sansReservation) {
-    return <div className={`flex items-center ${mobile ? '' : 'justify-end'}`}>{fiche}</div>
   }
 
   const prendre = (
@@ -149,7 +152,7 @@ function LigneLead({ lead, file, userId, locks, actions, now }) {
         <Tentatives faites={faites} />
         <span className="text-[13px] font-semibold whitespace-nowrap truncate" style={{ color: rdv.couleur }} title={rdv.texte}>{rdv.texte}</span>
         <span className="text-[13px] text-[#1a1a1a] truncate" title={lead.closeur ?? ''}>{lead.closeur ?? '—'}</span>
-        <Actions lead={lead} etat={etat} pris={pris} actions={actions} file={file} />
+        <Actions lead={lead} etat={etat} pris={pris} actions={actions} />
       </div>
 
       {/* Mobile et tablette : carte sur trois lignes */}
@@ -164,21 +167,76 @@ function LigneLead({ lead, file, userId, locks, actions, now }) {
           <span>·</span><span>{lead.closeur ?? '—'}</span>
           <span>·</span><span>{fmtAge(lead.ageHeures)}</span>
         </div>
-        <Actions lead={lead} etat={etat} pris={pris} actions={actions} file={file} mobile />
+        <Actions lead={lead} etat={etat} pris={pris} actions={actions} mobile />
       </div>
     </>
   )
 }
 
-// Une file (section) : en-tête, en-têtes de colonnes, lignes, état vide
-export default function FileLeads({ file, leads, userId, locks, actions, now }) {
+// Ligne de la file « À confirmer » : RDV, état de confirmation (carte Vente),
+// dernier appel, setter, closeur, et « Confirmer la rencontre » à la place de
+// « Prendre un rendez-vous ».
+function LigneConfirmation({ lead, file, actions, confirmation, now }) {
+  const rdv = file.rdv(lead, now)
+  const id = lead.rdvRef?.ghlId
+  const appel = lead.appel == null
+    ? { texte: confirmation?.appelsErreur ? '—' : '…', couleur: '#9ca3af', titre: confirmation?.appelsErreur ?? 'Chargement du journal d’appels' }
+    : { texte: fmtAppel(lead.appel.dernier, now), couleur: lead.appel.nb > 0 ? '#1a1a1a' : '#b45309', titre: `${lead.appel.nb} appel(s) depuis la réservation` }
+  const bouton = mobile => (lead.rdvAVenir && confirmation ? (
+    <ConfirmerRencontre
+      nom={lead.nom} debut={lead.rdvRef?.start} now={now} etat={lead.confirmation}
+      manuelle={confirmation.manuelles[id] ?? null} enCours={confirmation.enCours[id] ?? null}
+      erreur={confirmation.erreurs[id] ?? null}
+      onConfirmer={() => confirmation.confirmer(id)} onAnnuler={() => confirmation.annuler(id)}
+      mobile={mobile}
+    />
+  ) : null)
+
+  return (
+    <>
+      <div className={`hidden xl:grid ${COLONNES_CONFIRMATION} gap-2.5 items-center px-3.5 py-2 border-t border-[#f3f4f6]`} style={{ background: '#fcfcfd' }}>
+        <NomLead lead={lead} couleur="#1a1a1a" actions={actions} />
+        <div className="min-w-0"><PastilleSource source={lead.source} /></div>
+        <span className="text-[13px] font-semibold whitespace-nowrap truncate" style={{ color: rdv.couleur }} title={rdv.texte}>{rdv.texte}</span>
+        <span>{lead.confirmation ? <PastilleConfirmation etat={lead.confirmation} /> : <span className="text-xs text-[#9ca3af]">—</span>}</span>
+        <span className="text-[13px] truncate" style={{ color: appel.couleur }} title={appel.titre}>{appel.texte}</span>
+        <span className="text-[13px] text-[#1a1a1a] truncate" title={lead.setter ?? ''}>{lead.setter ?? '—'}</span>
+        <span className="text-[13px] text-[#1a1a1a] truncate" title={lead.closeur ?? ''}>{lead.closeur ?? '—'}</span>
+        <div className="flex items-start justify-end gap-1.5">{bouton(false)}<BoutonFiche lead={lead} actions={actions} /></div>
+      </div>
+
+      <div className="xl:hidden px-3.5 py-3 border-t border-[#f3f4f6] flex flex-col gap-2" style={{ background: '#fcfcfd' }}>
+        <div className="flex items-center gap-1.5 min-w-0">
+          <NomLead lead={lead} couleur="#1a1a1a" actions={actions} grand />
+          {lead.confirmation && <PastilleConfirmation etat={lead.confirmation} />}
+        </div>
+        <div className="flex items-center gap-1.5 flex-wrap text-xs text-[#6b7280]">
+          <span className="font-semibold" style={{ color: rdv.couleur }}>{rdv.texte}</span>
+          <span>·</span><span style={{ color: appel.couleur }}>{appel.texte}</span>
+          <span>·</span><span>Setter : {lead.setter ?? '—'}</span>
+          <span>·</span><span>Closeur : {lead.closeur ?? '—'}</span>
+        </div>
+        <div className="flex items-start gap-2">
+          <div className="flex-1 flex flex-col">{bouton(true)}</div>
+          <BoutonFiche lead={lead} actions={actions} mobile />
+        </div>
+      </div>
+    </>
+  )
+}
+
+// Une file (section) : en-tête, en-têtes de colonnes, lignes, état vide.
+// File « À confirmer » (file.confirmation) : colonnes et actions propres, filtres
+// passés dans `barre`, compteur = non confirmés (`compteur`).
+export default function FileLeads({ file, leads, userId, locks, actions, now, confirmation = null, barre = null, compteur = null }) {
   const [toutVoir, setToutVoir] = useState(false)
   const [replie, setReplie] = useState(false)
   // Tri : âge (plus vieux d'abord) par défaut ; null = ordre de la file (ex. heure du RDV)
   const [tri, setTri] = useState(file.triInitial === undefined ? TRI_DEFAUT : file.triInitial)
   const changerTri = cle => setTri(t => triSuivant(t, cle))
   const tries = useMemo(() => (tri ? trierLeads(leads, tri) : leads), [leads, tri])
-  const ouverts = leads.filter(l => actions.etats[l.key] !== 'reservation').length
+  const ouverts = compteur ?? leads.filter(l => actions.etats[l.key] !== 'reservation').length
+  const modeConfirmation = !!file.confirmation
   const limiteDesktop = toutVoir ? Infinity : LIMITE.desktop
   const limiteMobile = toutVoir ? Infinity : LIMITE.mobile
 
@@ -193,7 +251,7 @@ export default function FileLeads({ file, leads, userId, locks, actions, now }) 
         </span>
         <span className="text-xs text-[#6b7280] hidden sm:inline">{file.sousTitre}</span>
         {/* Tri sur mobile et tablette (pas d'en-têtes de colonnes) */}
-        {!replie && leads.length > 1 && (
+        {!replie && !modeConfirmation && leads.length > 1 && (
           <span className="xl:hidden flex items-center gap-2 text-[11px] font-bold text-[#9ca3af] w-full sm:w-auto">
             Trier :
             <EnteteTri libelle="Âge" cle="age" tri={tri} onTri={changerTri} />
@@ -211,6 +269,8 @@ export default function FileLeads({ file, leads, userId, locks, actions, now }) 
         )}
       </div>
 
+      {!replie && barre}
+
       {replie ? null : leads.length === 0 ? (
         <div className="py-7 px-4 flex flex-col items-center gap-1 text-center">
           <div className="w-9 h-9 rounded-full bg-[#ecfdf5] flex items-center justify-center mb-1.5">
@@ -223,17 +283,26 @@ export default function FileLeads({ file, leads, userId, locks, actions, now }) 
         </div>
       ) : (
         <>
-          <div className={`hidden xl:grid ${COLONNES} gap-2.5 px-3.5 py-2 text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide`}>
-            <span>Lead</span><span>Source</span>
-            <EnteteTri libelle="Âge" cle="age" tri={tri} onTri={changerTri} />
-            <EnteteTri libelle="Tentatives" cle="tentatives" tri={tri} onTri={changerTri} />
-            <span>{file.rdvLabel}</span>
-            <span>Closeur</span><span className="text-right">Actions</span>
-          </div>
+          {modeConfirmation ? (
+            <div className={`hidden xl:grid ${COLONNES_CONFIRMATION} gap-2.5 px-3.5 py-2 text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide`}>
+              <span>Lead</span><span>Source</span><span>{file.rdvLabel}</span><span>Confirmation</span>
+              <span>Appel</span><span>Setter</span><span>Closeur</span><span className="text-right">Actions</span>
+            </div>
+          ) : (
+            <div className={`hidden xl:grid ${COLONNES} gap-2.5 px-3.5 py-2 text-[10px] font-bold text-[#9ca3af] uppercase tracking-wide`}>
+              <span>Lead</span><span>Source</span>
+              <EnteteTri libelle="Âge" cle="age" tri={tri} onTri={changerTri} />
+              <EnteteTri libelle="Tentatives" cle="tentatives" tri={tri} onTri={changerTri} />
+              <span>{file.rdvLabel}</span>
+              <span>Closeur</span><span className="text-right">Actions</span>
+            </div>
+          )}
           {tries.map((lead, i) => (
             // Mobile : les 3 premiers, grand écran : les 10 premiers (tout après « Voir »)
             <div key={lead.key} className={i >= limiteDesktop ? 'hidden' : i >= limiteMobile ? 'hidden xl:block' : ''}>
-              <LigneLead lead={lead} file={file} userId={userId} locks={locks} actions={actions} now={now} />
+              {modeConfirmation
+                ? <LigneConfirmation lead={lead} file={file} actions={actions} confirmation={confirmation} now={now} />
+                : <LigneLead lead={lead} file={file} userId={userId} locks={locks} actions={actions} now={now} />}
             </div>
           ))}
           {!toutVoir && leads.length > LIMITE.mobile && (

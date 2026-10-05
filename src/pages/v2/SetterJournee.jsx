@@ -3,14 +3,18 @@ import EnteteEspace from '../../components/v2/EnteteEspace'
 import Replie from '../../components/v2/Replie'
 import BandeauJour from '../../components/v2/setter/BandeauJour'
 import FileLeads from '../../components/v2/setter/FileLeads'
+import FiltresAConfirmer from '../../components/v2/setter/FiltresAConfirmer'
 import ModalPriseRdv from '../../components/v2/setter/ModalPriseRdv'
 import SetterDashboardView from '../../components/closer/SetterDashboardView'
 import SetterEODForm from '../../components/eod/SetterEODForm'
 import { useLeadLocks } from '../../hooks/v2/useLeadLocks'
 import { useSetterDayStats } from '../../hooks/v2/useSetterDayStats'
 import { useSetterActions } from '../../hooks/v2/useSetterActions'
+import { useConfirmation } from '../../hooks/v2/useConfirmation'
+import { useAppelsRecents } from '../../hooks/v2/useAppelsRecents'
 import { usePayPeriodConfig, getCurrentPayPeriod } from '../../hooks/usePayPeriod'
-import { rdvBookesAujourdhui, jourMontreal } from '../../lib/v2/setterFiles'
+import { rdvBookesAujourdhui, jourMontreal, aConfirmerAFaire } from '../../lib/v2/setterFiles'
+import { enrichirAConfirmer, filtrerAConfirmer, FILTRES_DEFAUT } from '../../lib/v2/confirmation'
 import { fmtCAD, fmtRdvRelatif } from '../../lib/v2/format'
 
 function sansEmoji(s) {
@@ -46,12 +50,14 @@ const FILES = [
     }),
   },
   {
-    cle: 'aConfirmer', titre: 'À confirmer', sousTitre: 'RDV des prochaines 24 h, par heure',
+    cle: 'aConfirmer', titre: 'À confirmer', sousTitre: 'Étape ✅ Lead rencontre book, par heure du RDV',
     couleur: '#f59e0b', compteurBg: '#fffbeb', compteurColor: '#b45309', rdvLabel: 'RDV',
-    videTitre: 'Tout est confirmé', videTexte: 'Les RDV des prochaines 24 h sont confirmés.',
-    triInitial: null, // par heure du RDV ; Âge et Tentatives restent cliquables
-    sansReservation: true, // le RDV existe déjà : seulement la fiche GHL
-    rdv: (l, now) => ({ texte: fmtRdvRelatif(l.rdvRef?.start, now), couleur: '#1a1a1a' }),
+    videTitre: 'Aucun lead booké', videTexte: 'Aucune carte à l’étape « ✅ Lead rencontre book ».',
+    triInitial: null, // par heure du RDV
+    confirmation: true, // colonnes Confirmation, Appel, Setter ; « Confirmer la rencontre »
+    rdv: (l, now) => (l.rdvAVenir
+      ? { texte: fmtRdvRelatif(l.rdvRef?.start, now), couleur: '#1a1a1a' }
+      : { texte: l.rdvRef ? `Passé · ${fmtRdvRelatif(l.rdvRef.start, now)}` : 'Aucun RDV à venir', couleur: '#9ca3af' }),
   },
   {
     cle: 'contactEtabli', titre: 'Contact établi', sousTitre: 'Étape 💬 Contact établi',
@@ -94,7 +100,26 @@ export default function SetterJournee({ profile, droite = null, setterFiles, onC
     [raw, profile?.full_name, now],
   )
 
-  const enAttente = FILES.reduce((n, f) => n + files[f.cle].filter(l => !actions.etats[l.key]).length, 0)
+  // File « À confirmer » : état affiché (clic récent), appels depuis la réservation, filtres
+  const aConfirmerSource = files.aConfirmer
+  const confirmation = useConfirmation({ appointmentIds: aConfirmerSource.map(l => l.rdvRef?.ghlId) })
+  const depuisAppels = useMemo(() => {
+    const dates = aConfirmerSource.map(l => l.rdvRef?.dateAjout ?? l.changementEtape).filter(Boolean).map(d => new Date(d).getTime())
+    return dates.length ? new Date(Math.min(...dates)).toISOString() : null
+  }, [aConfirmerSource])
+  const { appels, erreur: appelsErreur } = useAppelsRecents({ contactIds: aConfirmerSource.map(l => l.contactId), depuis: depuisAppels })
+  const [filtres, setFiltres] = useState(FILTRES_DEFAUT)
+  const aConfirmer = useMemo(
+    () => enrichirAConfirmer(aConfirmerSource, { locaux: confirmation.locaux, appels: appelsErreur ? null : appels, now }),
+    [aConfirmerSource, confirmation.locaux, appels, appelsErreur, now],
+  )
+  const aConfirmerFiltres = useMemo(() => filtrerAConfirmer(aConfirmer, filtres), [aConfirmer, filtres])
+  const filtresActifs = filtres.confirmation !== 'tous' || filtres.appel !== 'tous'
+  const nbAConfirmer = aConfirmerAFaire(aConfirmer).length
+
+  const enAttente = FILES.reduce((n, f) => n + (f.cle === 'aConfirmer'
+    ? nbAConfirmer
+    : files[f.cle].filter(l => !actions.etats[l.key]).length), 0)
   useEffect(() => { onCompteur?.(enAttente) }, [enAttente, onCompteur])
 
   const today = jourMontreal(new Date(now))
@@ -114,7 +139,7 @@ export default function SetterJournee({ profile, droite = null, setterFiles, onC
     <div>
       <EnteteEspace profile={profile} droite={droite} />
 
-      <BandeauJour stats={stats} rdvBookes={rdvBookes} aConfirmer={files.aConfirmer.length} nouveaux={files.nouveauxLeads} />
+      <BandeauJour stats={stats} rdvBookes={rdvBookes} aConfirmer={nbAConfirmer} nouveaux={files.nouveauxLeads} />
 
       <ModalPriseRdv lead={actions.rdvEnCours} cleSetter={actions.cleSetter} onClose={actions.fermerRdv} />
 
@@ -135,10 +160,18 @@ export default function SetterJournee({ profile, droite = null, setterFiles, onC
       <div className="flex flex-col gap-5">
         {loading
           ? FILES.map(f => <div key={f.cle} className="h-32 bg-white border border-[#e5e7eb] rounded-xl animate-pulse" />)
-          : FILES.map(f => (
+          : FILES.map(f => (f.confirmation ? (
+            <FileLeads key={f.cle}
+              file={filtresActifs ? { ...f, videTitre: 'Aucun lead pour ces filtres', videTexte: 'Change les filtres pour voir les autres leads bookés.' } : f}
+              leads={aConfirmerFiltres} userId={profile?.id} locks={locks} actions={actions} now={now}
+              confirmation={{ ...confirmation, appelsErreur }} compteur={nbAConfirmer}
+              barre={aConfirmer.length > 0 && (
+                <FiltresAConfirmer filtres={filtres} onChange={setFiltres} appelsIndisponibles={appelsErreur} />
+              )} />
+          ) : (
             <FileLeads key={f.cle} file={f} leads={files[f.cle]} userId={profile?.id}
               locks={locks} actions={actions} now={now} />
-          ))}
+          )))}
 
         <div className="flex flex-col gap-2 mt-1">
           <Replie

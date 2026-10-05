@@ -47,7 +47,9 @@ function toUiStatus(ghlStatus) {
   return null
 }
 
-export default function AppointmentDrawer({ appt, onClose, onStatusUpdate, userId = null }) {
+// blocConfirmation (optionnel, espace vente v2) : remplace le badge « Confirmé » du
+// statut GHL, qui vaut « confirmed » dès la réservation, pour une rencontre à venir.
+export default function AppointmentDrawer({ appt, onClose, onStatusUpdate, userId = null, blocConfirmation = null }) {
   const navigate  = useNavigate()
   const contactId = appt?.contact_id ?? null
   const { contact, loading: contactLoading } = useGHLContactById(contactId)
@@ -149,7 +151,7 @@ export default function AppointmentDrawer({ appt, onClose, onStatusUpdate, userI
               <div>
                 <p className="text-sm font-semibold text-[#1a1a1a] capitalize">{fmtDateTime(appt.start_time)}</p>
                 <p className="text-xs text-[#6b7280] mt-0.5">{duration} minutes</p>
-                <StatusBadge status={appt.status} />
+                {blocConfirmation ? <div className="mt-2">{blocConfirmation}</div> : <StatusBadge status={appt.status} />}
               </div>
             </div>
           </div>

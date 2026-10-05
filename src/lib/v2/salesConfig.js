@@ -83,7 +83,6 @@ export const FIELDS = {
 
 export const DELAIS = {
   rebookerHeures: 72,
-  confirmerHeures: 24,
   aStatuerHeures: 2,
   decisionOrangeHeures: 72,
   decisionRougeJours: 7,
@@ -95,6 +94,15 @@ export const DELAIS = {
 // Tag posé par « Appelé, pas de réponse » ; un workflow GHL avance la carte
 // puis retire le tag (voir docs/V2-WEBHOOKS-GHL.md).
 export const TAG_TENTATIVE_FAITE = 'app-tentative-faite'
+
+// Tag de confirmation d'une rencontre découverte : posé par le clic « Je confirme »
+// du lead (LEAD-21b) ou par « Confirmer la rencontre » dans l'app
+// (ghl-confirmer-rencontre). Un workflow met alors la carte Vente en « ✅ RDV confirmé » :
+// c'est cette étape que l'app lit pour savoir qu'un RDV est confirmé.
+export const TAG_CONFIRME = 'statut-confirme'
+// Posé quand une confirmation faite depuis l'app est retirée : NEOHUB-05 ramène la
+// carte Vente en « 📅 RDV booké » puis retire ce tag (docs/V2-WEBHOOKS-GHL.md).
+export const TAG_CONFIRMATION_RETIREE = 'app-confirmation-retiree'
 
 // Sources considérées « chaudes » dans la file À appeler
 export const SOURCES_CHAUDES = [/\bvsl?\b/i, /quiz/i]

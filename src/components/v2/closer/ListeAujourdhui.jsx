@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { fmtHeure, fmtDuree } from '../../../lib/v2/format'
 import StatuerRdv from './StatuerRdv'
+import ConfirmerRencontre, { PastilleConfirmation, COULEURS_NOM } from '../ConfirmerRencontre'
 
 const ETATS = {
   aVenir:   { label: 'À venir',  bg: '#f3f4f6', color: '#4b5563' },
@@ -13,8 +14,13 @@ const ETATS = {
 
 // Liste du jour : RDV à statuer épinglés (fond ambre) puis les autres par heure.
 // Une ligne sans statut peut être statuée en cliquant sur son badge.
-export default function ListeAujourdhui({ jour, now, onStatuer }) {
+// Rencontre découverte à venir : nom vert (confirmée) ou ambre (non confirmée) ;
+// un clic sur le nom ouvre « Confirmer manuellement » (ou « Annuler la confirmation »).
+export default function ListeAujourdhui({ jour, now, onStatuer, confirmations = null }) {
   const [ouvert, setOuvert] = useState(null)
+  const [ouvertConf, setOuvertConf] = useState(null)
+  const etatDe = confirmations?.etatDe ?? (() => null)
+  const conf = confirmations?.confirmation
   const total = jour.epingles.length + jour.lignes.length
 
   return (
@@ -41,11 +47,24 @@ export default function ListeAujourdhui({ jour, now, onStatuer }) {
         const e = ETATS[etat] ?? ETATS.aVenir
         const muet = etat === 'annule'
         const statuable = ['aVenir', 'prochain', 'enCours'].includes(etat) && new Date(appt.start_time).getTime() <= now
+        const etatConf = etatDe(appt)
         return (
           <div key={appt.ghl_id} className="border-b border-[#f3f4f6]" style={{ background: etat === 'prochain' ? 'rgba(0,187,177,0.05)' : '#fcfcfd' }}>
             <div className="flex items-center gap-3 px-4 py-2.5">
               <span className="text-[13px] font-bold w-14 flex-shrink-0" style={{ color: muet ? '#9ca3af' : '#1a1a1a' }}>{fmtHeure(appt.start_time)}</span>
-              <span className="text-sm font-semibold flex-1 min-w-0 truncate" style={{ color: muet ? '#9ca3af' : '#1a1a1a' }}>{appt.contact_name || 'Sans nom'}</span>
+              {etatConf ? (
+                <button
+                  onClick={() => setOuvertConf(o => o === appt.ghl_id ? null : appt.ghl_id)}
+                  aria-expanded={ouvertConf === appt.ghl_id}
+                  title={etatConf === 'nonConfirme' ? 'Confirmer manuellement' : undefined}
+                  className="text-sm font-semibold flex-1 min-w-0 flex items-center gap-2 text-left hover:underline underline-offset-2"
+                  style={{ color: COULEURS_NOM[etatConf] }}>
+                  <span className="truncate">{appt.contact_name || 'Sans nom'}</span>
+                  <PastilleConfirmation etat={etatConf} className="hidden sm:inline-block" />
+                </button>
+              ) : (
+                <span className="text-sm font-semibold flex-1 min-w-0 truncate" style={{ color: muet ? '#9ca3af' : '#1a1a1a' }}>{appt.contact_name || 'Sans nom'}</span>
+              )}
               <button
                 disabled={!statuable}
                 onClick={() => setOuvert(o => o === appt.ghl_id ? null : appt.ghl_id)}
@@ -57,6 +76,15 @@ export default function ListeAujourdhui({ jour, now, onStatuer }) {
             </div>
             {ouvert === appt.ghl_id && (
               <div className="px-4 pb-3 sm:pl-[84px]"><StatuerRdv appt={appt} onStatuer={onStatuer} /></div>
+            )}
+            {etatConf && ouvertConf === appt.ghl_id && conf && (
+              <div className="px-4 pb-3 sm:pl-[84px]">
+                <ConfirmerRencontre gauche libelle="Confirmer manuellement"
+                  nom={appt.contact_name} debut={appt.start_time} now={now} etat={etatConf}
+                  manuelle={conf.manuelles[appt.ghl_id] ?? null} enCours={conf.enCours[appt.ghl_id] ?? null}
+                  erreur={conf.erreurs[appt.ghl_id] ?? null}
+                  onConfirmer={() => conf.confirmer(appt.ghl_id)} onAnnuler={() => conf.annuler(appt.ghl_id)} />
+              </div>
             )}
           </div>
         )

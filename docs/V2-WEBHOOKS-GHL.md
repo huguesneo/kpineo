@@ -4,6 +4,7 @@ GHL n'envoie ses événements natifs (`OpportunityStageUpdate`, suppressions…)
 apps Marketplace : `ghl-webhook` n'a rien reçu en 90 jours. La source fiable, ce sont
 les **actions Webhook des workflows**. Ces 3 recettes (workflows 1 à 3) font bouger les écrans v2 en
 temps réel (Supabase Realtime est déjà actif sur `ghl_opportunities` et `ghl_appointments`).
+La confirmation manuelle des rencontres ajoute NEOHUB-04 et NEOHUB-05 (section plus bas).
 
 ## État au 2 oct. 2026 : les workflows 1 à 3 sont créés et fonctionnent
 
@@ -105,6 +106,70 @@ Une annulation est un changement de statut : le workflow 2 la couvre. Pour un RD
 dans le cache jusqu'à la prochaine synchro (tâche `ghl-incremental-sync`, toutes les
 30 minutes en production). Si un jour un déclencheur existe, envoyer
 `{ "customData": { "type": "AppointmentDelete", "id": "…" } }` supprime la ligne.
+
+## Confirmation manuelle des rencontres découverte (5 oct. 2026)
+
+### Comment l'app sait qu'une rencontre est confirmée
+
+Une seule source : **l'étape de la carte 🎯 Vente** du contact (`✅ RDV confirmé` = confirmée,
+`📅 RDV booké` = pas encore). Le statut du RDV dans le calendrier ne sert pas : GHL le met à
+`confirmed` dès la réservation, pour tout le monde (vérifié : aucun RDV découverte en `new`
+sur 30 jours). L'app ne l'écrit pas non plus : changer un statut de RDV relance les workflows
+*Appointment Status* (NEOHUB-02, App · RDV statut changé, LEAD-22, LEAD-21b).
+
+- Le lead clique « Je confirme » → LEAD-21b pose `statut-confirme` et met la carte en
+  `✅ RDV confirmé`.
+- Un setter ou un closeur clique « Confirmer la rencontre » dans l'app → la fonction
+  `ghl-confirmer-rencontre` pose `statut-confirme`, ajoute une note « confirmée manuellement
+  depuis le hub par Prénom, le … » et écrit une ligne dans `v2_confirmations`. LEAD-20b envoie
+  « Ta rencontre est confirmée. » (voulu). **NEOHUB-04** met la carte en `✅ RDV confirmé`.
+- « Annuler la confirmation » (seulement pour une confirmation faite depuis l'app) → la
+  fonction retire `statut-confirme`, pose `app-confirmation-retiree`, ajoute une note et annule
+  la ligne. **NEOHUB-05** ramène la carte en `📅 RDV booké`.
+
+Dans les deux cas, le déplacement déclenche NEOHUB-01, qui met l'app à jour en quelques secondes.
+
+### Workflow NEOHUB-04 : « Tag statut-confirme ajouté → RDV confirmé »
+
+Aucun workflow publié ne réagit à l'ajout du tag (LEAD-21b se déclenche sur le clic du lien,
+d'après le registre du 29 sept.). Si LEAD-20b réagit déjà au tag **et** déplace la carte, ce
+workflow est inutile ; le créer quand même ne fait que redéplacer vers la même étape.
+
+- **Déclencheur** : *Contact Tag* → *Tag Added* = `statut-confirme`
+- **Action 1** : *If/Else* : opportunité du contact dans `🎯 Vente` à l'étape `📅 RDV booké`
+  - Oui → *Create/Update Opportunity* : pipeline `🎯 Vente`, étape `✅ RDV confirmé`
+  - Non → rien (carte déjà confirmée, présentée, annulée…)
+- Aucun message au lead ici : LEAD-20b s'en charge.
+
+### Workflow NEOHUB-05 : « Confirmation retirée → RDV booké »
+
+Déclenché par un tag dédié et non par « statut-confirme retiré » : les workflows de no-show,
+d'annulation et de présentation retirent aussi `statut-confirme`, et la carte ne doit pas
+revenir en arrière dans ces cas-là.
+
+- **Déclencheur** : *Contact Tag* → *Tag Added* = `app-confirmation-retiree`
+- **Action 1** : *If/Else* : opportunité dans `🎯 Vente` à l'étape `✅ RDV confirmé`
+  - Oui → *Create/Update Opportunity* : étape `📅 RDV booké`
+- **Action 2** : *Remove Contact Tag* : `app-confirmation-retiree` (sinon il ne se redéclenche plus)
+- Aucun message au lead.
+
+### Journal d'appels (« appelé / pas appelé »)
+
+La file « À confirmer » lit le journal d'appels de GHL par la fonction `ghl-appels-recents`
+(`GET /conversations/messages/export?channel=Call&locationId=…`, une lecture pour tous les
+contacts). « Appelé » = au moins un appel sortant vers le contact depuis la réservation.
+La clé `GHL_API_KEY` doit avoir la portée **conversations/message.readonly** (*View
+Conversation Messages* dans l'intégration privée). Sans elle, la fonction répond
+« La clé GHL du serveur n'a pas accès au journal d'appels » : la colonne Appel affiche « — »
+et les filtres d'appel sont désactivés, le reste de la file fonctionne.
+
+### Mise en service
+
+1. Appliquer `supabase/migrations/20261005a_v2_confirmations.sql` sur soma-hq.
+2. Déployer `ghl-confirmer-rencontre` et `ghl-appels-recents`.
+3. Créer NEOHUB-04 (sauf si LEAD-20b fait déjà le déplacement) et NEOHUB-05.
+4. Test avec le contact test : confirmer → tag + note dans GHL, carte en `✅ RDV confirmé`,
+   couleur verte dans l'app ; annuler → tag retiré, carte en `📅 RDV booké`.
 
 ## Workflow 4 : « Tag app-tentative-faite ajouté → étape suivante » (OBSOLÈTE, ne pas créer)
 

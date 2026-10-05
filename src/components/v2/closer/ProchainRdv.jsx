@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import ConfirmerRencontre, { PastilleConfirmation, COULEURS_NOM } from '../ConfirmerRencontre'
 import { fmtHeure, fmtDuree, fmtRdvRelatif, prenom, styleSource } from '../../../lib/v2/format'
 import { typeRdv, infosSetting, estAujourdhui } from '../../../lib/v2/closerAgenda'
 import { lienFicheGHL } from '../../../lib/v2/salesConfig'
@@ -8,10 +10,37 @@ function dureeMinutes(a) {
   return d && d > 0 ? Math.round(d) : null
 }
 
+// Nom du prospect : cliquable quand la rencontre se confirme (découverte à venir),
+// vert si confirmée, ambre sinon ; le clic ouvre « Confirmer manuellement ».
+function NomConfirmable({ appt, etat, ouvert, onBasculer, className }) {
+  const nom = appt.contact_name || 'Sans nom'
+  if (!etat) return <span className={className}>{nom}</span>
+  return (
+    <button onClick={onBasculer} aria-expanded={ouvert}
+      title={etat === 'nonConfirme' ? 'Confirmer manuellement' : undefined}
+      className={`${className} text-left hover:underline underline-offset-2`} style={{ color: COULEURS_NOM[etat] }}>
+      {nom}
+    </button>
+  )
+}
+
+function PanneauConfirmation({ appt, etat, conf, now }) {
+  return (
+    <ConfirmerRencontre gauche libelle="Confirmer manuellement"
+      nom={appt.contact_name} debut={appt.start_time} now={now} etat={etat}
+      manuelle={conf.manuelles[appt.ghl_id] ?? null} enCours={conf.enCours[appt.ghl_id] ?? null}
+      erreur={conf.erreurs[appt.ghl_id] ?? null}
+      onConfirmer={() => conf.confirmer(appt.ghl_id)} onAnnuler={() => conf.annuler(appt.ghl_id)} />
+  )
+}
+
 // Grande carte « Prochain RDV » : heure, prospect, setter, Portrait Léo, liens.
 // Seulement pour un RDV d'aujourd'hui : un RDV de demain affiché en gros
 // (« 9 h 30 ») se lisait comme un RDV du jour.
-export default function ProchainRdv({ appt, opps, now }) {
+// Confirmé ou non : carte Vente du contact (confirmations), jamais le statut du RDV
+// GHL, qui vaut « confirmed » dès la réservation.
+export default function ProchainRdv({ appt, opps, now, confirmations = null }) {
+  const [ouvert, setOuvert] = useState(false)
   if (!appt) {
     return (
       <section className="bg-[#fcfcfd] border border-[#e5e7eb] rounded-xl shadow-sm p-6 flex flex-col gap-2">
@@ -20,6 +49,10 @@ export default function ProchainRdv({ appt, opps, now }) {
       </section>
     )
   }
+  const etat = confirmations?.etatDe(appt) ?? null
+  const conf = confirmations?.confirmation
+  const basculer = () => setOuvert(o => !o)
+
   if (!estAujourdhui(appt.start_time, now)) {
     return (
       <section className="bg-[#fcfcfd] border border-[#e5e7eb] rounded-xl shadow-sm p-6 flex flex-col gap-3">
@@ -27,9 +60,11 @@ export default function ProchainRdv({ appt, opps, now }) {
         <p className="text-lg font-extrabold text-[#1a1a1a]">Aucun RDV aujourd'hui</p>
         <p className="text-sm text-[#6b7280]">
           Prochain : <span className="font-bold text-[#1a1a1a]">{fmtRdvRelatif(appt.start_time, now)}</span>
-          {' '}avec <span className="font-semibold text-[#1a1a1a]">{appt.contact_name || 'Sans nom'}</span>
+          {' '}avec <NomConfirmable appt={appt} etat={etat} ouvert={ouvert} onBasculer={basculer} className="font-semibold text-[#1a1a1a]" />
           {' '}· {typeRdv(appt)}
+          {etat && <> <PastilleConfirmation etat={etat} className="ml-1 align-middle" /></>}
         </p>
+        {etat && ouvert && conf && <PanneauConfirmation appt={appt} etat={etat} conf={conf} now={now} />}
         <div className="flex items-center gap-2 flex-wrap">
           <Link to={`/sale-call-script/${appt.ghl_id}`}
             className="inline-flex items-center px-3 py-1.5 rounded-lg bg-white text-[#374151] border border-[#e5e7eb] text-[13px] font-semibold hover:bg-[#f9fafb] hover:text-[#374151]">
@@ -53,7 +88,6 @@ export default function ProchainRdv({ appt, opps, now }) {
   const { setter, source } = infosSetting(opps, appt.contact_id)
   const src = styleSource(source)
   const duree = dureeMinutes(appt)
-  const confirme = appt.status === 'confirmed'
 
   return (
     <section className="bg-[#fcfcfd] border border-[#e5e7eb] rounded-xl shadow-sm p-5 sm:p-6 flex flex-col gap-5">
@@ -68,13 +102,12 @@ export default function ProchainRdv({ appt, opps, now }) {
           <p className="mt-1.5 text-xs font-semibold text-[#6b7280]">{typeRdv(appt)}{duree ? `, ${duree} min` : ''}</p>
         </div>
         <div className="flex-1 min-w-0 sm:border-l sm:border-[#e5e7eb] sm:pl-6 flex flex-col gap-2">
-          <p className="text-[22px] font-extrabold truncate">{appt.contact_name || 'Sans nom'}</p>
+          <NomConfirmable appt={appt} etat={etat} ouvert={ouvert} onBasculer={basculer} className="text-[22px] font-extrabold truncate block max-w-full" />
           <div className="flex items-center gap-2 flex-wrap">
             {source && <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold" style={{ background: src.bg, color: src.color }}>{source}</span>}
-            <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${confirme ? 'bg-[#ecfdf5] text-[#047857]' : 'bg-[#f3f4f6] text-[#4b5563]'}`}>
-              {confirme ? 'Confirmé' : 'Pas encore confirmé'}
-            </span>
+            <PastilleConfirmation etat={etat} />
           </div>
+          {etat && ouvert && conf && <PanneauConfirmation appt={appt} etat={etat} conf={conf} now={now} />}
           <p className="text-[13px] text-[#6b7280]">
             {setter
               ? <>Bookée par <span className="font-semibold text-[#6366f1]">{prenom(setter)}</span></>
