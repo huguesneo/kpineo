@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { supabase } from '../../lib/supabase'
 import { useCloserAppointments } from '../useCloserData'
 import { saveRowChangesToEOD } from '../useCloserEOD'
-import { PIPELINE_VENTE, PIPELINE_SETTING } from '../../lib/v2/salesConfig'
+import { PIPELINE_VENTE, PIPELINE_SETTING, CALENDARS } from '../../lib/v2/salesConfig'
 import { listeDuJour, prochainRdv, mesDecisions } from '../../lib/v2/closerAgenda'
 import { jourMontreal } from '../../lib/v2/setterFiles'
 import { useRealtimeRefetch } from './useRealtimeRefetch'
@@ -33,6 +33,7 @@ export function useCloserAgenda(profile, { enabled = true } = {}) {
 
   const [eodRows, setEodRows] = useState([])
   const [opps, setOpps] = useState([])
+  const [rdvsDecision, setRdvsDecision] = useState([])
   const [oppsLoading, setOppsLoading] = useState(true)
 
   const loadEOD = useCallback(async () => {
@@ -60,14 +61,24 @@ export function useCloserAgenda(profile, { enabled = true } = {}) {
     const [vente, setting] = await Promise.all([
       supabase.from('ghl_opportunities').select(cols)
         .eq('pipeline_id', PIPELINE_VENTE.id)
-        .in('pipeline_stage_id', [S.rdvDecisionBooke, S.enDecision]),
+        .in('pipeline_stage_id', [S.rdvPresente, S.rdvDecisionBooke, S.enDecision]),
       cleContacts
         ? supabase.from('ghl_opportunities').select(cols)
           .eq('pipeline_id', PIPELINE_SETTING.id)
           .in('contact_id', cleContacts.split(','))
         : Promise.resolve({ data: [] }),
     ])
+    // RDV décision des contacts de ces cartes (lecture seule) : un RDV à venir
+    // l'emporte sur l'étape GHL, la fin du dernier fait repartir l'âge
+    const contactsVente = [...new Set((vente.data ?? []).map(o => o.contact_id).filter(Boolean))]
+    const rdvs = contactsVente.length
+      ? await supabase.from('ghl_appointments')
+        .select('ghl_id, contact_id, calendar_id, status, start_time, end_time')
+        .eq('calendar_id', CALENDARS.decision)
+        .in('contact_id', contactsVente)
+      : { data: [] }
     setOpps([...(vente.data ?? []), ...(setting.data ?? [])])
+    setRdvsDecision(rdvs.data ?? [])
     setOppsLoading(false)
   }, [enabled, cleContacts])
 
@@ -83,7 +94,10 @@ export function useCloserAgenda(profile, { enabled = true } = {}) {
   )
   const jour = useMemo(() => listeDuJour(duJour, eodRows, now), [duJour, eodRows, now])
   const prochain = useMemo(() => prochainRdv(appointments, now), [appointments, now])
-  const decisions = useMemo(() => mesDecisions(opps, profile?.full_name, now), [opps, profile?.full_name, now])
+  const decisions = useMemo(
+    () => mesDecisions(opps, profile?.full_name, now, rdvsDecision),
+    [opps, profile?.full_name, now, rdvsDecision],
+  )
   // Rencontres découverte à venir : confirmé ou non (carte Vente), confirmer manuellement
   const confirmations = useEtatsConfirmation(appointments, { now, enabled })
 

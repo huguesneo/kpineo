@@ -48,6 +48,13 @@ export function fmtRdvRelatif(iso, now = Date.now()) {
   return new Intl.DateTimeFormat('fr-CA', { timeZone: TZ, weekday: 'short', day: 'numeric', month: 'short' }).format(d)
 }
 
+// Comme fmtRdvRelatif, avec l'heure aussi au-delà de 6 jours : « jeu. 24 sept. 15 h 30 »
+export function fmtRdvAvecHeure(iso, now = Date.now()) {
+  const txt = fmtRdvRelatif(iso, now)
+  if (txt === '—' || Math.abs(decalageJours(iso, now)) < 7) return txt
+  return `${txt} ${fmtHeure(iso)}`
+}
+
 // Âge d'un lead : « 2 h », « 5 j »
 export function fmtAge(heures) {
   if (heures == null) return '—'

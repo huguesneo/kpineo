@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '../../../lib/supabase'
 import { lienFicheGHL } from '../../../lib/v2/salesConfig'
-import { fmtCAD, prenom } from '../../../lib/v2/format'
+import { fmtCAD, fmtRdvAvecHeure, prenom } from '../../../lib/v2/format'
 import { jourMontreal } from '../../../lib/v2/setterFiles'
 
 const CLE = 'neo.v2.relances'
@@ -19,7 +19,8 @@ const NIVEAUX = {
 }
 
 // Décisions en cours du closeur. « Relancé » écrit une note GHL sur le contact.
-export default function MesDecisions({ decisions, profile }) {
+// Avec un RDV décision à venir : sa date et son heure, rien à relancer.
+export default function MesDecisions({ decisions, profile, now = Date.now() }) {
   const [relances, setRelances] = useState(lireRelances)
   const [erreurs, setErreurs] = useState({})
   const aujourdhui = jourMontreal(new Date())
@@ -41,7 +42,7 @@ export default function MesDecisions({ decisions, profile }) {
       <div className="flex items-center gap-2.5 mb-3 flex-wrap">
         <h2 className="text-[15px] font-bold">Mes décisions</h2>
         <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-[#f3f4f6] text-[#4b5563]">{decisions.length}</span>
-        <span className="text-xs text-[#6b7280]">Orange après 72 h sans changement d'étape, rouge après 7 jours</span>
+        <span className="text-xs text-[#6b7280]">Orange après 72 h sans changement d'étape ni RDV décision, rouge après 7 jours</span>
       </div>
       {decisions.length === 0 ? (
         <div className="bg-[#fcfcfd] border border-[#e5e7eb] rounded-xl p-6 text-center text-sm text-[#6b7280]">
@@ -56,14 +57,16 @@ export default function MesDecisions({ decisions, profile }) {
               <div key={d.ghlId} className="bg-[#fcfcfd] rounded-xl shadow-sm p-4 flex flex-col gap-2.5 border" style={{ borderColor: n.bordure }}>
                 <div className="flex items-center justify-between gap-2">
                   <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${d.decisionBookee ? 'bg-[#00bbb1]/10 text-[#00897f]' : 'bg-[#eff6ff] text-[#1d4ed8]'}`}>{d.etape}</span>
-                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold" style={{ background: n.ageBg, color: n.ageColor }}>{d.jours} j</span>
+                  {d.rdvDecision
+                    ? <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-[#00bbb1]/10 text-[#00897f]">{fmtRdvAvecHeure(d.rdvDecision, now)}</span>
+                    : <span className="px-2.5 py-0.5 rounded-full text-xs font-bold" style={{ background: n.ageBg, color: n.ageColor }}>{d.jours} j</span>}
                 </div>
                 <div>
                   <p className="text-[15px] font-bold truncate">{d.nom}</p>
                   <p className="text-xs text-[#6b7280] mt-0.5">{d.valeur > 0 ? fmtCAD(d.valeur) : 'Montant non saisi'}</p>
                 </div>
                 <div className="flex items-center gap-2 mt-auto flex-wrap">
-                  {fait
+                  {!d.aRelancer ? null : fait
                     ? <span className="text-xs font-semibold text-[#047857] bg-[#ecfdf5] px-2.5 py-1 rounded-full">Relancé aujourd'hui</span>
                     : <button onClick={() => relancer(d)} className="text-[13px] font-semibold px-3 py-1.5 rounded-lg bg-white text-[#374151] border border-[#e5e7eb] hover:bg-[#f9fafb]">Relancé</button>}
                   {d.contactId && (

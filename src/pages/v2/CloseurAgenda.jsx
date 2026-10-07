@@ -74,7 +74,7 @@ export default function CloseurAgenda({ profile, droite = null, agenda }) {
               <div className="lg:col-span-7"><ProchainRdv appt={agenda.prochain} opps={agenda.opps} now={agenda.now} confirmations={agenda.confirmations} /></div>
               <div className="lg:col-span-5"><ListeAujourdhui jour={agenda.jour} now={agenda.now} onStatuer={agenda.statuer} confirmations={agenda.confirmations} /></div>
             </div>
-            <MesDecisions decisions={agenda.decisions} profile={profile} />
+            <MesDecisions decisions={agenda.decisions} profile={profile} now={agenda.now} />
           </>
         )
       )}
