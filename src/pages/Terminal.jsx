@@ -6,11 +6,14 @@ import Input from '../components/shared/Input'
 import Badge from '../components/shared/Badge'
 import Modal from '../components/shared/Modal'
 import MonerisCardFrame from '../components/terminal/MonerisCardFrame'
+import AttributionVente from '../components/terminal/AttributionVente'
+import AnnulerVente from '../components/terminal/AnnulerVente'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import {
   TERMINAL_PRODUCTS, basePriceKey, buildSaleSchedule, priceSale, withTax, installmentsForProduct, todayMontreal, formatCents, addDays,
 } from '../../supabase/functions/_shared/schedule.js'
+import { attributionComplete, isSupervisorEmail } from '../../supabase/functions/_shared/terminalAttribution.js'
 
 const FREQUENCY_UNITS = [
   { value: 'DAY', label: 'jour(s)' },
@@ -41,7 +44,9 @@ const emptyForm = () => ({
   productName: TERMINAL_PRODUCTS[0], totalAmount: '', frequencyInterval: 2, frequencyUnit: 'WEEK',
   addTraining: false, addGuarantee: false, discountType: 'percent', discountValue: '',
   payToday: true, chargeDate: '', notes: '',
+  closerId: '', setterId: '', therapistId: '',
 })
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 const selectCls = 'w-full px-3 py-2 text-sm border border-[#e5e7eb] rounded-lg bg-white disabled:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#00bbb1]'
 
@@ -138,6 +143,36 @@ function NewPlanForm({ onCreated, prefill = null }) {
     setForm(f => ({ ...f, productName, totalAmount: basePriceFor(productName) || f.totalAmount }))
   }
 
+  // Closeur, setter, naturopathe : listes du serveur, préremplis depuis GHL d'après le courriel du client.
+  // Un menu changé à la main n'est plus écrasé par le préremplissage.
+  const [attr, setAttr] = useState({ options: null, error: '', fromGhl: false })
+  const touched = useRef({})
+  const lookedUp = useRef(null)
+  const loadAttribution = useCallback(async (email) => {
+    lookedUp.current = email
+    try {
+      const r = await callTerminal({ action: 'attribution', clientEmail: email })
+      const p = r.prefill
+      setAttr({ options: r, error: '', fromGhl: !!(p.setterId || p.therapistId || (r.canChooseCloser && p.closerId)) })
+      setForm(f => ({
+        ...f,
+        closerId: touched.current.closerId ? f.closerId : p.closerId,
+        setterId: touched.current.setterId ? f.setterId : p.setterId,
+        therapistId: touched.current.therapistId ? f.therapistId : p.therapistId,
+      }))
+    } catch (e) { setAttr(a => ({ ...a, error: e.message })) }
+  }, [])
+  useEffect(() => {
+    const email = String(prefill?.clientEmail ?? '').trim().toLowerCase()
+    loadAttribution(EMAIL_RE.test(email) ? email : '')
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const onEmailBlur = () => {
+    const email = form.clientEmail.trim().toLowerCase()
+    if (EMAIL_RE.test(email) && email !== lookedUp.current) loadAttribution(email)
+  }
+  const onAttributionChange = (k, v) => { touched.current[k] = true; setForm(f => ({ ...f, [k]: v })) }
+  const canSubmit = attributionComplete(form)
+
   const today = todayMontreal()
   const count = installmentsForProduct(form.productName)
   // Payer aujourd'hui : la date choisie est celle du 2e prélèvement
@@ -174,6 +209,7 @@ function NewPlanForm({ onCreated, prefill = null }) {
     setError('')
     if (price.error) { setError(price.error); return }
     if (!schedule) { setError('Vérifie le montant et la date.'); return }
+    if (!canSubmit) { setError('Choisis le closeur, le setter et la naturopathe.'); return }
     setSaving(mode)
     try {
       const { planId } = await callTerminal({
@@ -181,7 +217,14 @@ function NewPlanForm({ onCreated, prefill = null }) {
         pretaxAmount: Number(form.totalAmount), discountValue: Number(form.discountValue) || 0,
         frequencyInterval: Number(form.frequencyInterval),
       })
-      setForm(() => { const f = emptyForm(); return { ...f, totalAmount: basePriceFor(f.productName) } })
+      const o = attr.options
+      touched.current = {}
+      lookedUp.current = null
+      setForm(() => {
+        const f = emptyForm()
+        return { ...f, totalAmount: basePriceFor(f.productName), closerId: o && !o.canChooseCloser ? o.self.id : '' }
+      })
+      setAttr(a => ({ ...a, fromGhl: false }))
       await onCreated(planId, mode)
     } catch (err) {
       setError(err.message)
@@ -205,7 +248,7 @@ function NewPlanForm({ onCreated, prefill = null }) {
         <div className="grid grid-cols-2 gap-3">
           <Input label="Prénom du client" value={form.clientFirstName} onChange={set('clientFirstName')} required />
           <Input label="Nom du client" value={form.clientLastName} onChange={set('clientLastName')} required />
-          <Input label="Courriel" type="email" value={form.clientEmail} onChange={set('clientEmail')} required />
+          <Input label="Courriel" type="email" value={form.clientEmail} onChange={set('clientEmail')} onBlur={onEmailBlur} required />
           <Input label="Téléphone" value={form.clientPhone} onChange={set('clientPhone')} />
         </div>
 
@@ -315,10 +358,12 @@ function NewPlanForm({ onCreated, prefill = null }) {
           </div>
         )}
 
+        <AttributionVente options={attr.options} error={attr.error} form={form} onChange={onAttributionChange} fromGhl={attr.fromGhl} />
+
         {error && <p className="text-sm text-red-600">{error}</p>}
         <div className="grid grid-cols-2 gap-3">
-          <Button type="submit" loading={saving === 'card'} disabled={!!saving}>Entrer la carte</Button>
-          <Button type="button" variant="secondary" loading={saving === 'link'} disabled={!!saving}
+          <Button type="submit" loading={saving === 'card'} disabled={!!saving || !canSubmit}>Entrer la carte</Button>
+          <Button type="button" variant="secondary" loading={saving === 'link'} disabled={!!saving || !canSubmit}
             onClick={() => submit('link')}>Envoyer le lien au client</Button>
         </div>
       </form>
@@ -378,12 +423,14 @@ function CardEntryModal({ plan, onClose, onDone }) {
 
 // ── Liste des ventes ─────────────────────────────────────────
 
-function PlanRow({ plan, isManager, isSupervisor, onAction, highlight }) {
+function PlanRow({ plan, isManager, isSupervisor, profileId, onAction, highlight }) {
   const [open, setOpen] = useState(highlight)
   const [busy, setBusy] = useState('')
   const [link, setLink] = useState('')
   const paid = (plan.payment_installments ?? []).filter(i => i.status === 'paid').reduce((a, i) => a + i.amount_cents, 0)
-  const st = PLAN_STATUS[plan.status] ?? { label: plan.status, variant: 'default' }
+  const st = plan.payments_stopped_at && plan.status === 'active'
+    ? { label: 'Prélèvements arrêtés', variant: 'warning' }
+    : PLAN_STATUS[plan.status] ?? { label: plan.status, variant: 'default' }
   const needsCard = ['pending_card', 'card_failed'].includes(plan.status)
 
   async function run(label, fn) {
@@ -397,10 +444,14 @@ function PlanRow({ plan, isManager, isSupervisor, onAction, highlight }) {
     setLink(url)
     try { await navigator.clipboard.writeText(url); onAction.toast('Lien copié. Envoie-le au client (valide 7 jours).') } catch { /* copie manuelle */ }
   })
-  const cancel = () => run('cancel', async () => {
-    const r = await callTerminal({ action: 'cancel_plan', planId: plan.id }); onAction.refresh()
-    onAction.toast(r.tagged ? 'Programme annulé. Tag « statut-client-annuler » ajouté dans GHL.' : 'Programme annulé. Attention : le tag GHL n’a pas pu être ajouté, fais-le à la main.', !r.tagged)
-  })
+  // Bouton « Annuler » : l'erreur remonte dans la fenêtre de confirmation
+  const onCancelChoice = async (key, reason) => {
+    const r = await callTerminal({ action: key, planId: plan.id, reason })
+    onAction.refresh()
+    if (key === 'stop_payments') onAction.toast('Prochains prélèvements annulés chez Moneris. Le client reste dans son programme.')
+    else if (key === 'remove_plan') onAction.toast('Vente retirée de la liste.')
+    else onAction.toast(r.tagged ? 'Programme annulé. Tag « statut-client-annuler » ajouté dans GHL.' : 'Programme annulé. Attention : le tag GHL n’a pas pu être ajouté, fais-le à la main.', !r.tagged)
+  }
   const retrySubscription = () => run('sub', async () => {
     const r = await callTerminal({ action: 'retry_subscription', planId: plan.id })
     onAction.toast(r.message); onAction.refresh()
@@ -423,6 +474,10 @@ function PlanRow({ plan, isManager, isSupervisor, onAction, highlight }) {
 
       {open && (
         <div className="mt-4 space-y-3">
+          <p className="text-sm text-[#374151]">
+            Closeur : {plan.closer_name} · Setter : {plan.setter_name || (plan.attribution_confirmed_at ? 'Aucun' : '?')}
+            {' '}· Naturopathe : {plan.therapist_name || (plan.attribution_confirmed_at ? 'Aucun' : '?')}
+          </p>
           {plan.card_last4 && (
             <p className="text-sm text-[#374151]">Carte : {plan.card_brand} •••• {plan.card_last4} ({plan.card_expiry})</p>
           )}
@@ -460,12 +515,7 @@ function PlanRow({ plan, isManager, isSupervisor, onAction, highlight }) {
             )}
             {needsCard && <Button size="sm" onClick={() => onAction.enterCard(plan)}>Entrer la carte</Button>}
             {needsCard && <Button size="sm" variant="secondary" loading={busy === 'link'} onClick={makeLink}>Lien pour le client</Button>}
-            {isSupervisor && !['completed', 'canceled'].includes(plan.status) && (
-              <Button size="sm" variant="danger" loading={busy === 'cancel'}
-                onClick={() => { if (window.confirm('Annuler le programme ? Les prochains paiements seront arrêtés chez Moneris et le client recevra le tag « statut-client-annuler » dans GHL.')) cancel() }}>
-                Annuler le programme
-              </Button>
-            )}
+            <AnnulerVente plan={plan} who={{ isSupervisor, profileId }} onConfirm={onCancelChoice} />
           </div>
           {link && <p className="text-xs break-all bg-[#f5f5f7] rounded p-2">{link}</p>}
         </div>
@@ -478,7 +528,7 @@ function PlanRow({ plan, isManager, isSupervisor, onAction, highlight }) {
 // seulementFormulaire : la nouvelle vente sans la liste des ventes (affichage dans une fenêtre)
 export function TerminalPanel({ showHeader = true, prefill = null, seulementFormulaire = false }) {
   const { isAdmin, isRespVente, user } = useAuth()
-  const isSupervisor = ['hugues@neoperformance.ca', 'info@neoperformance.ca'].includes((user?.email ?? '').toLowerCase())
+  const isSupervisor = isSupervisorEmail(user?.email)
   const isManager = isAdmin || isRespVente || isSupervisor
   const [plans, setPlans] = useState([])
   const [loading, setLoading] = useState(true)
@@ -498,6 +548,7 @@ export function TerminalPanel({ showHeader = true, prefill = null, seulementForm
     const { data, error } = await supabase
       .from('payment_plans')
       .select('*, payment_installments(*)')
+      .is('removed_at', null)
       .order('created_at', { ascending: false })
       .limit(200)
     if (error) showToast(error.message, true)
@@ -508,7 +559,7 @@ export function TerminalPanel({ showHeader = true, prefill = null, seulementForm
   useEffect(() => { load() }, [load])
 
   const visible = plans.filter(p => {
-    if (filter === 'open') return !['completed', 'canceled'].includes(p.status)
+    if (filter === 'open') return !['completed', 'canceled'].includes(p.status) && !p.payments_stopped_at
     if (filter === 'issues') {
       return p.status === 'card_failed' || p.subscription_status === 'ERROR'
         || (p.payment_installments ?? []).some(i => i.status === 'declined')
@@ -551,7 +602,7 @@ export function TerminalPanel({ showHeader = true, prefill = null, seulementForm
           {loading && <p className="text-sm text-[#6b7280]">Chargement...</p>}
           {!loading && visible.length === 0 && <p className="text-sm text-[#6b7280]">Aucune vente.</p>}
           {visible.map(p => (
-            <PlanRow key={p.id} plan={p} isManager={isManager} isSupervisor={isSupervisor} highlight={p.id === highlightId}
+            <PlanRow key={p.id} plan={p} isManager={isManager} isSupervisor={isSupervisor} profileId={user?.id} highlight={p.id === highlightId}
               onAction={{ refresh: load, toast: showToast, enterCard: setCardPlan }} />
           ))}
         </div>}

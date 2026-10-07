@@ -1,6 +1,8 @@
 // Lecture GoHighLevel pour le reçu QuickBooks : thérapeute de l'évaluation et setter du client.
 // Lecture seule. En cas d'erreur, on renvoie null (le reçu se crée quand même).
 
+import { firstNameCap } from './terminalAttribution.js'
+
 declare const Deno: { env: { get(key: string): string | undefined } }
 // deno-lint-ignore no-explicit-any
 type DB = any
@@ -11,13 +13,10 @@ const GHL = 'https://services.leadconnectorhq.com'
 // Calendriers d'évaluation (clinique, en ligne, ouverture de dossier), mêmes IDs que le Centre de vente
 const EVAL_CALENDAR_IDS = ['nF4GjzBPg0JJu7aSdi4d', 'EN1rRFnOcotGonaMAV3N', '7BpembfPxvDHewFh51EN']
 const FIELD_SETTER_NOM = 'II5NrZGZrIScYItkxCi8' // setter__nom sur l'opportunité (ex. « Maude NEO »)
+const FIELD_CLOSER = 'JSltN3nE7nm4cUjuGxTs'     // closeur de l'opportunité (même champ que le hub)
 
 // « maude NEO » -> « Maude », « marie-michèle cardinal » -> « Marie-Michèle »
-export function firstNameCap(full: string | null | undefined): string | null {
-  const w = String(full ?? '').trim().split(/\s+/)[0]
-  if (!w) return null
-  return w.toLowerCase().split('-').map(p => p.charAt(0).toUpperCase() + p.slice(1)).join('-')
-}
+export { firstNameCap }
 
 async function ghl(path: string): Promise<J | null> {
   const key = Deno.env.get('GHL_API_KEY')
@@ -64,28 +63,42 @@ async function therapist(db: DB, contactId: string): Promise<string | null> {
   return userFirstName(db, pick.assignedUserId)
 }
 
-// Setter : champ setter__nom de l'opportunité la plus récente du client qui en a un.
-async function setter(loc: string, contactId: string): Promise<string | null> {
+// Setter et closeur : champs setter__nom et closeur de l'opportunité la plus récente du client qui en a un.
+async function setterAndCloser(loc: string, contactId: string): Promise<{ setter: string | null; closer: string | null }> {
   const r = await ghl(`/opportunities/search?location_id=${loc}&contact_id=${contactId}&limit=20`)
   const opps = ((r?.opportunities ?? []) as J[])
     .sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime())
-  for (const o of opps) {
-    const f = (o.customFields ?? []).find((c: J) => c.id === FIELD_SETTER_NOM)
+  const field = (o: J, id: string) => {
+    const f = (o.customFields ?? []).find((c: J) => c.id === id)
     const v = String(f?.fieldValueString ?? f?.fieldValue ?? f?.value ?? '').trim()
-    if (v && !/^neo performance$/i.test(v)) return firstNameCap(v)
+    return v && !/^neo performance$/i.test(v) ? firstNameCap(v) : null
   }
-  return null
+  let setter: string | null = null, closer: string | null = null
+  for (const o of opps) {
+    setter = setter ?? field(o, FIELD_SETTER_NOM)
+    closer = closer ?? field(o, FIELD_CLOSER)
+    if (setter && closer) break
+  }
+  return { setter, closer }
 }
 
-export async function lookupTherapistAndSetter(db: DB, email: string): Promise<{ therapist: string | null; setter: string | null }> {
-  const none = { therapist: null, setter: null }
+// Lecture seule : naturopathe (RDV d'évaluation), setter et closeur (carte GHL) du client, en prénoms.
+export async function lookupAttribution(db: DB, email: string)
+  : Promise<{ therapist: string | null; setter: string | null; closer: string | null }> {
+  const none = { therapist: null, setter: null, closer: null }
   if (!email) return none
   const loc = await locationId(db)
   if (!loc) return none
   const cid = await contactIdByEmail(db, loc, email.trim())
   if (!cid) return none
-  const [t, s] = await Promise.all([therapist(db, cid), setter(loc, cid)])
-  return { therapist: t, setter: s }
+  const [t, sc] = await Promise.all([therapist(db, cid), setterAndCloser(loc, cid)])
+  return { therapist: t, ...sc }
+}
+
+// Ventes saisies avant le choix dans le terminal : thérapeute et setter lus au 1er reçu
+export async function lookupTherapistAndSetter(db: DB, email: string): Promise<{ therapist: string | null; setter: string | null }> {
+  const { therapist, setter } = await lookupAttribution(db, email)
+  return { therapist, setter }
 }
 
 // Ajoute un tag au contact GHL du client (trouvé par courriel). Retourne true si fait.

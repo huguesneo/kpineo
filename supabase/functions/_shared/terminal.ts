@@ -30,6 +30,7 @@ export interface Plan {
   frequency_unit: 'DAY' | 'WEEK' | 'MONTH'; frequency_interval: number
   customer_reference?: string | null
   therapist_name?: string | null; setter_name?: string | null
+  attribution_confirmed_at?: string | null
   training_addon?: boolean; guarantee_addon?: boolean
   discount_type?: 'percent' | 'amount' | null; discount_value?: number | null
   moneris_subscription_id: string | null; subscription_status: string | null
@@ -84,9 +85,10 @@ async function sendToMake(db: DB, plan: Plan, inst: Installment, paymentId: stri
       .update({ receipt_status: 'sent' }).eq('id', inst.id).in('receipt_status', ['pending', 'failed']).select('id').maybeSingle()
     if (!claimed) return
     try {
-      // Thérapeute et setter : lus dans GHL au 1er reçu, puis gardés sur la vente pour les reçus suivants.
+      // Thérapeute et setter : choisis dans le terminal (« Aucun » = champ vide). Pour les ventes
+      // saisies avant ce choix : lus dans GHL au 1er reçu, puis gardés sur la vente.
       let therapist = plan.therapist_name ?? null, setterName = plan.setter_name ?? null
-      if (!therapist || !setterName) {
+      if (!plan.attribution_confirmed_at && (!therapist || !setterName)) {
         const found = await lookupTherapistAndSetter(db, plan.client_email)
         therapist = therapist ?? found.therapist
         setterName = setterName ?? found.setter
@@ -121,6 +123,8 @@ async function sendToMake(db: DB, plan: Plan, inst: Installment, paymentId: stri
     client_phone: plan.client_phone,
     product_name: plan.product_name,
     closer_name: plan.closer_name,
+    setter_name: plan.setter_name ?? null,
+    therapist_name: plan.therapist_name ?? null,
     amount: inst.amount_cents / 100,
     currency: 'CAD',
     installment_number: inst.number,
@@ -320,7 +324,8 @@ export async function syncPlan(db: DB, planId: string): Promise<{ paid: number; 
 
 export async function syncAllPlans(db: DB): Promise<{ plans: number; paid: number; declined: number }> {
   const { data: plans } = await db.from('payment_plans').select('id')
-    .eq('status', 'active').not('moneris_subscription_id', 'is', null).limit(500)
+    .eq('status', 'active').not('moneris_subscription_id', 'is', null)
+    .is('removed_at', null).limit(500)
   const total = { plans: plans?.length ?? 0, paid: 0, declined: 0 }
   for (const p of plans ?? []) {
     try {

@@ -3,12 +3,18 @@
 //   create_link        génère le lien sécurisé à envoyer au client (7 jours)
 //   attach_card        le closeur entre la carte (jeton temporaire Moneris)
 //   retry_subscription relance la création de l'échéancier chez Moneris
-//   cancel_plan        annule l'abonnement chez Moneris et les versements à venir
+//   attribution        listes closeur / setter / naturopathe + préremplissage GHL (lecture seule)
+//   stop_payments      annule les prochains prélèvements chez Moneris, le client reste dans son programme
+//   cancel_plan        annule l'abonnement chez Moneris et les versements à venir (programme annulé)
+//   remove_plan        retire une vente saisie par erreur (0 $ encaissé) : cachée, jamais effacée
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { attachCard, createPlanSubscription, newLinkToken, sha256 } from '../_shared/terminal.ts'
 import { ECI, cancelSubscription } from '../_shared/moneris.ts'
-import { addTagByEmail } from '../_shared/ghl.ts'
+import { addTagByEmail, lookupAttribution } from '../_shared/ghl.ts'
+import {
+  attributionLists, cancelChoices, isSupervisorEmail, matchByFirstName, resolveAttribution,
+} from '../_shared/terminalAttribution.js'
 import { FREQUENCY_UNITS, TERMINAL_PRODUCTS, approxDays, buildSaleSchedule, installmentsForProduct, priceSale, todayMontreal } from '../_shared/schedule.js'
 
 declare const Deno: { env: { get(key: string): string | undefined }; serve(handler: (req: Request) => Promise<Response> | Response): void }
@@ -34,9 +40,9 @@ Deno.serve(async (req) => {
     if (!user) return json({ error: 'Non autorisé' }, 401)
     const { data: profile } = await db.from('profiles')
       .select('id, full_name, role, secondary_roles').eq('id', user.id).maybeSingle()
-    // Superviseurs du terminal : voient toutes les ventes et peuvent annuler un programme
-    const SUPERVISORS = ['hugues@neoperformance.ca', 'info@neoperformance.ca']
-    const isSupervisor = SUPERVISORS.includes((user.email ?? '').toLowerCase())
+    // Superviseurs du terminal (hugues@, info@) : voient toutes les ventes, choisissent le closeur,
+    // annulent les paiements ou un programme
+    const isSupervisor = isSupervisorEmail(user.email)
     const isManager = isSupervisor || ['admin', 'resp_vente'].includes(profile?.role)
     const isCloser = profile?.role === 'closer' || (profile?.secondary_roles ?? []).includes('closer')
     if (!isSupervisor && (!profile || (!isManager && !isCloser))) return json({ error: 'Accès réservé aux closeurs' }, 403)
@@ -44,12 +50,48 @@ Deno.serve(async (req) => {
     const body = await req.json() as Record<string, unknown>
     const action = String(body.action ?? '')
 
-    // Le closeur n'agit que sur ses propres plans
+    // Le closeur n'agit que sur ses propres plans. Une vente retirée n'existe plus pour le terminal.
     const loadPlan = async (planId: unknown) => {
-      const { data } = await db.from('payment_plans').select('id, closer_id, status, moneris_subscription_id').eq('id', String(planId)).maybeSingle()
-      if (!data) return null
+      const { data } = await db.from('payment_plans').select('*, payment_installments(*)').eq('id', String(planId)).maybeSingle()
+      if (!data || data.removed_at) return null
       if (!isManager && data.closer_id !== profile?.id) return null
       return data
+    }
+    const loadLists = async () => {
+      const { data } = await db.from('profiles').select('id, full_name, role, secondary_roles, is_active')
+      return attributionLists(data ?? [])
+    }
+    // Choix du bouton « Annuler » permis pour cette personne et cette vente
+    // deno-lint-ignore no-explicit-any
+    const choiceRefused = (plan: any, key: string): string | null => {
+      const c = cancelChoices(plan, { isSupervisor, profileId: profile?.id }).find(x => x.key === key)
+      if (!c?.visible) return 'Tu n’as pas accès à ce choix pour cette vente'
+      return c.enabled ? null : c.reason
+    }
+    // Annule l'abonnement Moneris. Retourne un message d'erreur, ou null si c'est fait (ou déjà fini).
+    const stopAtMoneris = async (subscriptionId: string): Promise<string | null> => {
+      let c
+      try { c = await cancelSubscription(subscriptionId, 'Annulé par NEO') }
+      catch (e) { console.error('[stopAtMoneris]', e); return 'Impossible de joindre Moneris. Rien n’a été annulé, réessaie.' }
+      if (!c.ok && c.status !== 'CANCELED' && c.status !== 'COMPLETED') {
+        return `Moneris n’a pas annulé l’échéancier (${c.message}). Rien n’a été annulé ici.`
+      }
+      return null
+    }
+
+    if (action === 'attribution') {
+      const lists = await loadLists()
+      const self = { id: profile?.id ?? null, name: profile?.full_name ?? user.email }
+      const email = String(body.clientEmail ?? '').trim().toLowerCase()
+      const found = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+        ? await lookupAttribution(db, email)
+        : { closer: null, setter: null, therapist: null }
+      const prefill = {
+        closerId: isSupervisor ? (matchByFirstName(lists.closers, found.closer) ?? '') : (self.id ?? ''),
+        setterId: matchByFirstName(lists.setters, found.setter) ?? '',
+        therapistId: matchByFirstName(lists.therapists, found.therapist) ?? '',
+      }
+      return json({ lists, canChooseCloser: isSupervisor, self, prefill, found })
     }
 
     if (action === 'create_plan') {
@@ -61,6 +103,23 @@ Deno.serve(async (req) => {
       const email = String(body.clientEmail ?? '').trim().toLowerCase()
       if (!first || !last) return json({ error: 'Prénom et nom du client requis' }, 400)
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'Courriel du client invalide' }, 400)
+
+      // Closeur, setter, naturopathe : obligatoires pour tous. Seuls hugues@ et info@ choisissent le closeur.
+      // TRANSITION (à retirer dès que le hub avec les trois menus est en ligne) : l'ancien hub n'envoie
+      // aucun des trois champs ; on garde alors l'ancien comportement (closeur = personne connectée,
+      // setter et naturopathe lus dans GHL au 1er reçu).
+      const legacyClient = body.closerId === undefined && body.setterId === undefined && body.therapistId === undefined
+      const who: {
+        error?: string; closerId: string; closerName: string
+        setterId: string | null; setterName: string | null; therapistId: string | null; therapistName: string | null
+      } = legacyClient
+        ? { closerId: profile.id, closerName: profile.full_name ?? user.email, setterId: null, setterName: null, therapistId: null, therapistName: null }
+        : resolveAttribution(
+          { closerId: body.closerId, setterId: body.setterId, therapistId: body.therapistId },
+          await loadLists(),
+          { canChooseCloser: isSupervisor, selfId: profile.id, selfName: profile.full_name ?? user.email },
+        )
+      if (who.error) return json({ error: who.error }, 400)
 
       const street = String(body.clientStreetName ?? '').trim()
       const postal = String(body.clientPostalCode ?? '').trim().toUpperCase()
@@ -118,7 +177,10 @@ Deno.serve(async (req) => {
 
       const { data: plan, error } = await db.from('payment_plans').insert({
         customer_reference: customerRef,
-        closer_id: profile.id, closer_name: profile.full_name ?? user.email,
+        closer_id: who.closerId, closer_name: who.closerName, created_by: profile.id,
+        setter_id: who.setterId, setter_name: who.setterName,
+        therapist_id: who.therapistId, therapist_name: who.therapistName,
+        attribution_confirmed_at: legacyClient ? null : new Date().toISOString(),
         client_first_name: first, client_last_name: last, client_email: email,
         client_phone: String(body.clientPhone ?? '').trim() || null,
         client_street_number: String(body.clientStreetNumber ?? '').trim() || null,
@@ -176,6 +238,49 @@ Deno.serve(async (req) => {
       return json(r, r.ok ? 200 : 502)
     }
 
+    // Annuler le paiement : le prochain prélèvement et les suivants, chez Moneris. Le programme continue.
+    if (action === 'stop_payments') {
+      if (!isSupervisor) return json({ error: 'Seuls Hugues et info@ peuvent annuler les paiements' }, 403)
+      const plan = await loadPlan(body.planId)
+      if (!plan) return json({ error: 'Plan introuvable' }, 404)
+      const refused = choiceRefused(plan, 'stop_payments')
+      if (refused) return json({ error: refused }, 400)
+      const err = await stopAtMoneris(plan.moneris_subscription_id)
+      if (err) return json({ error: err }, 502)
+      const now = new Date().toISOString()
+      await db.from('payment_installments').update({ status: 'canceled' })
+        .eq('plan_id', plan.id).in('status', ['scheduled', 'declined'])
+      await db.from('payment_plans').update({
+        subscription_status: 'CANCELED', payments_stopped_at: now, payments_stopped_by: profile?.id ?? null, updated_at: now,
+      }).eq('id', plan.id)
+      return json({ ok: true })
+    }
+
+    // Retirer : vente saisie par erreur ou carte refusée, 0 $ encaissé. Jamais effacée : marquée retirée.
+    if (action === 'remove_plan') {
+      const plan = await loadPlan(body.planId)
+      if (!plan) return json({ error: 'Plan introuvable' }, 404)
+      const refused = choiceRefused(plan, 'remove_plan')
+      if (refused) return json({ error: refused }, 400)
+      const reason = String(body.reason ?? '').trim()
+      if (!reason) return json({ error: 'Indique la raison du retrait' }, 400)
+      // Un abonnement Moneris peut exister sans paiement (carte validée, 1er prélèvement à venir)
+      if (plan.moneris_subscription_id && !['CANCELED', 'COMPLETED'].includes(plan.subscription_status ?? '')) {
+        const err = await stopAtMoneris(plan.moneris_subscription_id)
+        if (err) return json({ error: err }, 502)
+      }
+      const now = new Date().toISOString()
+      await db.from('payment_installments').update({ status: 'canceled' })
+        .eq('plan_id', plan.id).in('status', ['scheduled', 'declined'])
+      // Statut « annulé » : bloque aussi le lien client et la saisie de carte
+      await db.from('payment_plans').update({
+        status: 'canceled', subscription_status: plan.moneris_subscription_id ? 'CANCELED' : plan.subscription_status,
+        removed_at: now, removed_by: profile?.id ?? null, removed_reason: reason.slice(0, 500), updated_at: now,
+      }).eq('id', plan.id)
+      await db.from('payment_plan_links').update({ expires_at: now }).eq('plan_id', plan.id)
+      return json({ ok: true })
+    }
+
     if (action === 'cancel_plan') {
       if (!isSupervisor) return json({ error: 'Seuls Hugues et info@ peuvent annuler un programme' }, 403)
       const plan = await loadPlan(body.planId)
@@ -183,12 +288,8 @@ Deno.serve(async (req) => {
       if (['completed', 'canceled'].includes(plan.status)) return json({ error: 'Plan déjà terminé ou annulé' }, 400)
       // D'abord chez Moneris : sinon il continuerait à prélever le client
       if (plan.moneris_subscription_id) {
-        let c
-        try { c = await cancelSubscription(plan.moneris_subscription_id, 'Annulé par NEO') }
-        catch (e) { console.error('[cancel_plan]', e); return json({ error: 'Impossible de joindre Moneris. Rien n’a été annulé, réessaie.' }, 502) }
-        if (!c.ok && c.status !== 'CANCELED' && c.status !== 'COMPLETED') {
-          return json({ error: `Moneris n’a pas annulé l’échéancier (${c.message}). Rien n’a été annulé ici.` }, 502)
-        }
+        const err = await stopAtMoneris(plan.moneris_subscription_id)
+        if (err) return json({ error: err }, 502)
       }
       await db.from('payment_installments').update({ status: 'canceled' })
         .eq('plan_id', plan.id).in('status', ['scheduled', 'declined'])
