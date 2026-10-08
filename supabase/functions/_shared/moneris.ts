@@ -291,22 +291,36 @@ export async function getPayment(id: string): Promise<PaymentInfo | null> {
   }
 }
 
-// Paiements récents (Moneris limite à 20 par appel). Lecture seule.
+// Paiements récents. Lecture seule.
+// Moneris ne liste qu'UNE journée (UTC) par requête (created_from et created_to doivent être le même jour)
+// et 20 paiements par page : on interroge chaque jour, de createdFromIso à aujourd'hui, en suivant « next ».
 export interface RecentPayment { paymentId: string; subscriptionId: string; paymentMethodId: string; amountCents: number; status: string; createdAt: string }
 export async function listRecentPayments(createdFromIso: string): Promise<{ items: RecentPayment[]; status: number }> {
-  const from = createdFromIso.replace(/\.\d{3}Z$/, 'Z')
-  const { status, data } = await call('GET', `/payments?created_from=${encodeURIComponent(from)}&limit=20`)
-  if (status < 200 || status >= 300) {
-    console.error('[listPayments]', status, JSON.stringify(data).slice(0, 400))
-    return { items: [], status }
+  const items: RecentPayment[] = []
+  let worst = 200
+  const today = new Date().toISOString().slice(0, 10)
+  for (let day = createdFromIso.slice(0, 10); day <= today; day = new Date(Date.parse(day + 'T00:00:00Z') + 86400_000).toISOString().slice(0, 10)) {
+    let path: string | null = `/payments?created_from=${encodeURIComponent(day + 'T00:00:00Z')}&limit=20`
+    for (let page = 0; path && page < 10; page++) {
+      const { status, data } = await call('GET', path)
+      if (status < 200 || status >= 300) {
+        console.error('[listPayments]', day, status, JSON.stringify(data).slice(0, 400))
+        worst = status
+        break
+      }
+      for (const p of (Array.isArray(data.data) ? data.data : []) as Json[]) {
+        if (!p.paymentId) continue
+        items.push({
+          paymentId: String(p.paymentId),
+          subscriptionId: String(((p.subscription ?? {}) as Json).subscriptionId ?? ''),
+          paymentMethodId: String(((p.paymentMethod ?? {}) as Json).paymentMethodId ?? ''),
+          amountCents: Number(((p.amount ?? {}) as Json).amount ?? 0),
+          status: String(p.paymentStatus ?? ''),
+          createdAt: String(p.createdAt ?? ''),
+        })
+      }
+      path = typeof data.next === 'string' && data.next.startsWith('/payments') ? data.next : null
+    }
   }
-  const items = ((Array.isArray(data.data) ? data.data : []) as Json[]).map(p => ({
-    paymentId: String(p.paymentId ?? ''),
-    subscriptionId: String(((p.subscription ?? {}) as Json).subscriptionId ?? ''),
-    paymentMethodId: String(((p.paymentMethod ?? {}) as Json).paymentMethodId ?? ''),
-    amountCents: Number(((p.amount ?? {}) as Json).amount ?? 0),
-    status: String(p.paymentStatus ?? ''),
-    createdAt: String(p.createdAt ?? ''),
-  })).filter(p => p.paymentId)
-  return { items, status }
+  return { items, status: worst }
 }
