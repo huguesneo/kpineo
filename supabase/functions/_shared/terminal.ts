@@ -14,7 +14,8 @@ import {
 } from './moneris.ts'
 import { addInterval, todayMontreal } from './schedule.js'
 import { createSalesReceipt, qboEnabled } from './qbo.ts'
-import { firstNameCap, lookupTherapistAndSetter } from './ghl.ts'
+import { firstNameCap, lookupEvaluationDate, lookupTherapistAndSetter } from './ghl.ts'
+import { customerNotes } from './qboNotes.js'
 
 declare const Deno: { env: { get(key: string): string | undefined } }
 
@@ -96,10 +97,15 @@ async function sendToMake(db: DB, plan: Plan, inst: Installment, paymentId: stri
           await db.from('payment_plans').update({ therapist_name: therapist, setter_name: setterName }).eq('id', plan.id)
         }
       }
+      const closerName = firstNameCap(plan.closer_name) ?? plan.closer_name
+      // Notes du dossier client : au 1er paiement seulement
+      const notes = inst.number === 1
+        ? customerNotes(plan, { therapist, closer: closerName, setter: setterName }, await lookupEvaluationDate(db, plan.client_email))
+        : null
       await createSalesReceipt(db, {
-        therapistName: therapist, setterName, memo: receiptMemo(plan, inst),
+        therapistName: therapist, setterName, memo: receiptMemo(plan, inst), customerNotes: notes,
         firstName: plan.client_first_name, lastName: plan.client_last_name, email: plan.client_email, phone: plan.client_phone,
-        productName: plan.product_name, closerName: firstNameCap(plan.closer_name) ?? plan.closer_name,
+        productName: plan.product_name, closerName,
         amountCents: inst.amount_cents, paidDate,
         installmentNumber: inst.number, installmentsCount: plan.installments_count, mutexId: inst.id.slice(0, 8),
       })

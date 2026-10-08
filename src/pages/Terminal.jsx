@@ -13,7 +13,7 @@ import { useAuth } from '../context/AuthContext'
 import {
   TERMINAL_PRODUCTS, basePriceKey, buildSaleSchedule, priceSale, withTax, installmentsForProduct, todayMontreal, formatCents, addDays,
 } from '../../supabase/functions/_shared/schedule.js'
-import { attributionComplete, isSupervisorEmail } from '../../supabase/functions/_shared/terminalAttribution.js'
+import { NONE, attributionComplete, isSupervisorEmail } from '../../supabase/functions/_shared/terminalAttribution.js'
 
 const FREQUENCY_UNITS = [
   { value: 'DAY', label: 'jour(s)' },
@@ -154,11 +154,13 @@ function NewPlanForm({ onCreated, prefill = null }) {
       const r = await callTerminal({ action: 'attribution', clientEmail: email })
       const p = r.prefill
       setAttr({ options: r, error: '', fromGhl: !!(p.setterId || p.therapistId || (r.canChooseCloser && p.closerId)) })
+      // Client trouvé par courriel : setter / naturopathe absents de GHL -> « Aucun », pour n'avoir qu'à entrer la carte
+      const orNone = (id) => id || (email ? NONE : '')
       setForm(f => ({
         ...f,
         closerId: touched.current.closerId ? f.closerId : p.closerId,
-        setterId: touched.current.setterId ? f.setterId : p.setterId,
-        therapistId: touched.current.therapistId ? f.therapistId : p.therapistId,
+        setterId: touched.current.setterId ? f.setterId : orNone(p.setterId),
+        therapistId: touched.current.therapistId ? f.therapistId : orNone(p.therapistId),
       }))
     } catch (e) { setAttr(a => ({ ...a, error: e.message })) }
   }, [])

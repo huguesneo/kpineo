@@ -24,6 +24,7 @@ export interface ReceiptInput {
   productName: string; closerName: string
   therapistName?: string | null; setterName?: string | null
   memo?: string | null
+  customerNotes?: string | null   // notes du dossier client (1er paiement seulement)
   amountCents: number; paidDate: string
   installmentNumber: number; installmentsCount: number; mutexId: string
 }
@@ -67,22 +68,35 @@ const query = async (acc: { token: string; realmId: string }, q: string) => {
   return r.json?.QueryResponse ?? {}
 }
 
+// Ajoute les notes au dossier client existant (sous les notes déjà là), sauf si elles y sont déjà.
+async function appendNotes(acc: { token: string; realmId: string }, id: string, notes: string) {
+  const c = (await query(acc, `SELECT Id, SyncToken, Notes FROM Customer WHERE Id = '${esc(id)}'`)).Customer?.[0]
+  if (!c) return
+  const old = String(c.Notes ?? '').trim()
+  if (old.includes(notes)) return
+  const r = await qbo(acc, 'POST', '/customer', { Id: c.Id, SyncToken: c.SyncToken, sparse: true, Notes: (old ? old + '\n\n' + notes : notes).slice(0, 2000) })
+  if (!r.ok) console.error('[QBO] notes du client refusées', r.status, JSON.stringify(r.json).slice(0, 300))
+}
+
 // Client : courriel, puis nom exact, sinon création (ajoute « . » si le nom est pris par quelqu'un d'autre).
 async function findOrCreateCustomer(acc: { token: string; realmId: string }, i: ReceiptInput): Promise<string> {
   const email = i.email.trim()
   const name = `${i.firstName} ${i.lastName}`.trim()
+  const notes = i.customerNotes?.trim() || null
+  const existing = async (id: string) => { if (notes) await appendNotes(acc, id, notes); return id }
   if (email) {
     const r = await query(acc, `SELECT Id FROM Customer WHERE PrimaryEmailAddr = '${esc(email)}' MAXRESULTS 1`)
-    if (r.Customer?.[0]) return r.Customer[0].Id
+    if (r.Customer?.[0]) return existing(r.Customer[0].Id)
   }
   const byName = await query(acc, `SELECT Id FROM Customer WHERE DisplayName = '${esc(name)}' MAXRESULTS 1`)
-  if (byName.Customer?.[0]) return byName.Customer[0].Id
+  if (byName.Customer?.[0]) return existing(byName.Customer[0].Id)
   for (let n = 0; n < 4; n++) {
     const displayName = name + '.'.repeat(n)
     const r = await qbo(acc, 'POST', '/customer', {
       DisplayName: displayName, GivenName: i.firstName, FamilyName: i.lastName,
       ...(email ? { PrimaryEmailAddr: { Address: email } } : {}),
       ...(i.phone ? { PrimaryPhone: { FreeFormNumber: i.phone } } : {}),
+      ...(notes ? { Notes: notes.slice(0, 2000) } : {}),
     })
     if (r.ok) return r.json.Customer.Id
     const dup = JSON.stringify(r.json).includes('6240') || JSON.stringify(r.json).toLowerCase().includes('duplicate')

@@ -49,18 +49,18 @@ async function userFirstName(db: DB, userId: string): Promise<string | null> {
   return firstNameCap(u?.firstName ?? u?.name)
 }
 
-// Thérapeute : personne assignée au RDV d'évaluation du client (le prochain à venir, sinon le plus récent).
-async function therapist(db: DB, contactId: string): Promise<string | null> {
+// RDV d'évaluation du client (le prochain à venir, sinon le plus récent) : thérapeute assignée et date.
+async function evaluation(db: DB, contactId: string): Promise<{ therapist: string | null; date: string | null }> {
   const r = await ghl(`/contacts/${contactId}/appointments`)
   const evts = ((r?.events ?? r?.appointments ?? []) as J[])
     .filter(e => EVAL_CALENDAR_IDS.includes(e.calendarId) && !['cancelled', 'invalid'].includes(String(e.appointmentStatus ?? e.status ?? '').toLowerCase()))
     .filter(e => e.assignedUserId)
-  if (!evts.length) return null
+  if (!evts.length) return { therapist: null, date: null }
   const now = Date.now()
   const t = (e: J) => new Date(e.startTime).getTime()
   const upcoming = evts.filter(e => t(e) >= now - 12 * 3600_000).sort((a, b) => t(a) - t(b))
   const pick = upcoming[0] ?? evts.sort((a, b) => t(b) - t(a))[0]
-  return userFirstName(db, pick.assignedUserId)
+  return { therapist: await userFirstName(db, pick.assignedUserId), date: pick.startTime ?? null }
 }
 
 // Setter et closeur : champs setter__nom et closeur de l'opportunité la plus récente du client qui en a un.
@@ -91,8 +91,17 @@ export async function lookupAttribution(db: DB, email: string)
   if (!loc) return none
   const cid = await contactIdByEmail(db, loc, email.trim())
   if (!cid) return none
-  const [t, sc] = await Promise.all([therapist(db, cid), setterAndCloser(loc, cid)])
-  return { therapist: t, ...sc }
+  const [ev, sc] = await Promise.all([evaluation(db, cid), setterAndCloser(loc, cid)])
+  return { therapist: ev.therapist, ...sc }
+}
+
+// Date (ISO) du RDV d'évaluation du client, pour les notes du dossier QuickBooks
+export async function lookupEvaluationDate(db: DB, email: string): Promise<string | null> {
+  if (!email) return null
+  const loc = await locationId(db)
+  if (!loc) return null
+  const cid = await contactIdByEmail(db, loc, email.trim())
+  return cid ? (await evaluation(db, cid)).date : null
 }
 
 // Ventes saisies avant le choix dans le terminal : thérapeute et setter lus au 1er reçu
