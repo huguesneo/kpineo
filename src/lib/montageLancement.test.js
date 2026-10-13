@@ -27,12 +27,12 @@ describe('règle template / prompt', () => {
 describe('création du montage', () => {
   it('ligne video_jobs : prompt nettoyé, format 9:16', () => {
     expect(nouveauMontage({
-      titre: ' Été au chalet ', fichierDriveId: 'd1', nomSource: 'Ete_2026-10-02_1405.mov', templateId: '', prompt: '  ',
+      titre: ' Été au chalet ', fichierDriveId: 'd1', nomSource: 'Ete_2026-10-02_1405.mov', templateId: '', prompt: '  ', personnes: 'moi_equipe',
     })).toEqual({
-      titre: 'Été au chalet', fichier_drive_id: 'd1', nom_source: 'Ete_2026-10-02_1405.mov',
+      titre: 'Été au chalet', personnes: 'moi_equipe', fichier_drive_id: 'd1', nom_source: 'Ete_2026-10-02_1405.mov',
       template_id: null, prompt: null, format: '9:16',
     })
-    expect(nouveauMontage({ titre: 'a', fichierDriveId: 'd', nomSource: 'n', templateId: 't', prompt: ' Plus court ' }))
+    expect(nouveauMontage({ titre: 'a', fichierDriveId: 'd', nomSource: 'n', templateId: 't', prompt: ' Plus court ', personnes: 'cliente' }))
       .toMatchObject({ template_id: 't', prompt: 'Plus court' })
   })
 
