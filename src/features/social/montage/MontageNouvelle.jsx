@@ -10,7 +10,7 @@ import { canConfigureMontageVideo } from '../../../lib/montageVideoAccess'
 import { titreDepuisNom } from '../../../lib/montageUpload'
 import { prechargerGoogle, googlePickerConfigure } from '../../../lib/googlePicker'
 import {
-  validerDirection, validerTitre, nouveauMontage, messageErreurLancement,
+  validerDirection, validerTitre, validerPersonnes, nouveauMontage, messageErreurLancement,
 } from '../../../lib/montageVideo'
 import {
   ajouterClip, deplacerClip, renommerClip, changerRoleClip, supprimerClip, clipPrincipal, validerClips,
@@ -19,6 +19,7 @@ import { useDossierBrut, useTemplatesApprouves, lancerMontage } from './useMonta
 import { useEnvoiVideo } from './useEnvoiVideo'
 import EtapeVideo, { BrutNonConfigure } from './EtapeVideo'
 import EtapeDirection from './EtapeDirection'
+import ChoixPersonnes from './ChoixPersonnes'
 
 function EnTeteEtape({ numero, titre, fait }) {
   return (
@@ -57,6 +58,7 @@ export default function MontageNouvelle() {
   const [tentative, setTentative] = useState(false)
   const [lancement, setLancement] = useState({ enCours: false, erreur: null, jobId: null })
   const [clips, setClips] = useState([])
+  const [personnes, setPersonnes] = useState(null)
 
   useEffect(() => { prechargerGoogle() }, [])
 
@@ -90,10 +92,11 @@ export default function MontageNouvelle() {
   const pret = clips.length > 0 && !envoiEnCours
   const erreurTitre = validerTitre(titre)
   const erreurDirection = validerDirection({ templateId, prompt })
+  const erreurPersonnes = validerPersonnes(personnes)
 
   async function lancer() {
     setTentative(true)
-    if (!pret || erreurClips || erreurTitre || erreurDirection) return
+    if (!pret || erreurClips || erreurTitre || erreurDirection || erreurPersonnes) return
     setLancement(l => ({ ...l, enCours: true, erreur: null }))
     // L'agent actuel monte une seule vidéo : le premier clip principal.
     const principal = clipPrincipal(clips)
@@ -104,6 +107,7 @@ export default function MontageNouvelle() {
         nomSource: principal.nomSource,
         templateId,
         prompt,
+        personnes,
       }), lancement.jobId, clips)
       navigate(`/reseaux-sociaux/montage/${jobId}`)
     } catch (e) {
@@ -115,7 +119,7 @@ export default function MontageNouvelle() {
     ? "Attends la fin de l'ajout du clip, ou annule-le."
     : !clips.length
       ? "Ajoute d'abord une vidéo à l'étape 1."
-      : erreurClips
+      : erreurClips || erreurPersonnes
 
   return (
     <Layout>
@@ -155,6 +159,12 @@ export default function MontageNouvelle() {
               erreurTitre={tentative || titre ? erreurTitre : null}
             />
           )}
+          <ChoixPersonnes
+            valeur={personnes}
+            onChange={setPersonnes}
+            erreur={tentative ? erreurPersonnes : null}
+            verrouille={!!lancement.jobId}
+          />
         </Card>
 
         <Card className="p-6">
@@ -177,7 +187,7 @@ export default function MontageNouvelle() {
           )}
 
           <div className="mt-6 flex flex-wrap items-center gap-4">
-            <Button size="lg" onClick={lancer} loading={lancement.enCours} disabled={!pret}>
+            <Button size="lg" onClick={lancer} loading={lancement.enCours} disabled={!pret || !!erreurPersonnes}>
               {lancement.erreur ? 'Réessayer' : 'Lancer le montage'}
             </Button>
             {raisonAttente && <p className="text-sm text-[#6b7280]">{raisonAttente}</p>}
