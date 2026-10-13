@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   isAgentEnLigne, AGENT_HORS_LIGNE_APRES_MS, positionsFile, rangFr, statutMontage,
-  lireDossierBrut, lienDriveMontage,
+  lireDossierBrut, lienDriveMontage, PERSONNES, validerPersonnes, nouveauMontage,
 } from './montageVideo'
 import {
   lireAccesMontage, routeMontage, entreesReseauxSociaux, canConfigureMontageVideo,
@@ -160,5 +160,25 @@ describe('lien Drive d’un montage', () => {
       .toEqual({ url: 'https://drive.google.com/file/d/f9/view', label: 'Vidéo source' })
     expect(lienDriveMontage({ lien_drive_export: 'https://drive.google.com/x' })).toBeNull()
     expect(lienDriveMontage({})).toBeNull()
+  })
+})
+
+describe('« Qui est dans la vidéo ? » (video_jobs.personnes)', () => {
+  const base = { titre: ' Pub atelier ', fichierDriveId: 'f1', nomSource: 'IMG_1.MOV', templateId: null, prompt: ' Pub ' }
+
+  it('deux choix, sans valeur par défaut', () => {
+    expect(PERSONNES.map(p => p.valeur)).toEqual(['moi_equipe', 'cliente'])
+    expect(validerPersonnes(null)).toBe('Indique qui est dans la vidéo.')
+    expect(validerPersonnes(undefined)).toBe('Indique qui est dans la vidéo.')
+    expect(validerPersonnes('autre')).toBe('Indique qui est dans la vidéo.')
+    expect(validerPersonnes('moi_equipe')).toBeNull()
+    expect(validerPersonnes('cliente')).toBeNull()
+  })
+
+  it('part avec le montage ; jamais de montage sans réponse', () => {
+    expect(nouveauMontage({ ...base, personnes: 'cliente' })).toEqual({
+      titre: 'Pub atelier', personnes: 'cliente', fichier_drive_id: 'f1', nom_source: 'IMG_1.MOV', template_id: null, prompt: 'Pub', format: '9:16',
+    })
+    expect(() => nouveauMontage(base)).toThrow('Indique qui est dans la vidéo.')
   })
 })
