@@ -89,13 +89,27 @@ export function validerTitre(titre) {
   return null
 }
 
+// « Qui est dans la vidéo ? » (video_jobs.personnes, migration 20261013a) :
+// choix obligatoire au dépôt, sans valeur par défaut. Il choisit la
+// transcription de l'agent : Scribe, ou Whisper seulement si une cliente apparaît.
+export const PERSONNES = [
+  { valeur: 'moi_equipe', libelle: "Moi ou l'équipe", aide: 'Transcription par Scribe (ElevenLabs).' },
+  { valeur: 'cliente', libelle: 'Une cliente', aide: "Transcription par Whisper, sur le Mac : rien ne part chez ElevenLabs." },
+]
+
+export function validerPersonnes(personnes) {
+  return PERSONNES.some(p => p.valeur === personnes) ? null : 'Indique qui est dans la vidéo.'
+}
+
 // Ligne video_jobs à créer. Le premier passage de l'agent lit le prompt du
 // montage : la tâche « montage » part donc avec un payload vide (sinon le
 // prompt serait donné deux fois à Claude).
-export function nouveauMontage({ titre, fichierDriveId, nomSource, templateId, prompt }) {
+export function nouveauMontage({ titre, fichierDriveId, nomSource, templateId, prompt, personnes }) {
   const texte = (prompt || '').trim()
+  if (validerPersonnes(personnes)) throw new Error(validerPersonnes(personnes))
   return {
     titre: titre.trim(),
+    personnes,
     fichier_drive_id: fichierDriveId,
     nom_source: nomSource,
     template_id: templateId || null,
