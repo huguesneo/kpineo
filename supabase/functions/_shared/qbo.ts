@@ -68,7 +68,6 @@ const query = async (acc: { token: string; realmId: string }, q: string) => {
   return r.json?.QueryResponse ?? {}
 }
 
-<<<<<<< HEAD
 // Ajoute les notes au dossier client existant (sous les notes déjà là), sauf si elles y sont déjà.
 async function appendNotes(acc: { token: string; realmId: string }, id: string, notes: string) {
   const c = (await query(acc, `SELECT Id, SyncToken, Notes FROM Customer WHERE Id = '${esc(id)}'`)).Customer?.[0]
@@ -79,10 +78,7 @@ async function appendNotes(acc: { token: string; realmId: string }, id: string, 
   if (!r.ok) console.error('[QBO] notes du client refusées', r.status, JSON.stringify(r.json).slice(0, 300))
 }
 
-// Client : courriel, puis nom exact, sinon création (ajoute « . » si le nom est pris par quelqu'un d'autre).
-=======
 // Client : trouvé par courriel seulement, sinon création (ajoute « . » si le nom est déjà pris).
->>>>>>> 9992137 (Reçu QuickBooks: client trouvé par courriel seulement, jamais par nom)
 async function findOrCreateCustomer(acc: { token: string; realmId: string }, i: ReceiptInput): Promise<string> {
   const email = i.email.trim()
   const name = `${i.firstName} ${i.lastName}`.trim()
