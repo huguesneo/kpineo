@@ -68,6 +68,7 @@ const query = async (acc: { token: string; realmId: string }, q: string) => {
   return r.json?.QueryResponse ?? {}
 }
 
+<<<<<<< HEAD
 // Ajoute les notes au dossier client existant (sous les notes déjà là), sauf si elles y sont déjà.
 async function appendNotes(acc: { token: string; realmId: string }, id: string, notes: string) {
   const c = (await query(acc, `SELECT Id, SyncToken, Notes FROM Customer WHERE Id = '${esc(id)}'`)).Customer?.[0]
@@ -79,6 +80,9 @@ async function appendNotes(acc: { token: string; realmId: string }, id: string, 
 }
 
 // Client : courriel, puis nom exact, sinon création (ajoute « . » si le nom est pris par quelqu'un d'autre).
+=======
+// Client : trouvé par courriel seulement, sinon création (ajoute « . » si le nom est déjà pris).
+>>>>>>> 9992137 (Reçu QuickBooks: client trouvé par courriel seulement, jamais par nom)
 async function findOrCreateCustomer(acc: { token: string; realmId: string }, i: ReceiptInput): Promise<string> {
   const email = i.email.trim()
   const name = `${i.firstName} ${i.lastName}`.trim()
@@ -88,8 +92,8 @@ async function findOrCreateCustomer(acc: { token: string; realmId: string }, i: 
     const r = await query(acc, `SELECT Id FROM Customer WHERE PrimaryEmailAddr = '${esc(email)}' MAXRESULTS 1`)
     if (r.Customer?.[0]) return existing(r.Customer[0].Id)
   }
-  const byName = await query(acc, `SELECT Id FROM Customer WHERE DisplayName = '${esc(name)}' MAXRESULTS 1`)
-  if (byName.Customer?.[0]) return existing(byName.Customer[0].Id)
+  // JAMAIS par nom : deux clients peuvent porter le même nom (ex. deux « Julie Bouchard »).
+  // Pas trouvé par courriel = nouveau client (avec « . » si le nom est déjà pris).
   for (let n = 0; n < 4; n++) {
     const displayName = name + '.'.repeat(n)
     const r = await qbo(acc, 'POST', '/customer', {
