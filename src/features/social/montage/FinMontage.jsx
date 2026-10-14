@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import ActionConfirmee from './ActionConfirmee'
 import Card from '../../../components/shared/Card'
 import {
@@ -83,6 +84,40 @@ export function BandeauExport({ job, versions, taches }) {
         </div>
         <LienExport job={job} />
       </div>
+      <LegendeExport job={job} />
     </Card>
+  )
+}
+
+// Légende Facebook / Instagram écrite par l'agent au Terminer (video_jobs.legende,
+// aussi en .txt à côté de la vidéo dans Drive). Jamais publiée : on la copie.
+// Rien si la colonne est vide.
+export function LegendeExport({ job }) {
+  const [copiee, setCopiee] = useState(false)
+  const legende = (job?.legende || '').trim()
+  if (!legende) return null
+  async function copier() {
+    try {
+      await navigator.clipboard.writeText(legende)
+      setCopiee(true)
+      setTimeout(() => setCopiee(false), 1600)
+    } catch {
+      setCopiee(false)
+    }
+  }
+  return (
+    <div className="mt-3 pt-3 border-t border-emerald-200">
+      <div className="flex items-center justify-between gap-3 mb-2">
+        <p className="text-sm font-semibold text-[#374151]">Légende Facebook / Instagram</p>
+        <button
+          type="button"
+          onClick={copier}
+          className="text-sm px-3 py-1.5 rounded-lg border border-emerald-300 bg-white font-semibold text-[#00bbb1] hover:underline"
+        >
+          {copiee ? 'Copiée' : 'Copier'}
+        </button>
+      </div>
+      <p className="text-sm text-[#374151] whitespace-pre-wrap break-words bg-white rounded-lg border border-[#f0f0f2] p-3">{legende}</p>
+    </div>
   )
 }

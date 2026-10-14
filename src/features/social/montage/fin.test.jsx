@@ -2,7 +2,7 @@
 // Restaurer, Terminer, confirmations, lien d'export, cas d'erreur.
 import { describe, it, expect } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { RestaurerVersion, BoutonTerminer, BandeauExport, LienExport } from './FinMontage'
+import { RestaurerVersion, BoutonTerminer, BandeauExport, LienExport, LegendeExport } from './FinMontage'
 import FilConversation from './FilConversation'
 import { LienDrive } from './MontageAccueil'
 import { filConversation } from '../../../lib/montageEditeur'
@@ -112,6 +112,22 @@ describe('lien d\'export', () => {
     expect(html).toContain('Dernier export : Pub cortisol_v3.mp4')
     expect(html).toContain('export de v3, version actuelle : v4')
     expect(html).toContain('>Ouvrir dans Drive</a>')
+  })
+
+  it('légende FB/IG sous la vidéo finale, avec « Copier », retours à la ligne gardés', () => {
+    const legende = 'Tu bouges plus.\n\nClique sur le lien sous la vidéo.\n\n#neoperformance'
+    const html = renderToStaticMarkup(<BandeauExport job={job({ statut: 'termine', lien_drive_export: CHEMIN, legende })} />)
+    expect(html).toContain('Légende Facebook / Instagram')
+    expect(html).toMatch(/<button[^>]*>Copier<\/button>/)
+    expect(html).toContain('whitespace-pre-wrap')
+    expect(html).toContain('Tu bouges plus.\n\nClique sur le lien sous la vidéo.')
+  })
+
+  it('légende vide ou absente : rien', () => {
+    for (const legende of [null, undefined, '', '  ']) {
+      expect(renderToStaticMarkup(<LegendeExport job={job({ legende })} />)).toBe('')
+      expect(renderToStaticMarkup(<BandeauExport job={job({ statut: 'termine', lien_drive_export: CHEMIN, legende })} />)).not.toContain('Légende')
+    }
   })
 
   it('pas de bandeau sans export', () => {
