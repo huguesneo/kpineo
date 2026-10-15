@@ -10,7 +10,8 @@
 # puis l'annulation (20261003g, deux fois) et ses tests,
 # puis la corbeille (20261003h, deux fois) et ses tests,
 # puis « Qui est dans la vidéo ? » (20261013a) et la timeline (20261015a, deux fois) et ses tests,
-# puis catalogue et polices (20261015b, deux fois), ses tests, son retour et sa réapplication.
+# puis catalogue et polices (20261015b, deux fois), ses tests, son retour et sa réapplication,
+# puis la timeline ouverte aux clientes (20261015c, deux fois), ses tests, son retour et sa réapplication.
 # Refuse de tourner sur un hôte Supabase : ne sert jamais en production.
 set -euo pipefail
 
@@ -32,6 +33,8 @@ PERSONNES="$ICI/../../migrations/20261013a_montage_video_personnes.sql"
 TIMELINE="$ICI/../../migrations/20261015a_montage_video_timeline.sql"
 TIMELINE_HUB="$ICI/../../migrations/20261015b_montage_video_timeline_hub.sql"
 RETOUR_HUB="$ICI/../../retours/20261015b_montage_video_timeline_hub_retour.sql"
+CLIENTE="$ICI/../../migrations/20261015c_montage_video_timeline_cliente.sql"
+RETOUR_CLIENTE="$ICI/../../retours/20261015c_montage_video_timeline_cliente_retour.sql"
 BASE=montage_test
 
 psql -q -d postgres -c "DROP DATABASE IF EXISTS $BASE" -c "CREATE DATABASE $BASE"
@@ -99,6 +102,21 @@ if [[ "$LUS" == "0" && "$OTF" == "0" ]]; then SORTIE="$SORTIE
  PASS  retour 20261015b : hub/ illisible, types d'avant"; else SORTIE="$SORTIE
  FAIL  retour 20261015b (hub lus : $LUS, font/otf : $OTF)"; fi
 $P -f "$TIMELINE_HUB" >/dev/null 2>&1 || { echo "20261015b ne se réapplique pas après son retour" >&2; exit 1; }
+for _ in 1 2; do
+  $P -f "$CLIENTE" >/dev/null 2>&1 || { echo "La migration cliente échoue : $CLIENTE" >&2; $P -f "$CLIENTE"; exit 1; }
+done
+SORTIE="$SORTIE
+$($P -f "$ICI/92_tests_timeline_cliente.sql" 2>&1)"
+# Retour en arrière de 20261015c : la timeline se referme pour une cliente ; puis réappliquée
+$P -f "$RETOUR_CLIENTE" >/dev/null 2>&1 || { echo "Le retour de 20261015c échoue" >&2; $P -f "$RETOUR_CLIENTE"; exit 1; }
+if $P -c "SET ROLE authenticated; SELECT set_config('request.jwt.claims','{\"email\":\"info@neoperformance.ca\"}',false); INSERT INTO video_taches (job_id, type) VALUES ('22222222-0000-0000-0000-000000000071','timeline_preparer')" >/dev/null 2>&1; then
+  SORTIE="$SORTIE
+ FAIL  retour 20261015c : timeline_preparer d'une cliente encore permis"
+else
+  SORTIE="$SORTIE
+ PASS  retour 20261015c : timeline refermée pour une cliente"
+fi
+$P -f "$CLIENTE" >/dev/null 2>&1 || { echo "20261015c ne se réapplique pas après son retour" >&2; exit 1; }
 echo "$SORTIE" | sed '/^$/d'
 PASS=$(grep -c '^ PASS' <<<"$SORTIE" || true)
 FAIL=$(grep -cE '^ FAIL|ERROR' <<<"$SORTIE" || true)
