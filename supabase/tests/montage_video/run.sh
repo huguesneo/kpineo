@@ -8,7 +8,8 @@
 # puis les templates proposés (20261003d, deux fois) et leurs tests,
 # puis les variantes (20261003e, deux fois) et leurs tests,
 # puis l'annulation (20261003g, deux fois) et ses tests,
-# puis la corbeille (20261003h, deux fois) et ses tests.
+# puis la corbeille (20261003h, deux fois) et ses tests,
+# puis « Qui est dans la vidéo ? » (20261013a) et la timeline (20261015a, deux fois) et ses tests.
 # Refuse de tourner sur un hôte Supabase : ne sert jamais en production.
 set -euo pipefail
 
@@ -26,6 +27,8 @@ PROPOSES="$ICI/../../migrations/20261003d_montage_video_templates_proposes.sql"
 VARIANTES="$ICI/../../migrations/20261003e_montage_video_variantes.sql"
 ANNULATION="$ICI/../../migrations/20261003g_montage_video_annulation.sql"
 CORBEILLE="$ICI/../../migrations/20261003h_montage_video_corbeille.sql"
+PERSONNES="$ICI/../../migrations/20261013a_montage_video_personnes.sql"
+TIMELINE="$ICI/../../migrations/20261015a_montage_video_timeline.sql"
 BASE=montage_test
 
 psql -q -d postgres -c "DROP DATABASE IF EXISTS $BASE" -c "CREATE DATABASE $BASE"
@@ -74,6 +77,12 @@ for _ in 1 2; do
 done
 SORTIE="$SORTIE
 $($P -f "$ICI/80_tests_corbeille.sql" 2>&1)"
+$P -f "$PERSONNES" >/dev/null 2>&1 || { echo "La migration personnes échoue : $PERSONNES" >&2; $P -f "$PERSONNES"; exit 1; }
+for _ in 1 2; do
+  $P -f "$TIMELINE" >/dev/null 2>&1 || { echo "La migration de la timeline échoue : $TIMELINE" >&2; $P -f "$TIMELINE"; exit 1; }
+done
+SORTIE="$SORTIE
+$($P -f "$ICI/90_tests_timeline.sql" 2>&1)"
 echo "$SORTIE" | sed '/^$/d'
 PASS=$(grep -c '^ PASS' <<<"$SORTIE" || true)
 FAIL=$(grep -cE '^ FAIL|ERROR' <<<"$SORTIE" || true)
