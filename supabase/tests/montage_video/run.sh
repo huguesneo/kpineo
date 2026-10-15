@@ -9,7 +9,8 @@
 # puis les variantes (20261003e, deux fois) et leurs tests,
 # puis l'annulation (20261003g, deux fois) et ses tests,
 # puis la corbeille (20261003h, deux fois) et ses tests,
-# puis « Qui est dans la vidéo ? » (20261013a) et la timeline (20261015a, deux fois) et ses tests.
+# puis « Qui est dans la vidéo ? » (20261013a) et la timeline (20261015a, deux fois) et ses tests,
+# puis catalogue et polices (20261015b, deux fois), ses tests, son retour et sa réapplication.
 # Refuse de tourner sur un hôte Supabase : ne sert jamais en production.
 set -euo pipefail
 
@@ -29,6 +30,8 @@ ANNULATION="$ICI/../../migrations/20261003g_montage_video_annulation.sql"
 CORBEILLE="$ICI/../../migrations/20261003h_montage_video_corbeille.sql"
 PERSONNES="$ICI/../../migrations/20261013a_montage_video_personnes.sql"
 TIMELINE="$ICI/../../migrations/20261015a_montage_video_timeline.sql"
+TIMELINE_HUB="$ICI/../../migrations/20261015b_montage_video_timeline_hub.sql"
+RETOUR_HUB="$ICI/../../retours/20261015b_montage_video_timeline_hub_retour.sql"
 BASE=montage_test
 
 psql -q -d postgres -c "DROP DATABASE IF EXISTS $BASE" -c "CREATE DATABASE $BASE"
@@ -83,6 +86,19 @@ for _ in 1 2; do
 done
 SORTIE="$SORTIE
 $($P -f "$ICI/90_tests_timeline.sql" 2>&1)"
+for _ in 1 2; do
+  $P -f "$TIMELINE_HUB" >/dev/null 2>&1 || { echo "La migration catalogue et polices échoue : $TIMELINE_HUB" >&2; $P -f "$TIMELINE_HUB"; exit 1; }
+done
+SORTIE="$SORTIE
+$($P -f "$ICI/91_tests_timeline_hub.sql" 2>&1)"
+# Retour en arrière de 20261015b : hub/ n'est plus lisible, les types d'avant reviennent ; puis réappliquée
+$P -f "$RETOUR_HUB" >/dev/null 2>&1 || { echo "Le retour de 20261015b échoue" >&2; $P -f "$RETOUR_HUB"; exit 1; }
+LUS=$($P -tA -c "SET ROLE authenticated; SELECT set_config('request.jwt.claims','{\"email\":\"hugues@neoperformance.ca\"}',false); SELECT count(*) FROM storage.objects WHERE bucket_id='video-timeline' AND name LIKE 'hub/%'" | tail -1)
+OTF=$($P -tA -c "SELECT count(*) FROM storage.buckets WHERE id='video-timeline' AND 'font/otf' = any(allowed_mime_types)")
+if [[ "$LUS" == "0" && "$OTF" == "0" ]]; then SORTIE="$SORTIE
+ PASS  retour 20261015b : hub/ illisible, types d'avant"; else SORTIE="$SORTIE
+ FAIL  retour 20261015b (hub lus : $LUS, font/otf : $OTF)"; fi
+$P -f "$TIMELINE_HUB" >/dev/null 2>&1 || { echo "20261015b ne se réapplique pas après son retour" >&2; exit 1; }
 echo "$SORTIE" | sed '/^$/d'
 PASS=$(grep -c '^ PASS' <<<"$SORTIE" || true)
 FAIL=$(grep -cE '^ FAIL|ERROR' <<<"$SORTIE" || true)
