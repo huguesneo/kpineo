@@ -46,3 +46,7 @@ export function entreesReseauxSociaux({ social, montage, enabled = MONTAGE_VIDEO
 export function canConfigureMontageVideo(email, enabled = MONTAGE_VIDEO_ENABLED) {
   return !!enabled && canApproveVideoTemplates(email)
 }
+
+// Timeline du hub (mise en production du labo, 15 oct. 2026) : cachée tant que VITE_TIMELINE n'est pas « true »,
+// et jamais sans le module Montage vidéo. Éteinte : liste, création et éditeur restent ceux d'avant.
+export const TIMELINE_ENABLED = MONTAGE_VIDEO_ENABLED && import.meta.env.VITE_TIMELINE === 'true'

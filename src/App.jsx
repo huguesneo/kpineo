@@ -33,9 +33,10 @@ import MontageNouvelle from './features/social/montage/MontageNouvelle'
 import MontageConfiguration from './features/social/montage/MontageConfiguration'
 import MontageEditeur from './features/social/montage/MontageEditeur'
 import MontageTemplates from './features/social/montage/MontageTemplates'
+import PageTimeline from './features/social/montage/timeline/PageTimeline'
 import { TERMINAL_ENABLED, canUseTerminal } from './lib/terminal/flag'
 import { hasSocialAccess } from './lib/socialAccess'
-import { MONTAGE_VIDEO_ENABLED, routeMontage, canConfigureMontageVideo } from './lib/montageVideoAccess'
+import { MONTAGE_VIDEO_ENABLED, TIMELINE_ENABLED, routeMontage, canConfigureMontageVideo } from './lib/montageVideoAccess'
 import { useMontageVideoAccess } from './hooks/useMontageVideoAccess'
 // Espace de vente v2 (derrière VITE_ESPACE_VENTE_V2)
 import { ESPACE_VENTE_V2 } from './lib/v2/featureFlag'
@@ -171,6 +172,7 @@ function AppRoutes() {
           <Route path="/reseaux-sociaux/montage/configuration" element={<MontageConfigRoute><MontageConfiguration /></MontageConfigRoute>} />
           <Route path="/reseaux-sociaux/montage/templates" element={<MontageVideoRoute><MontageTemplates /></MontageVideoRoute>} />
           <Route path="/reseaux-sociaux/montage/:jobId" element={<MontageVideoRoute><MontageEditeur /></MontageVideoRoute>} />
+          {TIMELINE_ENABLED && <Route path="/reseaux-sociaux/montage/:jobId/timeline" element={<MontageVideoRoute><PageTimeline /></MontageVideoRoute>} />}
         </>
       ) : (
         <Route path="/reseaux-sociaux" element={<SocialRoute><ReseauxSociaux /></SocialRoute>} />
