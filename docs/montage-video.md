@@ -712,3 +712,39 @@ Additive, se rejoue. Aucune fonction ni aucun trigger existant réécrit.
 3. Ouvrir un montage supprimé par son adresse : bandeau corbeille, champ de demande, variante, Terminer et ajout de clip désactivés. Restaurer : tout revient, avec ses versions et ses clips.
 4. Supprimer l'origine d'une variante : la variante reste dans la liste, avec « Variante de … (montage supprimé) ».
 5. Supprimer depuis l'éditeur : retour à la liste, le montage est dans la corbeille.
+
+## Timeline du hub (15 oct. 2026)
+
+La timeline du labo (`video-neo/labo/timeline`) dans le hub, derrière `VITE_TIMELINE=true` (et `VITE_MONTAGE_VIDEO`).
+Plan et décisions : `docs/plan-timeline-hub.md`. Contrat de l'agent : `video-neo/agent/README.md`, « Timeline du hub ».
+
+- **Liste** : bouton « Ouvrir » sur chaque montage « Moi ou l'équipe » sans template ; « Une cliente » : pas de bouton,
+  une phrase (timeline fermée, aucune copie dans Supabase). Même bouton dans l'éditeur.
+- **Création** : « Monter avec l'IA » (prompt facultatif : sans template ni texte, `video_jobs.prompt` reçoit
+  « Montage standard, aucune consigne particulière. », la base exigeant un prompt) et « Monter moi-même » (tâche
+  `montage` `{manuel: true}` : pauses retirées, sans IA ; un seul clip Principal, sans template). Une cliente : seulement
+  l'IA, vers l'éditeur. Moteur recette (moi ou l'équipe, sans template, un seul clip) : on va à la timeline, qui suit la
+  v1 puis s'ouvre ; sinon à l'éditeur comme avant.
+- **Page `/reseaux-sociaux/montage/:id/timeline`** : v1 en cours → progression ; timeline pas prête (montage d'avant,
+  après Terminer, 7 jours) → la page insère `timeline_preparer` (l'agent ne la lance jamais seul) ; brouillon fait avant
+  la dernière version → « Repartir de la vN » ou « Reprendre mon brouillon » ; puis la timeline plein écran.
+- **Timeline** : copie du labo (mêmes pistes, gestes, raccourcis, repères, garde-fous). Brouillon sauvé à chaque geste
+  dans `video_timeline.brouillon` ; vérifications du moteur par `video_timeline_requetes` (une à la fois, seule la
+  dernière recette attend) ; « Appliquer » = brouillon puis `timeline_appliquer` ; « Demander à l'IA » = brouillon puis
+  `montage {prompt, depuis_timeline: true}` (correction seulement : pas de « ronde complète » côté agent) ; « Terminer »
+  refusé tant qu'un brouillon n'est pas appliqué, puis l'éditeur montre l'export.
+- **Médias** : bucket privé `video-timeline` par liens signés de 15 min (renouvelés à 12 min) avec la session de la
+  personne : copies légères, PNG des cartes, ondes, sons (`sons/index.json` : vrai nom → clé sans accent), catalogue de
+  la palette et polices des graphiques (`hub/`, migration `20261015b`, publiés par l'agent à chaque démarrage). Onde
+  d'une musique ajoutée : calculée dans le navigateur (même calcul que `outil.py onde`). Polices Allrounder : jamais
+  dans git ni dans le build ; police absente → carte refusée dans le lecteur, jamais une autre police.
+- **Code** : `src/features/social/montage/timeline/`. `logique.ts`, `Timeline.tsx`, `Inspecteur.tsx`, graphiques et
+  repères sont recopiés du labo, `App.tsx`, `Montage.tsx` et `style.css` retouchés, par `node scripts/synchro-timeline.mjs`
+  (à relancer après un batch du labo ; `--verifier` compare, testé par Vitest). Propre au hub : `sourceHub.js`,
+  `liens.js`, `PageTimeline.jsx`, `TimelineHub.tsx`, `graphiques/polices.ts`, `src/lib/montageTimeline.js`.
+  Remotion 4.0.523 exactement (comme le moteur), chargé seulement à l'ouverture d'une timeline.
+- **Vérifier les types** (le hub n'a pas TypeScript) :
+  `~/NEO/dev/video-neo/node_modules/.bin/tsc --noEmit --strict --jsx react-jsx --moduleResolution bundler --module esnext --target es2022 --skipLibCheck --allowImportingTsExtensions src/features/social/montage/timeline/TimelineHub.tsx src/features/social/montage/timeline/png.d.ts`
+- **Accès** : aucune clé de service, aucun `supabaseAdmin` (test Vitest) ; tout passe par le RLS `has_montage_access()`.
+- **Retour en arrière** : `VITE_TIMELINE=false` dans Netlify et redéployer. La migration `20261015b` a son retour
+  (`supabase/retours/`).
