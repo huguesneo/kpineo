@@ -32,11 +32,9 @@ describe('bouton « Ouvrir »', () => {
     expect(html).toContain('Ouvrir')
   })
 
-  it('une cliente : pas de bouton, une courte explication', () => {
+  it('une cliente : bouton « Ouvrir » aussi (décision du 15 oct. 2026)', () => {
     const html = rendre(<BoutonTimeline job={{ ...JOB, personnes: 'cliente' }} enabled compact />)
-    expect(html).not.toContain('href=')
-    expect(html).toContain('Timeline fermée')
-    expect(html).toContain('ne quitte pas le Mac')
+    expect(html).toContain(`href="/reseaux-sociaux/montage/${JOB.id}/timeline"`)
   })
 
   it('template ou montage d’avant : rien ; VITE_TIMELINE éteint : rien du tout', () => {
@@ -72,8 +70,8 @@ describe('étapes de la page de la timeline', () => {
     expect(etapePage(base)).toEqual({ etape: 'pret' })
   })
 
-  it('cliente, template, plusieurs clips, corbeille : fermée ou introuvable', () => {
-    expect(etapePage({ ...base, job: { ...JOB, personnes: 'cliente' } })).toMatchObject({ etape: 'fermee', message: expect.stringMatching(/cliente/) })
+  it('cliente : la timeline s’ouvre ; template, plusieurs clips, corbeille : fermée ou introuvable', () => {
+    expect(etapePage({ ...base, job: { ...JOB, personnes: 'cliente' } })).toEqual({ etape: 'pret' })
     expect(etapePage({ ...base, job: { ...JOB, template_id: 't' } }).etape).toBe('fermee')
     expect(etapePage({ ...base, ligne: null, clips: [{ role: 'principal' }, { role: 'broll' }] }).etape).toBe('fermee')
     expect(etapePage({ ...base, job: { ...JOB, supprime_le: '2026-10-15' } }).etape).toBe('introuvable')

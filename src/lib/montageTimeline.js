@@ -6,13 +6,13 @@
 // (video_jobs_template_ou_prompt) ; Claude le lit comme « aucune consigne » (décision de Hugues du 15 oct. 2026).
 export const PROMPT_STANDARD = 'Montage standard, aucune consigne particulière.'
 
-export const MESSAGE_TIMELINE_CLIENTE = "Timeline fermée : la vidéo d'une cliente ne quitte pas le Mac. Le montage passe par l'IA, comme avant."
 export const MESSAGE_PAS_RECETTE = "Ce montage n'est pas fait avec le nouveau moteur (template, plusieurs clips ou montage d'avant) : la timeline ne sait pas l'ouvrir."
 
-// Bouton « Ouvrir » : moi ou l'équipe, sans template, pas dans la corbeille. Le reste (un seul clip, moteur
-// recette) est vérifié à l'ouverture.
+// Bouton « Ouvrir » : moi ou l'équipe, ou une cliente (décision de Hugues du 15 oct. 2026 ; transcription Whisper
+// sur le Mac, copies effacées 24 h après la dernière modification), sans template, pas dans la corbeille. Le reste
+// (un seul clip, moteur recette) est vérifié à l'ouverture.
 export function peutOuvrirTimeline(job) {
-  return !!job && job.personnes === 'moi_equipe' && !job.template_id && !job.supprime_le
+  return !!job && (job.personnes === 'moi_equipe' || job.personnes === 'cliente') && !job.template_id && !job.supprime_le
 }
 
 export function estCliente(job) {
@@ -25,9 +25,9 @@ export function surMoteurRecette({ personnes, templateId, clips }) {
     && (clips || []).length === 1 && clips[0].role === 'principal'
 }
 
-// « Monter moi-même » : moi ou l'équipe, sans template, un seul clip Principal. null = permis, sinon la raison.
+// « Monter moi-même » : moi ou l'équipe ou une cliente, sans template, un seul clip Principal. null = permis, sinon la raison.
 export function raisonMoiMeme({ personnes, templateId, clips }) {
-  if (personnes !== 'moi_equipe') return null
+  if (personnes !== 'moi_equipe' && personnes !== 'cliente') return null
   if (templateId) return '« Monter moi-même » se fait sans template : retire le template choisi.'
   if ((clips || []).length !== 1 || clips[0].role !== 'principal') {
     return '« Monter moi-même » se fait avec une seule vidéo (Principal), sans B-roll.'
@@ -37,7 +37,7 @@ export function raisonMoiMeme({ personnes, templateId, clips }) {
 
 // Où aller après le lancement : la timeline si elle pourra s'ouvrir, sinon l'éditeur actuel.
 export function routeApresLancement(jobId, { personnes, templateId, clips }) {
-  return personnes === 'moi_equipe' && surMoteurRecette({ personnes, templateId, clips })
+  return surMoteurRecette({ personnes, templateId, clips })
     ? `/reseaux-sociaux/montage/${jobId}/timeline`
     : `/reseaux-sociaux/montage/${jobId}`
 }

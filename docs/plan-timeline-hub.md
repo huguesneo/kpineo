@@ -134,3 +134,10 @@ liens signés `video-timeline` et `video-apercus`.
 
 La migration reste en place dans tous les cas (additive) ; son script de retour
 (`supabase/retours/20261015a_montage_video_timeline_retour.sql`) ne sert que si on abandonne la timeline.
+
+## Décision de Hugues (15 oct. 2026, après ses essais en local)
+La timeline s'ouvre aussi pour les vidéos « Une cliente », et « Monter moi-même » est permis pour elles. Base :
+migration `20261015c` (déclencheur `video_taches_timeline_cliente` retiré, refus « cliente » retiré des vérifications ;
+retour dans `supabase/retours/`). Agent (c18afa9) : préparer, appliquer, IA et Monter moi-même permis ; Whisper
+seulement (refus de Scribe inchangé dans le moteur) ; copies d'une cliente effacées dès Terminer et au plus tard 24 h
+après la dernière modification (ménage des copies toutes les heures).

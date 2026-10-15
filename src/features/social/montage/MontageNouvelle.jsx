@@ -201,20 +201,17 @@ export default function MontageNouvelle({ timeline = TIMELINE_ENABLED }) {
                 <Button size="lg" onClick={() => lancer('ia')} loading={lancement.enCours === 'ia'} disabled={!pret || !!erreurPersonnes || !!lancement.enCours}>
                   Monter avec l&apos;IA
                 </Button>
-                {personnes !== 'cliente' && (
-                  <Button size="lg" variant="secondary" onClick={() => lancer('moi')} loading={lancement.enCours === 'moi'}
-                    disabled={!pret || !!erreurPersonnes || !!raisonMoi || !!lancement.enCours}>
-                    Monter moi-même
-                  </Button>
-                )}
+                <Button size="lg" variant="secondary" onClick={() => lancer('moi')} loading={lancement.enCours === 'moi'}
+                  disabled={!pret || !!erreurPersonnes || !!raisonMoi || !!lancement.enCours}>
+                  Monter moi-même
+                </Button>
               </div>
               <p className="mt-2 text-xs text-[#6b7280]">
-                {personnes === 'cliente'
-                  ? "Une cliente : l'IA monte la vidéo sur le Mac (timeline fermée)."
-                  : "Avec l'IA : le prompt est facultatif, la timeline s'ouvre sur la v1. Moi-même : pauses retirées, sans IA, la timeline s'ouvre sans cartes."}
+                Avec l&apos;IA : le prompt est facultatif, la timeline s&apos;ouvre sur la v1. Moi-même : pauses retirées, sans IA, la timeline s&apos;ouvre sans cartes.
+                {personnes === 'cliente' && " Une cliente : transcription Whisper sur le Mac (rien chez ElevenLabs), copies de la timeline effacées 24 h après la dernière modification."}
               </p>
               {raisonAttente && <p className="mt-1 text-sm text-[#6b7280]">{raisonAttente}</p>}
-              {!raisonAttente && personnes === 'moi_equipe' && raisonMoi && <p className="mt-1 text-sm text-[#6b7280]">{raisonMoi}</p>}
+              {!raisonAttente && raisonMoi && <p className="mt-1 text-sm text-[#6b7280]">{raisonMoi}</p>}
             </div>
           ) : (
             <div className="mt-6 flex flex-wrap items-center gap-4">

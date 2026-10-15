@@ -718,13 +718,15 @@ Additive, se rejoue. Aucune fonction ni aucun trigger existant réécrit.
 La timeline du labo (`video-neo/labo/timeline`) dans le hub, derrière `VITE_TIMELINE=true` (et `VITE_MONTAGE_VIDEO`).
 Plan et décisions : `docs/plan-timeline-hub.md`. Contrat de l'agent : `video-neo/agent/README.md`, « Timeline du hub ».
 
-- **Liste** : bouton « Ouvrir » sur chaque montage « Moi ou l'équipe » sans template ; « Une cliente » : pas de bouton,
-  une phrase (timeline fermée, aucune copie dans Supabase). Même bouton dans l'éditeur.
+- **Liste** : bouton « Ouvrir » sur chaque montage « Moi ou l'équipe » ou « Une cliente » sans template (timeline
+  ouverte aux clientes le 15 oct. 2026, migration `20261015c` : transcription Whisper sur le Mac, jamais ElevenLabs ;
+  copies du bucket effacées dès Terminer et au plus tard 24 h après la dernière modification, 7 jours sinon).
+  Même bouton dans l'éditeur.
 - **Création** : « Monter avec l'IA » (prompt facultatif : sans template ni texte, `video_jobs.prompt` reçoit
   « Montage standard, aucune consigne particulière. », la base exigeant un prompt) et « Monter moi-même » (tâche
-  `montage` `{manuel: true}` : pauses retirées, sans IA ; un seul clip Principal, sans template). Une cliente : seulement
-  l'IA, vers l'éditeur. Moteur recette (moi ou l'équipe, sans template, un seul clip) : on va à la timeline, qui suit la
-  v1 puis s'ouvre ; sinon à l'éditeur comme avant.
+  `montage` `{manuel: true}` : pauses retirées, sans IA ; un seul clip Principal, sans template). Une cliente :
+  l'IA ou « Monter moi-même » comme pour l'équipe. Moteur recette (sans template, un seul clip) : on va à la timeline,
+  qui suit la v1 puis s'ouvre ; sinon à l'éditeur comme avant.
 - **Page `/reseaux-sociaux/montage/:id/timeline`** : v1 en cours → progression ; timeline pas prête (montage d'avant,
   après Terminer, 7 jours) → la page insère `timeline_preparer` (l'agent ne la lance jamais seul) ; brouillon fait avant
   la dernière version → « Repartir de la vN » ou « Reprendre mon brouillon » ; puis la timeline plein écran.
@@ -746,5 +748,5 @@ Plan et décisions : `docs/plan-timeline-hub.md`. Contrat de l'agent : `video-ne
 - **Vérifier les types** (le hub n'a pas TypeScript) :
   `~/NEO/dev/video-neo/node_modules/.bin/tsc --noEmit --strict --jsx react-jsx --moduleResolution bundler --module esnext --target es2022 --skipLibCheck --allowImportingTsExtensions src/features/social/montage/timeline/TimelineHub.tsx src/features/social/montage/timeline/png.d.ts`
 - **Accès** : aucune clé de service, aucun `supabaseAdmin` (test Vitest) ; tout passe par le RLS `has_montage_access()`.
-- **Retour en arrière** : `VITE_TIMELINE=false` dans Netlify et redéployer. La migration `20261015b` a son retour
-  (`supabase/retours/`).
+- **Retour en arrière** : `VITE_TIMELINE=false` dans Netlify et redéployer. Les migrations `20261015b` et `20261015c`
+  ont leur retour (`supabase/retours/`).

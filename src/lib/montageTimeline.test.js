@@ -12,9 +12,10 @@ const JOB = '22222222-0000-0000-0000-000000000070'
 const principal = [{ role: 'principal' }]
 
 describe('bouton « Ouvrir »', () => {
-  it('moi ou l’équipe sans template : oui ; cliente, template, montage d’avant, corbeille : non', () => {
+  it('moi ou l’équipe ou une cliente sans template : oui ; template, montage d’avant, corbeille : non', () => {
     expect(peutOuvrirTimeline({ personnes: 'moi_equipe', template_id: null })).toBe(true)
-    expect(peutOuvrirTimeline({ personnes: 'cliente', template_id: null })).toBe(false)
+    expect(peutOuvrirTimeline({ personnes: 'cliente', template_id: null })).toBe(true)
+    expect(peutOuvrirTimeline({ personnes: 'cliente', template_id: 't1' })).toBe(false)
     expect(peutOuvrirTimeline({ personnes: 'moi_equipe', template_id: 't1' })).toBe(false)
     expect(peutOuvrirTimeline({ personnes: null, template_id: null })).toBe(false)
     expect(peutOuvrirTimeline({ personnes: 'moi_equipe', template_id: null, supprime_le: '2026-10-15' })).toBe(false)
@@ -36,11 +37,13 @@ describe('création', () => {
     expect(raisonMoiMeme({ personnes: 'moi_equipe', templateId: null, clips: principal })).toBeNull()
     expect(raisonMoiMeme({ personnes: 'moi_equipe', templateId: 't', clips: principal })).toMatch(/sans template/)
     expect(raisonMoiMeme({ personnes: 'moi_equipe', templateId: null, clips: [...principal, { role: 'broll' }] })).toMatch(/une seule vidéo/)
+    expect(raisonMoiMeme({ personnes: 'cliente', templateId: null, clips: principal })).toBeNull()
+    expect(raisonMoiMeme({ personnes: 'cliente', templateId: 't', clips: principal })).toMatch(/sans template/)
   })
 
-  it('après le lancement : timeline pour moi ou l’équipe au moteur recette, éditeur sinon (cliente, template)', () => {
+  it('après le lancement : timeline au moteur recette (moi ou l’équipe, cliente), éditeur sinon (template)', () => {
     expect(routeApresLancement('j', { personnes: 'moi_equipe', templateId: null, clips: principal })).toBe('/reseaux-sociaux/montage/j/timeline')
-    expect(routeApresLancement('j', { personnes: 'cliente', templateId: null, clips: principal })).toBe('/reseaux-sociaux/montage/j')
+    expect(routeApresLancement('j', { personnes: 'cliente', templateId: null, clips: principal })).toBe('/reseaux-sociaux/montage/j/timeline')
     expect(routeApresLancement('j', { personnes: 'moi_equipe', templateId: 't', clips: principal })).toBe('/reseaux-sociaux/montage/j')
   })
 

@@ -7,7 +7,7 @@ import { jobIdValide } from '../../../../lib/montageEditeur'
 import { isAgentEnLigne } from '../../../../lib/montageVideo'
 import { tacheTerminer, texteConfirmationTerminer } from '../../../../lib/montageFin'
 import {
-  MESSAGE_PAS_RECETTE, MESSAGE_TIMELINE_CLIENTE, brouillonPerime, estCliente, peutOuvrirTimeline, raisonTerminerTimeline,
+  MESSAGE_PAS_RECETTE, brouillonPerime, peutOuvrirTimeline, raisonTerminerTimeline,
   tacheActiveDe, tachePreparer, timelineAPreparer,
 } from '../../../../lib/montageTimeline'
 import { useAgentStatus } from '../useMontageVideo'
@@ -22,7 +22,6 @@ const COLONNES_JOB = 'id, titre, statut, etape, progression, erreur, personnes, 
 // Ce que la page doit montrer avant la timeline (fonction pure : testée)
 export function etapePage({ job, ligne, clips, taches, derniereVersion, choixBrouillon }) {
   if (!job || job.supprime_le) return { etape: 'introuvable' }
-  if (estCliente(job)) return { etape: 'fermee', message: MESSAGE_TIMELINE_CLIENTE }
   if (!peutOuvrirTimeline(job)) return { etape: 'fermee', message: MESSAGE_PAS_RECETTE }
   // Sans recette publiée, un seul clip Principal (sinon l'ancien moteur a fait le montage)
   if (!ligne?.recette && clips && (clips.length !== 1 || clips[0].role !== 'principal')) return { etape: 'fermee', message: MESSAGE_PAS_RECETTE }
@@ -117,7 +116,7 @@ function Page({ jobId }) {
     return () => { clearInterval(secours); supabase.removeChannel(canal) }
   }, [charger, jobId, pret])
 
-  // Préparation demandée une fois par ouverture (la base et l'agent refusent une cliente)
+  // Préparation demandée une fois par ouverture
   const preparer = useCallback(async () => {
     preparerDemande.current = true
     setErreurPreparer(null)
