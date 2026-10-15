@@ -104,8 +104,10 @@ export function validerPersonnes(personnes) {
 // Ligne video_jobs à créer. Le premier passage de l'agent lit le prompt du
 // montage : la tâche « montage » part donc avec un payload vide (sinon le
 // prompt serait donné deux fois à Claude).
-export function nouveauMontage({ titre, fichierDriveId, nomSource, templateId, prompt, personnes }) {
-  const texte = (prompt || '').trim()
+// promptParDefaut (timeline du hub) : texte mis quand rien n'est écrit et aucun template choisi, car la base
+// exige un prompt sans template (PROMPT_STANDARD de montageTimeline.js, lu par Claude comme « aucune consigne »).
+export function nouveauMontage({ titre, fichierDriveId, nomSource, templateId, prompt, personnes, promptParDefaut = null }) {
+  const texte = (prompt || '').trim() || (templateId ? '' : (promptParDefaut || ''))
   if (validerPersonnes(personnes)) throw new Error(validerPersonnes(personnes))
   return {
     titre: titre.trim(),

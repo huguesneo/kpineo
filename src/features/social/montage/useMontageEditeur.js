@@ -10,7 +10,7 @@ import { estSupprime, apresCorbeille } from '../../../lib/montageCorbeille'
 import { urlSigneeApercu, supprimerMontage, restaurerMontage } from './useMontageVideo'
 
 const COLONNES_JOB =
-  'id, titre, cree_par, statut, etape, progression, created_at, updated_at, erreur, format, version_courante, template_id, prompt, lien_drive_export, legende, variante_de, supprime_le, supprime_par'
+  'id, titre, cree_par, statut, etape, progression, created_at, updated_at, erreur, format, version_courante, template_id, prompt, lien_drive_export, legende, variante_de, supprime_le, supprime_par, personnes'
 const COLONNES_VERSION = 'id, job_id, numero, chemin_apercu, prompt, reponse_agent, auteur, created_at, sous_titres'
 const COLONNES_TACHE = `id, job_id, type, payload, statut, cree_par, erreur, created_at, ${COLONNES_ANNULATION}`
 const COLONNES_CLIP = 'id, job_id, ordre, role, nom, nom_source, duree_s, remplace_ordre, ajoute_en_version'

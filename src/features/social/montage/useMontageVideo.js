@@ -7,7 +7,7 @@ import { lignesClips } from '../../../lib/montageClips'
 import { separerCorbeille } from '../../../lib/montageCorbeille'
 
 const COLONNES_JOB =
-  'id, titre, cree_par, statut, etape, progression, created_at, updated_at, fichier_drive_id, nom_source, lien_drive_export, erreur, format, version_courante, variante_de, supprime_le, supprime_par'
+  'id, titre, cree_par, statut, etape, progression, created_at, updated_at, fichier_drive_id, nom_source, lien_drive_export, erreur, format, version_courante, variante_de, supprime_le, supprime_par, personnes, template_id'
 
 function trierParDate(jobs) {
   return [...jobs].sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
@@ -209,7 +209,8 @@ export function useTemplatesApprouves() {
 // déjà (essai précédent arrivé à mi-chemin), il n'est pas recréé, et ses clips
 // ne sont écrits que s'il n'en a encore aucun : pas de doublon.
 // En cas d'échec, l'erreur porte `jobId` pour la nouvelle tentative.
-export async function lancerMontage(ligne, jobIdExistant = null, clips = []) {
+// premiereTache : tâche de la 1re ronde (par défaut « montage » avec les clips ; « Monter moi-même » : manuel).
+export async function lancerMontage(ligne, jobIdExistant = null, clips = [], premiereTache = premiereTacheMontage) {
   let jobId = jobIdExistant
   if (!jobId) {
     const { data, error: err } = await supabase.from('video_jobs').insert(ligne).select('id').single()
@@ -225,7 +226,7 @@ export async function lancerMontage(ligne, jobIdExistant = null, clips = []) {
       if (errClips) throw Object.assign(errClips, { jobId })
     }
   }
-  const { error: errTache } = await supabase.from('video_taches').insert(premiereTacheMontage(jobId, clips))
+  const { error: errTache } = await supabase.from('video_taches').insert(premiereTache(jobId, clips))
   if (errTache) throw Object.assign(errTache, { jobId })
   return jobId
 }

@@ -6,7 +6,10 @@ import Card from '../../../components/shared/Card'
 import Button from '../../../components/shared/Button'
 import { SkeletonLine } from '../../../components/shared/Skeleton'
 import { useAuth } from '../../../context/AuthContext'
-import { canConfigureMontageVideo } from '../../../lib/montageVideoAccess'
+import { TIMELINE_ENABLED, canConfigureMontageVideo } from '../../../lib/montageVideoAccess'
+import {
+  PROMPT_STANDARD, raisonMoiMeme, routeApresLancement, tacheMoiMeme,
+} from '../../../lib/montageTimeline'
 import { titreDepuisNom } from '../../../lib/montageUpload'
 import { prechargerGoogle, googlePickerConfigure } from '../../../lib/googlePicker'
 import {
@@ -44,7 +47,7 @@ function EnTeteEtape({ numero, titre, fait }) {
 // Nouvelle vidéo : étape 1 (les clips dans Brut) et étape 2 (la direction),
 // puis création du montage, de ses clips et de sa tâche « montage ».
 // L'agent fait le reste.
-export default function MontageNouvelle() {
+export default function MontageNouvelle({ timeline = TIMELINE_ENABLED }) {
   const { user } = useAuth()
   const navigate = useNavigate()
   const brut = useDossierBrut()
@@ -91,13 +94,17 @@ export default function MontageNouvelle() {
   const erreurClips = validerClips(clips)
   const pret = clips.length > 0 && !envoiEnCours
   const erreurTitre = validerTitre(titre)
-  const erreurDirection = validerDirection({ templateId, prompt })
+  // Timeline du hub : prompt facultatif (texte standard mis à sa place)
+  const erreurDirection = timeline ? null : validerDirection({ templateId, prompt })
+  const raisonMoi = raisonMoiMeme({ personnes, templateId, clips })
   const erreurPersonnes = validerPersonnes(personnes)
 
-  async function lancer() {
+  // mode : 'ia' (Lancer le montage / Monter avec l'IA) ou 'moi' (Monter moi-même : sans IA, timeline sans cartes)
+  async function lancer(mode = 'ia') {
     setTentative(true)
     if (!pret || erreurClips || erreurTitre || erreurDirection || erreurPersonnes) return
-    setLancement(l => ({ ...l, enCours: true, erreur: null }))
+    if (mode === 'moi' && raisonMoi) return
+    setLancement(l => ({ ...l, enCours: mode, erreur: null }))
     // L'agent actuel monte une seule vidéo : le premier clip principal.
     const principal = clipPrincipal(clips)
     try {
@@ -108,8 +115,9 @@ export default function MontageNouvelle() {
         templateId,
         prompt,
         personnes,
-      }), lancement.jobId, clips)
-      navigate(`/reseaux-sociaux/montage/${jobId}`)
+        promptParDefaut: timeline ? PROMPT_STANDARD : null,
+      }), lancement.jobId, clips, mode === 'moi' ? tacheMoiMeme : undefined)
+      navigate(timeline ? routeApresLancement(jobId, { personnes, templateId, clips }) : `/reseaux-sociaux/montage/${jobId}`)
     } catch (e) {
       setLancement({ enCours: false, erreur: messageErreurLancement(e), jobId: e?.jobId ?? lancement.jobId })
     }
@@ -177,6 +185,7 @@ export default function MontageNouvelle() {
             setPrompt={setPrompt}
             erreurDirection={erreurDirection}
             afficherErreur={tentative}
+            promptFacultatif={timeline}
           />
 
           {lancement.erreur && (
@@ -186,12 +195,35 @@ export default function MontageNouvelle() {
             </div>
           )}
 
-          <div className="mt-6 flex flex-wrap items-center gap-4">
-            <Button size="lg" onClick={lancer} loading={lancement.enCours} disabled={!pret || !!erreurPersonnes}>
-              {lancement.erreur ? 'Réessayer' : 'Lancer le montage'}
-            </Button>
-            {raisonAttente && <p className="text-sm text-[#6b7280]">{raisonAttente}</p>}
-          </div>
+          {timeline ? (
+            <div className="mt-6">
+              <div className="flex flex-wrap items-center gap-3">
+                <Button size="lg" onClick={() => lancer('ia')} loading={lancement.enCours === 'ia'} disabled={!pret || !!erreurPersonnes || !!lancement.enCours}>
+                  Monter avec l&apos;IA
+                </Button>
+                {personnes !== 'cliente' && (
+                  <Button size="lg" variant="secondary" onClick={() => lancer('moi')} loading={lancement.enCours === 'moi'}
+                    disabled={!pret || !!erreurPersonnes || !!raisonMoi || !!lancement.enCours}>
+                    Monter moi-même
+                  </Button>
+                )}
+              </div>
+              <p className="mt-2 text-xs text-[#6b7280]">
+                {personnes === 'cliente'
+                  ? "Une cliente : l'IA monte la vidéo sur le Mac (timeline fermée)."
+                  : "Avec l'IA : le prompt est facultatif, la timeline s'ouvre sur la v1. Moi-même : pauses retirées, sans IA, la timeline s'ouvre sans cartes."}
+              </p>
+              {raisonAttente && <p className="mt-1 text-sm text-[#6b7280]">{raisonAttente}</p>}
+              {!raisonAttente && personnes === 'moi_equipe' && raisonMoi && <p className="mt-1 text-sm text-[#6b7280]">{raisonMoi}</p>}
+            </div>
+          ) : (
+            <div className="mt-6 flex flex-wrap items-center gap-4">
+              <Button size="lg" onClick={() => lancer('ia')} loading={!!lancement.enCours} disabled={!pret || !!erreurPersonnes}>
+                {lancement.erreur ? 'Réessayer' : 'Lancer le montage'}
+              </Button>
+              {raisonAttente && <p className="text-sm text-[#6b7280]">{raisonAttente}</p>}
+            </div>
+          )}
         </Card>
       </div>
     </Layout>

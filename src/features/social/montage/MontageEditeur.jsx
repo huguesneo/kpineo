@@ -27,6 +27,7 @@ import { etatAjoutClip } from '../../../lib/montageClips'
 import { CreerVariante, LienOrigine, ListeVariantes } from './VariantesMontage'
 import { BoutonSupprimer, BandeauCorbeille } from './CorbeilleMontage'
 import { estSupprime } from '../../../lib/montageCorbeille'
+import BoutonTimeline from './BoutonTimeline'
 
 function Retour() {
   return (
@@ -172,6 +173,7 @@ function Editeur({ jobId }) {
         </div>
         <div className="flex flex-col items-end gap-2">
           <PastilleMac {...agent} compacte />
+          <BoutonTimeline job={job} />
           <BoutonTerminer job={job} taches={taches} versions={versions} onTerminer={terminer} />
           <BoutonSupprimer job={job} taches={taches} nbVariantes={variantes.length} onSupprimer={supprimerMontage} />
         </div>

@@ -19,6 +19,7 @@ import { LienOrigine, LiensVariantes } from './VariantesMontage'
 import { variantesDe } from '../../../lib/montageVariantes'
 import { origineDe, apresCorbeille } from '../../../lib/montageCorbeille'
 import { BoutonSupprimer, ListeCorbeille } from './CorbeilleMontage'
+import BoutonTimeline from './BoutonTimeline'
 
 function EtatVide({ titre, texte, action }) {
   return (
@@ -149,6 +150,7 @@ export function ListeMontages({ jobs, noms, loading, error, reload, positions, t
                     <p className="text-xs text-red-600 mt-1 max-w-md">{erreurAgent(job, taches[job.id])}</p>
                   )}
                   <BoutonApercu job={job} />
+                  <div><BoutonTimeline job={job} compact /></div>
                 </td>
                 <td className="px-5 py-4 whitespace-nowrap">
                   <Badge variant={statut.variant}>{statut.label}</Badge>

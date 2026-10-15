@@ -70,10 +70,11 @@ export function ApercuTemplate({ template, onClose }) {
 }
 
 // Étape 2, la direction : template approuvé et/ou prompt.
-export default function EtapeDirection({ galerie, templateId, setTemplateId, prompt, setPrompt, erreurDirection, afficherErreur }) {
+// promptFacultatif : timeline du hub (« Monter avec l'IA » : un texte standard est mis si rien n'est écrit).
+export default function EtapeDirection({ galerie, templateId, setTemplateId, prompt, setPrompt, erreurDirection, afficherErreur, promptFacultatif = false }) {
   const { templates, loading, error, reload } = galerie
   const [apercu, setApercu] = useState(null)
-  const promptObligatoire = !templateId
+  const promptObligatoire = !templateId && !promptFacultatif
 
   return (
     <div className="space-y-5">
