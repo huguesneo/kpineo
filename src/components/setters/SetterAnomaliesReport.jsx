@@ -28,8 +28,20 @@ export default function SetterAnomaliesReport({ setters }) {
     () => payConfig ? listPayPeriods(payConfig.reference_pay_date, payConfig.period_length_days, 12) : [],
     [payConfig]
   )
+  // Période : une période de paie (index) ou une plage de dates choisie (-1)
   const [periodIdx, setPeriodIdx] = useState(0)
-  const period = periods[periodIdx] ?? null
+  const [plage, setPlage] = useState({ start: '', end: '' })
+  const plageValide = plage.start && plage.end && plage.start <= plage.end
+  const period = periodIdx === -1 ? (plageValide ? plage : null) : (periods[periodIdx] ?? null)
+  const choisirPeriode = v => {
+    const i = Number(v)
+    // Plage personnalisée : part de la période affichée, à ajuster
+    if (i === -1 && !plage.start) {
+      const p = periods[periodIdx] ?? periods[0]
+      if (p) setPlage({ start: p.start, end: p.end })
+    }
+    setPeriodIdx(i)
+  }
 
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -69,16 +81,30 @@ export default function SetterAnomaliesReport({ setters }) {
   return (
     <div className="space-y-5">
       <div className="flex items-center gap-3 flex-wrap">
-        <p className="text-xs font-bold text-[#6b7280] uppercase tracking-wide">Période de paie :</p>
+        <p className="text-xs font-bold text-[#6b7280] uppercase tracking-wide">Période :</p>
         <select
           value={periodIdx}
-          onChange={e => setPeriodIdx(Number(e.target.value))}
+          onChange={e => choisirPeriode(e.target.value)}
           className="px-3 py-1.5 text-sm font-semibold rounded-lg border border-[#e5e7eb] bg-white text-[#1a1a1a]"
         >
           {periods.map((p, i) => (
             <option key={p.start} value={i}>{fmtPeriod(p)}{i === 0 ? ' (en cours)' : ''}</option>
           ))}
+          <option value={-1}>Plage de dates personnalisée…</option>
         </select>
+        {periodIdx === -1 && (
+          <span className="flex items-center gap-2 text-xs font-semibold text-[#6b7280]">
+            Du
+            <input type="date" value={plage.start} max={plage.end || undefined}
+              onChange={e => setPlage(p => ({ ...p, start: e.target.value }))}
+              className="px-2 py-1.5 text-sm rounded-lg border border-[#e5e7eb] bg-white text-[#1a1a1a]" />
+            au
+            <input type="date" value={plage.end} min={plage.start || undefined}
+              onChange={e => setPlage(p => ({ ...p, end: e.target.value }))}
+              className="px-2 py-1.5 text-sm rounded-lg border border-[#e5e7eb] bg-white text-[#1a1a1a]" />
+            {!plageValide && <span className="text-[#ef4444] font-normal">Choisis une date de début et de fin.</span>}
+          </span>
+        )}
         <button
           onClick={() => load(true)}
           disabled={loading}
