@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import Sidebar from '../layout/Sidebar'
 import OTNotifications from '../notifications/OTNotifications'
+import TachesNotifications from './setter/TachesNotifications'
 import { useAuth } from '../../context/AuthContext'
 
 const NEO_LOGO = 'https://assets.cdn.filesafe.space/YG2spvWJqnD75L3V95UJ/media/6941c9327109a899ec69b43c.png'
@@ -70,6 +71,7 @@ export default function LayoutV2({ children }) {
         </div>
       </main>
       <OTNotifications />
+      <TachesNotifications />
     </div>
   )
 }

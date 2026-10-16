@@ -12,6 +12,7 @@ import { hasSocialAccess } from '../../lib/socialAccess'
 import { entreesReseauxSociaux } from '../../lib/montageVideoAccess'
 import { useMontageVideoAccess } from '../../hooks/useMontageVideoAccess'
 import { ESPACE_VENTE_V2 } from '../../lib/v2/featureFlag'
+import { useSettingTaches } from '../../hooks/v2/useSettingTaches'
 
 const NEO_LOGO = 'https://assets.cdn.filesafe.space/YG2spvWJqnD75L3V95UJ/media/6941c9327109a899ec69b43c.png'
 
@@ -50,10 +51,11 @@ function NavGroup({ icon, label, badge, children, matchPaths = [] }) {
   )
 }
 
-function NavItem({ to, icon, label, badge }) {
+function NavItem({ to, icon, label, badge, tour }) {
   return (
     <NavLink
       to={to}
+      data-tour={tour}
       className={({ isActive }) =>
         `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold transition-colors ${
           isActive
@@ -100,6 +102,8 @@ export default function Sidebar() {
   // Espace de vente v2 : « Mon espace » remplace Closer, Setter et Calendrier
   // dans le menu (ces pages restent routables et joignables par « Ancienne vue »).
   const v2Actif = ESPACE_VENTE_V2 && (hasCloserRole || hasSetterRole || isAdminOrRespVente)
+  // Setting v2 : tâches du jour (rappels dus, leads à relancer) sur « Mon espace »
+  const { duJour: tachesSettingDuJour } = useSettingTaches(profile?.id, { enabled: v2Actif && (hasSetterRole || isAdminOrRespVente) })
 
   // Badge "Équipe de vente" : ventes sans closer pour le mois courant (admin only)
   const _now = new Date()
@@ -357,6 +361,8 @@ export default function Sidebar() {
           <NavItem
             to="/mon-espace-v2"
             label="Mon espace"
+            tour="menu-mon-espace"
+            badge={tachesSettingDuJour.length}
             icon={
               <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />

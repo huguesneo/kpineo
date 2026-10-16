@@ -20,6 +20,7 @@ export function useSetterSharedTasks(currentUserId, isAdminOrRespVente) {
         creator:profiles!setter_shared_tasks_created_by_fkey(full_name)
       `)
       .neq('type', 'personnel')
+      .is('archived_at', null) // ménage Setting v2 : tâches archivées masquées, jamais supprimées
       .order('created_at', { ascending: false })
 
     // Personal tasks — admin/resp_vente see all, others see only their own
@@ -32,6 +33,7 @@ export function useSetterSharedTasks(currentUserId, isAdminOrRespVente) {
         owner:profiles!setter_shared_tasks_user_id_fkey(full_name)
       `)
       .eq('type', 'personnel')
+      .is('archived_at', null)
       .order('created_at', { ascending: false })
 
     if (!isAdminOrRespVente) {

@@ -83,6 +83,8 @@ export function carteLead({ contactId, nom, source, creeLe, stageId = null, opp 
     ageHeures: creeLe ? Math.max(0, Math.floor((ctx.now - ms(creeLe)) / HEURE)) : null,
     // Tentative à faire, déduite de l'étape setting (celle de la file, sinon celle de la carte)
     tentative: tentativeDeLEtape(stageId ?? setterOpp?.pipeline_stage_id),
+    // Étape du pipeline setting (Setting v2 : « 💬 Contact établi »)
+    stageId: stageId ?? setterOpp?.pipeline_stage_id ?? null,
     // Lead classé « 🔥 Chaud à relancer » dans le pipeline setting
     chaud: (stageId ?? setterOpp?.pipeline_stage_id) === PIPELINE_SETTING.stages.chaudRelancer,
     etape: setterOpp?.stage_name ?? null,
@@ -181,8 +183,9 @@ export function computeSetterFiles({ opps: toutesOpps = [], appts: tousAppts = [
   // du plus vieux au plus jeune
   const nouveauxLeads = trierLeads(cartesDesEtapes([S.chaudRelancer, S.nouveau]))
 
-  // ── Leads à rappeler : 1 à 4 tentatives faites, du plus vieux au plus jeune
-  const aRappeler = trierLeads(cartesDesEtapes([S.tentative1, S.tentative2, S.tentative3, S.tentative4]))
+  // ── Leads à rappeler : 1 à 3 tentatives faites. Après la 4e tentative sans
+  // réponse, le lead sort de la liste (nurturing dans GHL, Setting v2).
+  const aRappeler = trierLeads(cartesDesEtapes([S.tentative1, S.tentative2, S.tentative3]))
 
   // ── Contact établi : une file à part (repliable à l'écran)
   const contactEtabli = trierLeads(cartesDesEtapes([S.contactEtabli]))

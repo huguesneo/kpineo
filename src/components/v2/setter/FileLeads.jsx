@@ -4,6 +4,7 @@ import { verrouAutre } from '../../../hooks/v2/useLeadLocks'
 import { trierLeads, triSuivant, TRI_DEFAUT } from '../../../lib/v2/setterFiles'
 import { fmtAppel } from '../../../lib/v2/confirmation'
 import ConfirmerRencontre, { PastilleConfirmation } from '../ConfirmerRencontre'
+import BoutonResultat from './BoutonResultat'
 
 const COLONNES = 'xl:grid-cols-[minmax(0,1.4fr)_96px_52px_78px_minmax(0,1fr)_96px_300px]'
 // File « À confirmer » : Lead, Source, RDV, Confirmation, Appel, Setter, Closeur, Actions
@@ -17,17 +18,18 @@ const IconeExterne = (
 )
 
 // Tentatives faites (0 à 4) : pastilles + « n/4 ». null hors pipeline de tentatives.
-function tentativesFaites(lead) {
+export function tentativesFaites(lead) {
   if (lead.tentative == null) return null
   return Math.min(4, Math.max(0, lead.tentative - 1))
 }
 
-// Nom du lead : ouvre sa fiche GoHighLevel (et prend le lead 15 min), 🔥 si chaud
+// Nom du lead : ouvre la fiche pop-up du lead (Setting v2) si elle est
+// disponible, sinon sa fiche GoHighLevel (et prend le lead 15 min), 🔥 si chaud
 function NomLead({ lead, couleur, actions, grand = false }) {
   return (
     <button
-      onClick={() => actions.ouvrirFiche(lead)}
-      title={`Ouvrir la fiche de ${lead.nom} dans GoHighLevel`}
+      onClick={() => (actions.ouvrirLead ? actions.ouvrirLead(lead) : actions.ouvrirFiche(lead))}
+      title={actions.ouvrirLead ? `Ouvrir la fiche de ${lead.nom}` : `Ouvrir la fiche de ${lead.nom} dans GoHighLevel`}
       className={`flex items-center gap-1 min-w-0 text-left hover:underline underline-offset-2 ${grand ? 'text-[15px] font-bold flex-1' : 'text-sm font-semibold'}`}
       style={{ color: couleur }}
     >
@@ -52,7 +54,7 @@ function EnteteTri({ libelle, cle, tri, onTri }) {
   )
 }
 
-function Tentatives({ faites }) {
+export function Tentatives({ faites }) {
   if (faites == null) return <span className="text-xs text-[#9ca3af]">—</span>
   return (
     <div className="flex items-center gap-[3px]" aria-label={`${faites} tentatives sur 4`}>
@@ -120,7 +122,10 @@ function Actions({ lead, etat, pris, actions, mobile = false }) {
     )
   }
 
-  const prendre = (
+  // Setting v2 : un seul bouton « Résultat ▾ » (Rendez-vous booké = prise de RDV)
+  const prendre = actions.onResultat ? (
+    <BoutonResultat lead={lead} onRdv={actions.prendreRdv} onTermine={actions.onResultat} mobile={mobile} />
+  ) : (
     <button onClick={() => actions.prendreRdv(lead)}
       title="Ouvre la rencontre découverte dans l’app, avec le lead et ton nom de setter préremplis"
       className={`text-[13px] font-semibold px-3 ${mobile ? 'h-11 flex-1' : 'py-1.5'} rounded-lg bg-[#00bbb1] text-white border border-[#00bbb1] whitespace-nowrap hover:bg-[#009e95]`}>
@@ -241,7 +246,7 @@ export default function FileLeads({ file, leads, userId, locks, actions, now, co
   const limiteMobile = toutVoir ? Infinity : LIMITE.mobile
 
   return (
-    <section className="bg-[#fcfcfd] border border-[#e5e7eb] rounded-xl shadow-sm overflow-hidden" aria-label={file.titre}>
+    <section className="bg-[#fcfcfd] border border-[#e5e7eb] rounded-xl shadow-sm" aria-label={file.titre}>
       <div className={`flex items-center gap-2.5 px-4 py-3.5 flex-wrap ${replie ? '' : 'border-b border-[#f0f0f0]'}`}>
         <span className="w-2 h-2 rounded-full" style={{ background: file.couleur }} />
         <h2 className="text-[15px] font-bold text-[#1a1a1a]">{file.titre}</h2>

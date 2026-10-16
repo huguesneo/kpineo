@@ -32,6 +32,7 @@ export const PIPELINE_SETTING = {
     jamaisJoint:     '6774ff8c-6742-49cf-9f49-54197006e8fd',
     nonQualifie:     '7d0ce220-cb62-45e8-8484-3392ce774061',
     annule:          '702d23af-6004-4717-b79a-bafd587b4bd5',
+    pasInteresse:    '3db78827-e798-4e33-9115-3227d7e1015c', // « 🚫 Pas intéressé » (Setting v2)
   },
 }
 

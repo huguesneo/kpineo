@@ -1,10 +1,19 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import EnteteEspace from '../../components/v2/EnteteEspace'
 import Replie from '../../components/v2/Replie'
 import BandeauJour from '../../components/v2/setter/BandeauJour'
 import FileLeads from '../../components/v2/setter/FileLeads'
 import FiltresAConfirmer from '../../components/v2/setter/FiltresAConfirmer'
 import ModalPriseRdv from '../../components/v2/setter/ModalPriseRdv'
+import FicheLead from '../../components/v2/setter/FicheLead'
+import FilePriorite from '../../components/v2/setter/FilePriorite'
+import { MesRappels, MesTaches, PanneauAdminSetting } from '../../components/v2/setter/SettingSections'
+import { useSettingV2 } from '../../hooks/v2/useSettingV2'
+import { leadFictif } from '../../components/v2/demo/demoFictif'
+import { useSettingTaches } from '../../hooks/v2/useSettingTaches'
+import { prioriserLeads, prioriserNouveaux, repartirLeads, sortiDesListes, ajouterEvenement } from '../../lib/v2/settingV2'
+import { PIPELINE_VENTE } from '../../lib/v2/salesConfig'
 import SetterDashboardView from '../../components/closer/SetterDashboardView'
 import SetterEODForm from '../../components/eod/SetterEODForm'
 import { useLeadLocks } from '../../hooks/v2/useLeadLocks'
@@ -24,6 +33,9 @@ function sansEmoji(s) {
 // Les files : nouveaux leads (🔥 chauds en tête), leads à rappeler, rebookings,
 // confirmations, puis « Contact établi » (repliable). Tri par défaut : âge,
 // du plus vieux au plus jeune ; Âge et Tentatives se cliquent.
+// Setting v2 : « Nouveaux leads » et « Leads à rappeler » sont affichés par
+// les listes à priorité (FilePriorite) ; les autres files restent les mêmes.
+const FILES_PRIORITE = ['nouveauxLeads', 'aRappeler']
 const FILES = [
   {
     cle: 'nouveauxLeads', titre: 'Nouveaux leads', sousTitre: '🔥 Chauds à relancer en tête, puis les nouveaux leads',
@@ -82,11 +94,29 @@ const IconeRapport = (
 // Écran setter « Ma journée » (maquette 01). Rendu dans MonEspace, qui fournit
 // le Layout, le commutateur de mode (`droite`) et les files (useSetterFiles),
 // chargées là-haut pour alimenter aussi le compteur du commutateur.
-export default function SetterJournee({ profile, droite = null, setterFiles, onCompteur }) {
+export default function SetterJournee({ profile, droite = null, setterFiles, onCompteur, demoActive = false, demoFiche = null, onLeadExemple, onRevoirDemo }) {
   const { files, raw, loading, error, refetch } = setterFiles
   const { locks, lock, unlock } = useLeadLocks(profile?.id)
   const stats = useSetterDayStats(profile)
-  const actions = useSetterActions({ profile, lock, unlock })
+  const actionsBase = useSetterActions({ profile, lock, unlock })
+  const setting = useSettingV2({ userId: profile?.id })
+  const tachesSetting = useSettingTaches(profile?.id)
+  const estAdmin = profile?.role === 'admin'
+  const superviseur = estAdmin || profile?.role === 'resp_vente'
+
+  // Fiche pop-up du lead (clic sur le nom, une tâche ou une notification)
+  const [ficheLead, setFicheLead] = useState(null)
+  const [params, setParams] = useSearchParams()
+  const ouvrirLead = useCallback(lead => { setFicheLead(lead); lock?.(lead.contactId) }, [lock])
+  const fermerFiche = useCallback(() => {
+    setFicheLead(null)
+    if (params.get('fiche')) { const p = new URLSearchParams(params); p.delete('fiche'); setParams(p, { replace: true }) }
+  }, [params, setParams])
+  const actions = useMemo(() => ({
+    ...actionsBase,
+    ouvrirLead,
+    onResultat: () => { setting.refetch() },
+  }), [actionsBase, ouvrirLead, setting])
 
   // Horloge : âges, « pris depuis X min »
   const [now, setNow] = useState(Date.now())
@@ -94,6 +124,68 @@ export default function SetterJournee({ profile, droite = null, setterFiles, onC
     const iv = setInterval(() => setNow(Date.now()), 30_000)
     return () => clearInterval(iv)
   }, [])
+
+  // ── Listes Setting v2 : propriété (règle des 60 s), tri en 4 groupes ──
+  const tousLeads = useMemo(() => [...files.nouveauxLeads, ...files.aRappeler], [files])
+  const ctxPriorite = useMemo(() => ({
+    appelsParContact: setting.appelsParContact, rappelsParContact: setting.rappelsParContact,
+    nomsParId: setting.nomsParId, now,
+  }), [setting, now])
+  const repartition = useMemo(() => {
+    // Hors listes : lead sorti par un résultat, passé en rencontre découverte ou
+    // avec une carte Vente, sauf s'il est revenu depuis (sa carte setting a
+    // changé d'étape après : lead magnet, carte remise à « Nouveau lead »)
+    const evenements = new Map(setting.evenementsSortie)
+    for (const o of raw.opps) if (o.pipeline_id === PIPELINE_VENTE.id) ajouterEvenement(evenements, o.contact_id, o.created_at_ghl)
+    const garder = leads => leads.filter(l => !sortiDesListes(l, evenements))
+    const opts = { proprietes: setting.proprietes, userId: profile?.id, estAdmin: superviseur }
+    // Nouveaux leads (jamais contactés) et leads à rappeler (déjà tentés sans
+    // succès) restent deux listes séparées, comme les étapes du pipeline.
+    const n = repartirLeads(garder(files.nouveauxLeads), opts)
+    const r = repartirLeads(garder(files.aRappeler), opts)
+    // Un lead « Contact établi » assigné au setter va dans « Mes leads »
+    const ce = repartirLeads(garder(files.contactEtabli), opts)
+    return {
+      mesLeads: prioriserLeads([...n.miens, ...r.miens, ...ce.miens], ctxPriorite),
+      nouveaux: prioriserNouveaux(n.communs, ctxPriorite),
+      aRappeler: prioriserLeads(r.communs, ctxPriorite),
+      assignes: prioriserLeads([...n.assignes, ...r.assignes, ...ce.assignes], ctxPriorite),
+      contactEtabli: ce.communs,
+    }
+  }, [files.nouveauxLeads, files.aRappeler, files.contactEtabli, raw.opps, setting, profile?.id, superviseur, ctxPriorite])
+  // Les autres files : sans les leads d'un autre setter ni ceux sortis par un résultat
+  const resultats = useMemo(() => {
+    const m = new Map()
+    for (const t of setting.traites) ajouterEvenement(m, t.contact_id, t.cree_le)
+    return m
+  }, [setting.traites])
+  const filtrerAutres = useCallback(leads => leads.filter(l => {
+    if (sortiDesListes(l, resultats)) return false
+    const p = setting.proprietes.get(l.contactId)
+    return !p || p.user_id === profile?.id || superviseur
+  }), [setting, resultats, profile?.id, superviseur])
+
+  // Démo guidée de la mise à jour (proposée à la connexion tant qu'elle n'est pas vue)
+  // Démo guidée (pilotée par MonEspace) : premier lead visible comme exemple de
+  // fiche ; une liste vide reçoit un lead fictif « (démo) » le temps de la démo
+  const premierLead = repartition.mesLeads[0] ?? repartition.aRappeler[0] ?? repartition.nouveaux[0] ?? null
+  useEffect(() => { onLeadExemple?.(premierLead) }, [premierLead, onLeadExemple])
+  const listes = useMemo(() => {
+    if (!demoActive) return repartition
+    return {
+      ...repartition,
+      aRappeler: repartition.aRappeler.length ? repartition.aRappeler : prioriserLeads([leadFictif(profile?.id, now)], ctxPriorite),
+      nouveaux: repartition.nouveaux.length ? repartition.nouveaux : prioriserNouveaux([leadFictif(profile?.id, now, { variante: 'nouveau' })], ctxPriorite),
+    }
+  }, [demoActive, repartition, profile?.id, now, ctxPriorite])
+
+  // Ouverture depuis une notification : /mon-espace-v2?fiche=<contactId>
+  useEffect(() => {
+    const id = params.get('fiche')
+    if (!id || ficheLead?.contactId === id) return
+    const trouve = [...tousLeads, ...files.contactEtabli, ...files.aRebooker, ...files.aConfirmer].find(l => l.contactId === id)
+    setFicheLead(trouve ?? { contactId: id, key: id, nom: 'Lead', opportunityId: null })
+  }, [params, tousLeads, files, ficheLead?.contactId])
 
   const rdvBookes = useMemo(
     () => rdvBookesAujourdhui({ appts: raw.appts, opps: raw.opps, setterName: profile?.full_name, now }),
@@ -117,9 +209,11 @@ export default function SetterJournee({ profile, droite = null, setterFiles, onC
   const filtresActifs = filtres.confirmation !== 'tous' || filtres.appel !== 'tous'
   const nbAConfirmer = aConfirmerAFaire(aConfirmer).length
 
-  const enAttente = FILES.reduce((n, f) => n + (f.cle === 'aConfirmer'
+  const enAttente = FILES.filter(f => !FILES_PRIORITE.includes(f.cle)).reduce((n, f) => n + (f.cle === 'aConfirmer'
     ? nbAConfirmer
-    : files[f.cle].filter(l => !actions.etats[l.key]).length), 0)
+    : f.cle === 'contactEtabli' ? repartition.contactEtabli.length
+      : filtrerAutres(files[f.cle]).filter(l => !actions.etats[l.key]).length), 0)
+    + [...repartition.mesLeads, ...repartition.nouveaux, ...repartition.aRappeler].filter(l => l.groupe !== 4).length
   useEffect(() => { onCompteur?.(enAttente) }, [enAttente, onCompteur])
 
   const today = jourMontreal(new Date(now))
@@ -139,8 +233,13 @@ export default function SetterJournee({ profile, droite = null, setterFiles, onC
     <div>
       <EnteteEspace profile={profile} droite={droite} />
 
+
+
       <BandeauJour stats={stats} rdvBookes={rdvBookes} aConfirmer={nbAConfirmer} nouveaux={files.nouveauxLeads} />
 
+      <FicheLead lead={ficheLead ?? demoFiche} userId={profile?.id} estAdmin={superviseur} setting={setting}
+        onClose={fermerFiche} onRdv={l => actions.prendreRdv(l)} onResultat={actions.onResultat} />
+      {/* Après la fiche : la prise de rendez-vous s'ouvre par-dessus */}
       <ModalPriseRdv lead={actions.rdvEnCours} cleSetter={actions.cleSetter} onClose={actions.fermerRdv} />
 
       {!actions.cleSetter && (
@@ -157,10 +256,58 @@ export default function SetterJournee({ profile, droite = null, setterFiles, onC
         </div>
       )}
 
+      {setting.error && (
+        <div className="mb-4 px-4 py-3 rounded-xl border border-[#fde68a] bg-[#fffbeb] text-sm text-[#92400e]">
+          Setting v2 indisponible (journal d’appels, rappels) : {setting.error}
+        </div>
+      )}
+
       <div className="flex flex-col gap-5">
+        {estAdmin && <PanneauAdminSetting ecrituresReelles={setting.ecrituresReelles} onChange={setting.refetch} />}
+
+        {(tachesSetting.duJour.length > 0 || tachesSetting.taches.some(t => !t.user_id)) && (
+          <MesTaches taches={tachesSetting.duJour} userId={profile?.id} now={now}
+            onOuvrir={ouvrirLead} onFaite={tachesSetting.marquerFaite} />
+        )}
+
+        <MesRappels rappels={setting.mesRappels} now={now} onOuvrir={ouvrirLead} />
+
+        {loading ? (
+          <div className="h-32 bg-white border border-[#e5e7eb] rounded-xl animate-pulse" />
+        ) : (
+          <>
+            <FilePriorite
+              titre="Mes leads" couleur="#6d28d9" tour="mes-leads"
+              sousTitre="Leads qui t’appartiennent (appel de 60 s ou plus, ou rappel) : rappels dus, nouveaux, prêts, en attente"
+              leads={listes.mesLeads} now={now} userId={profile?.id} locks={locks} nomsParId={setting.nomsParId}
+              onOuvrir={ouvrirLead} onRdv={actions.prendreRdv} onResultat={actions.onResultat} onFicheGhl={actions.ouvrirFiche}
+              videTexte="Aucun lead à toi pour l’instant. Un appel de 60 s ou plus avec un lead te le donne." />
+            <FilePriorite
+              titre="Nouveaux leads" couleur="#6366f1" colonneOptin tour="nouveaux"
+              sousTitre="Jamais contactés : 🔥 chauds en tête, puis du plus ancien au plus récent"
+              leads={listes.nouveaux} now={now} userId={profile?.id} locks={locks} nomsParId={setting.nomsParId}
+              onOuvrir={ouvrirLead} onRdv={actions.prendreRdv} onResultat={actions.onResultat} onFicheGhl={actions.ouvrirFiche}
+              videTexte="Aucun nouveau lead pour le moment." />
+            <FilePriorite
+              titre="Leads à rappeler" couleur="#8b5cf6" tour="a-rappeler"
+              sousTitre="Déjà tentés sans succès : prêts à rappeler (24 h après la dernière tentative), puis en attente"
+              leads={listes.aRappeler} now={now} userId={profile?.id} locks={locks} nomsParId={setting.nomsParId}
+              onOuvrir={ouvrirLead} onRdv={actions.prendreRdv} onResultat={actions.onResultat} onFicheGhl={actions.ouvrirFiche}
+              videTexte="Personne à rappeler pour le moment." />
+            {superviseur && repartition.assignes.length > 0 && (
+              <FilePriorite
+                titre="Leads assignés aux setters" couleur="#9ca3af" montrerProprio
+                sousTitre="Vue admin : leads qui ne sont plus dans la liste commune (réassigner depuis la fiche)"
+                leads={repartition.assignes} now={now} userId={profile?.id} locks={locks} nomsParId={setting.nomsParId}
+                onOuvrir={ouvrirLead} onRdv={actions.prendreRdv} onResultat={actions.onResultat} onFicheGhl={actions.ouvrirFiche}
+                videTexte="" />
+            )}
+          </>
+        )}
+
         {loading
-          ? FILES.map(f => <div key={f.cle} className="h-32 bg-white border border-[#e5e7eb] rounded-xl animate-pulse" />)
-          : FILES.map(f => (f.confirmation ? (
+          ? FILES.filter(f => !FILES_PRIORITE.includes(f.cle)).map(f => <div key={f.cle} className="h-32 bg-white border border-[#e5e7eb] rounded-xl animate-pulse" />)
+          : FILES.filter(f => !FILES_PRIORITE.includes(f.cle)).map(f => (f.confirmation ? (
             <FileLeads key={f.cle}
               file={filtresActifs ? { ...f, videTitre: 'Aucun lead pour ces filtres', videTexte: 'Change les filtres pour voir les autres leads bookés.' } : f}
               leads={aConfirmerFiltres} userId={profile?.id} locks={locks} actions={actions} now={now}
@@ -169,9 +316,16 @@ export default function SetterJournee({ profile, droite = null, setterFiles, onC
                 <FiltresAConfirmer filtres={filtres} onChange={setFiltres} appelsIndisponibles={appelsErreur} />
               )} />
           ) : (
-            <FileLeads key={f.cle} file={f} leads={files[f.cle]} userId={profile?.id}
+            <FileLeads key={f.cle} file={f}
+              leads={f.cle === 'contactEtabli' ? repartition.contactEtabli : filtrerAutres(files[f.cle])} userId={profile?.id}
               locks={locks} actions={actions} now={now} />
           )))}
+
+        <div className="text-center">
+          <button onClick={() => onRevoirDemo?.()} className="text-xs font-semibold text-[#00bbb1] hover:underline">
+            ▶ Revoir la démo des nouveautés
+          </button>
+        </div>
 
         <div className="flex flex-col gap-2 mt-1">
           <Replie

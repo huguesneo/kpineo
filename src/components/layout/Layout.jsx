@@ -1,5 +1,6 @@
 import Sidebar from './Sidebar'
 import OTNotifications from '../notifications/OTNotifications'
+import TachesNotifications from '../v2/setter/TachesNotifications'
 
 export default function Layout({ children }) {
   return (
@@ -11,6 +12,7 @@ export default function Layout({ children }) {
         </div>
       </main>
       <OTNotifications />
+      <TachesNotifications />
     </div>
   )
 }

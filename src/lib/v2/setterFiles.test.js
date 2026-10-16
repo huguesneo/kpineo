@@ -29,7 +29,7 @@ describe('computeSetterFiles', () => {
     expect(nouveauxLeads[2].tentative).toBe(1)
   })
 
-  it('Leads à rappeler : tentatives 1 à 4, du plus vieux au plus jeune', () => {
+  it('Leads à rappeler : tentatives 1 à 3 ; après la 4e, le lead sort de la liste', () => {
     const opps = [
       oppSetting('a', S.tentative1, { created_at_ghl: h(-10) }),
       oppSetting('b', S.tentative3, { created_at_ghl: h(-50) }),
@@ -37,7 +37,7 @@ describe('computeSetterFiles', () => {
       oppSetting('d', S.nouveau),
     ]
     const { aRappeler } = computeSetterFiles({ opps, now: NOW })
-    expect(aRappeler.map(l => l.contactId)).toEqual(['b', 'c', 'a'])
+    expect(aRappeler.map(l => l.contactId)).toEqual(['b', 'a'])
   })
 
   it('Contact établi : file à part, du plus vieux au plus jeune', () => {

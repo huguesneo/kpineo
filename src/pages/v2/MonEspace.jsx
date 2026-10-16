@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import LayoutV2 from '../../components/v2/LayoutV2'
 import SegmentMode from '../../components/v2/SegmentMode'
@@ -9,6 +9,12 @@ import { useAuth } from '../../context/AuthContext'
 import { useSetterFiles } from '../../hooks/v2/useSetterFiles'
 import { useCloserAgenda } from '../../hooks/v2/useCloserAgenda'
 import { totalFiles } from '../../lib/v2/setterFiles'
+import { useAnnonce } from '../../hooks/v2/useAnnonce'
+import VisiteGuidee, { AnnonceMiseAJour } from '../../components/v2/demo/VisiteGuidee'
+import DemoEcranCloseur from '../../components/v2/demo/DemoEcranCloseur'
+import { leadFictif } from '../../components/v2/demo/demoFictif'
+import { ANNONCE_SETTER, ANNONCE_CLOSEUR, POINTS_SETTER, POINTS_CLOSEUR, etapesDemo } from '../../components/v2/demo/etapesDemo'
+import { supabase } from '../../lib/supabase'
 
 const CLE_MODE = 'neo.espace.mode'
 
@@ -53,6 +59,41 @@ export default function MonEspace() {
     close: agenda.aStatuerCount,
   }
 
+  // Pop-up « Mise à jour importante » : affiché dans les deux modes (le mode
+  // mémorisé est celui du navigateur, pas du compte) ; « Voir la démo » passe
+  // en mode setter et lance la visite.
+  // Une seule démo pour « Mon espace » : partie setter et/ou partie closeur selon
+  // les rôles ; contenu fictif seulement là où il n'y a rien de réel à montrer.
+  const annonce = useAnnonce(peutSetter ? ANNONCE_SETTER : ANNONCE_CLOSEUR, profile?.id, { enabled: modes.length > 0 })
+  const [demo, setDemo] = useState(false)
+  const [demoFiche, setDemoFiche] = useState(null)
+  const [closeurFictif, setCloseurFictif] = useState(false)
+  const leadExemple = useRef(null)
+  const surLeadExemple = useCallback(l => { leadExemple.current = l }, [])
+  const fictifUtilise = useRef(false)
+  const etapes = useMemo(() => etapesDemo({ setter: peutSetter, closeur: peutCloser, fictifUtilise: !leadExemple.current }, {
+    ouvrirFicheExemple: () => {
+      const l = leadExemple.current ?? leadFictif(profile?.id)
+      if (l.demo) fictifUtilise.current = true
+      setDemoFiche(l)
+    },
+    fermerFiche: () => setDemoFiche(null),
+    ouvrirCloseurFictif: () => setCloseurFictif(true),
+    fermerCloseurFictif: () => setCloseurFictif(false),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [peutSetter, peutCloser, profile?.id, demo])
+  const lancerDemo = useCallback(() => { if (peutSetter) changerMode('sette'); setDemo(true) }, [peutSetter, changerMode])
+  const finirDemo = useCallback(async terminee => {
+    setDemo(false); setDemoFiche(null); setCloseurFictif(false)
+    if (terminee) {
+      await annonce.marquerVue(true)
+      // La partie closeur est vue aussi : pas de deuxième pop-up dans l'écran d'appel
+      if (peutCloser && profile?.id) {
+        await supabase.from('app_annonces_vues').upsert({ user_id: profile.id, annonce: ANNONCE_CLOSEUR, vu_le: new Date().toISOString(), terminee: true })
+      }
+    }
+  }, [annonce, peutCloser, profile?.id])
+
   if (!profile) return null
 
   const segment = modes.length > 1
@@ -63,8 +104,16 @@ export default function MonEspace() {
 
   return (
     <LayoutV2>
+      <AnnonceMiseAJour ouverte={annonce.aProposer && !demo}
+        titre={peutSetter ? 'Le setting fait peau neuve' : 'Du nouveau pour les closeurs'}
+        points={[...(peutSetter ? POINTS_SETTER : []), ...(peutCloser ? POINTS_CLOSEUR : [])]}
+        onVoir={() => { annonce.marquerVue(false); lancerDemo() }}
+        onPlusTard={annonce.plusTard} />
+      <DemoEcranCloseur ouvert={demo && closeurFictif} />
+      <VisiteGuidee etapes={etapes} ouverte={demo} onFermer={() => finirDemo(false)} onTerminer={() => finirDemo(true)} />
       {mode === 'sette' && (
-        <SetterJournee profile={profile} droite={segment} setterFiles={setterFiles} onCompteur={setCompteurSetter} />
+        <SetterJournee profile={profile} droite={segment} setterFiles={setterFiles} onCompteur={setCompteurSetter}
+          demoActive={demo} demoFiche={demoFiche} onLeadExemple={surLeadExemple} onRevoirDemo={lancerDemo} />
       )}
       {mode === 'close' && (
         <CloseurAgenda profile={profile} droite={segment} agenda={agenda} />

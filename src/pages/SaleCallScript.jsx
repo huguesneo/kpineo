@@ -23,6 +23,11 @@ import { finRendezVous, showPermis, heureShowPermis, SHOW_CHAMPS_MIN, ficheRempl
 // Espace de vente v2 : prise de rendez-vous d'évaluation intégrée à l'app
 import { ESPACE_VENTE_V2 } from '../lib/v2/featureFlag'
 import ModalEvaluation from '../components/v2/closer/ModalEvaluation'
+import NotesSetter from '../components/v2/closer/NotesSetter'
+import VisiteGuidee, { AnnonceMiseAJour } from '../components/v2/demo/VisiteGuidee'
+import { ANNONCE_CLOSEUR, POINTS_CLOSEUR, etapesCloseur } from '../components/v2/demo/etapesDemo'
+import { useAnnonce } from '../hooks/v2/useAnnonce'
+import { CALENDARS } from '../lib/v2/salesConfig'
 
 // ─── Helpers ──────────────────────────────────────────────────
 function fmtTime(iso) {
@@ -243,6 +248,9 @@ export default function SaleCallScript() {
   const { appointmentGhlId } = useParams()
   const navigate = useNavigate()
   const { profile } = useAuth()
+  // Démo des nouveautés closeur (première ouverture de l'écran d'appel)
+  const annonceCloseur = useAnnonce(ANNONCE_CLOSEUR, profile?.id, { enabled: ESPACE_VENTE_V2 })
+  const [demoCloseur, setDemoCloseur] = useState(false)
 
   // Load appointment from Supabase (fast)
   const [appt, setAppt]           = useState(null)
@@ -306,6 +314,32 @@ export default function SaleCallScript() {
       setQual(prev => ({ ...prev, ...savedNote.qualification }))
     }
   }, [savedNote])
+
+  // Rencontre de décision : les champs encore vides reprennent la fiche de la
+  // rencontre précédente du contact (la découverte), pour la mise en contexte.
+  // Ce qui est déjà saisi ou sauvegardé n'est jamais écrasé.
+  const [prefillDe, setPrefillDe] = useState(null)
+  useEffect(() => {
+    if (!appt?.contact_id || appt.calendar_id !== CALENDARS.decision) return undefined
+    let annule = false
+    supabase.rpc('sale_call_notes_precedentes', { p_contact_id: appt.contact_id, p_exclure: appointmentGhlId })
+      .then(({ data }) => {
+        const prec = data?.[0]
+        if (annule || !prec?.qualification) return
+        setQual(prev => {
+          const n = { ...prev }
+          for (const f of QUAL_FIELDS) {
+            const v = prec.qualification[f.key]
+            if (!String(n[f.key] ?? '').trim() && v && String(v).trim()) n[f.key] = v
+          }
+          return n
+        })
+        setPrefillDe(prec)
+      })
+    return () => { annule = true }
+  // savedNote : relancé après le chargement de la fiche sauvegardée, qui peut
+  // contenir des champs vides et passer après le préremplissage
+  }, [appt?.contact_id, appt?.calendar_id, appointmentGhlId, savedNote])
 
   const quizCompleted = isQuizCompleted(quiz)
 
@@ -543,6 +577,11 @@ export default function SaleCallScript() {
 
   return (
     <Layout>
+      <AnnonceMiseAJour ouverte={annonceCloseur.aProposer && !demoCloseur} titre="Du nouveau pour les closeurs" points={POINTS_CLOSEUR}
+        onVoir={() => { annonceCloseur.marquerVue(false); setDemoCloseur(true) }} onPlusTard={annonceCloseur.plusTard} />
+      <VisiteGuidee etapes={etapesCloseur()} ouverte={demoCloseur}
+        onFermer={() => setDemoCloseur(false)}
+        onTerminer={() => { setDemoCloseur(false); annonceCloseur.marquerVue(true) }} />
       {/* ── Sticky header ── */}
       <div className="sticky top-0 z-30 -mx-8 px-8 py-3 bg-white border-b border-[#e5e7eb] mb-6 flex items-center justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3 min-w-0">
@@ -620,8 +659,22 @@ export default function SaleCallScript() {
           </Section>
         )}
 
+        {/* ── Notes du setter (fiche du hub et notes GHL du contact) ── */}
+        <div data-tour="closeur-notes-setter">
+          <Section title="Notes du setter" icon="🗒️" bg>
+            <NotesSetter contactId={contactId} />
+          </Section>
+        </div>
+
         {/* ── Section 3 : Qualification ── */}
+        <div data-tour="closeur-qualification">
         <Section title="Qualification" icon="📋">
+          {prefillDe && (
+            <div className="mb-4 px-3 py-2 rounded-lg bg-[#f0f9ff] border border-[#bae6fd] text-xs text-[#0369a1]">
+              Prérempli avec la fiche de la rencontre {prefillDe.debut_rdv ? `du ${format(new Date(prefillDe.debut_rdv), 'd MMMM', { locale: fr })} ` : 'précédente '}
+              {prefillDe.auteur ? `(${prefillDe.auteur})` : ''} : modifie ou complète au besoin.
+            </div>
+          )}
           {/* Barre de progression */}
           <div className="flex items-center gap-3 mb-6 pb-5 border-b border-[#f0f0f0]">
             <div className="flex-1 bg-gray-100 rounded-full h-2">
@@ -686,6 +739,7 @@ export default function SaleCallScript() {
             })}
           </div>
         </Section>
+        </div>
 
         {/* ── Section 4 : Actions ── */}
         <div className="rounded-2xl border border-[#e5e7eb] bg-white overflow-hidden">
