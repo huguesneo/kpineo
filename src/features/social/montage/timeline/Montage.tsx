@@ -8,7 +8,7 @@ import { Graphique } from "./graphiques/Graphique";
 import type { PropsGraphique } from "./graphiques/commun";
 import calqueFacebook from "./reperes/facebook.png";
 import calqueInstagram from "./reperes/instagram.png";
-import { FPS, MUSIQUE_SOUS_VOIX, ZONES_INTERFACE, blocsMusique, boiteCarte, gainFondu, segmentsMusique, cadrage, img, morceauxLecture, planA, plansAffiches, type Cadre as CadreSource, type Plan, type Recette, type Reseau } from "./logique";
+import { FPS, ZONES_INTERFACE, blocsMusique, boiteCarte, db, gainMusique, parleA, segmentsMusique, cadrage, img, morceauxLecture, planA, plansAffiches, type Cadre as CadreSource, type Plan, type Recette, type Reseau } from "./logique";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Glyphe = { sx: number; l: number; t: number; r: number; b: number };
@@ -33,6 +33,7 @@ export type PropsMontage = {
   versions: { apercu: number | null; base: number | null; voix: number | null };
   selection: number | null;
   proxies: Record<string, string>;   // source → adresse du proxy (vidéo en direct)
+  niveaux?: Record<string, number>;  // niveau (LUFS) de chaque chanson, mesuré comme au rendu (16 oct. 2026)
   durees?: Record<string, number>;   // durée de chaque chanson (blocs de musique, batch 4b)
   // Hub : chemin du stockage privé → lien signé (undefined tant qu'il n'est pas prêt) ; son → lien signé ; aperçu rendu
   lien: (chemin?: string) => string | undefined; lienSon: (fichier: string) => string | undefined; apercu: string | null;
@@ -58,7 +59,6 @@ const RepereReseau: React.FC<{ reseau: Reseau }> = ({ reseau }) => {
 
 const clamp = (u: number) => Math.max(0, Math.min(1, u));
 const ease = (u: number) => 1 - Math.pow(1 - clamp(u), 3);
-const db = (v: number) => Math.pow(10, v / 20);
 
 // Entrée et sortie des cartes Python (cartes.py : 0,35 s, montée de 60 px, 97 → 100 % ; sortie en fondu 0,25 s)
 const entreeSortie = (t: number, duree: number) => {
@@ -236,13 +236,13 @@ const VideoSource: React.FC<{ recette: Recette; plans: Plan[]; proxies: Record<s
   </>
 );
 
-export const Montage: React.FC<PropsMontage> = ({ recette, etat, mode, reperes, selection, proxies, durees, lien, lienSon, apercu }) => {
+export const Montage: React.FC<PropsMontage> = ({ recette, etat, mode, reperes, selection, proxies, durees, niveaux, lien, lienSon, apercu }) => {
   const { durationInFrames } = useVideoConfig();
   if (mode === "apercu") {
     return apercu ? <Html5Video src={apercu} /> : <AbsoluteFill style={{ background: "#0A1416" }} />;
   }
   const plans = plansAffiches(recette.plans, etat?.plans); // dézooms du moteur compris, si l'état est à jour
-  const parle = (t: number) => (etat?.sous_titres.groupes || []).some((g) => t >= g.debut - 0.1 && t < g.fin + 0.2);
+  const parle = (t: number) => parleA(etat?.sous_titres.groupes || [], t);
   const liens = Object.fromEntries(Object.entries(proxies).map(([k, v]) => [k, lien(v)]).filter(([, v]) => v)) as Record<string, string>;
   return (
     <Liens.Provider value={lien}><AbsoluteFill style={{ background: "#0A1416" }}>
@@ -254,7 +254,7 @@ export const Montage: React.FC<PropsMontage> = ({ recette, etat, mode, reperes, 
       ))}
       {/* Musique (batch 4b) : chaque bloc joue la chanson à partir de son décalage (puis en boucle depuis le début,
           comme -stream_loop du moteur), à son volume sous la voix, avec ses fondus linéaires (afade) et la baisse de
-          4 dB quand la voix parle. Un Html5Audio par morceau de chanson joué. */}
+          4 dB quand la voix parle : gainMusique, même calcul que le rendu. Un Html5Audio par morceau de chanson joué. */}
       {blocsMusique(recette).map((b, k) => !lienSon(b.fichier) ? null : segmentsMusique(b, durees?.[b.fichier]).map((sg, j) => {
         const de = img(sg.debut);
         return (
@@ -262,7 +262,7 @@ export const Montage: React.FC<PropsMontage> = ({ recette, etat, mode, reperes, 
             <Html5Audio src={lienSon(b.fichier)!} trimBefore={img(sg.depuis)}
               volume={(f) => {
                 const t = (de + f) / FPS;
-                return Math.min(1, 0.16 * db((b.volume_db ?? MUSIQUE_SOUS_VOIX) - MUSIQUE_SOUS_VOIX) * gainFondu(b, t) * (parle(t) ? db(-4) : 1));
+                return gainMusique(b, t, niveaux?.[b.fichier], parle(t));
               }} />
           </Sequence>
         );

@@ -17,7 +17,7 @@ import {
   supprimerZoom, type Carte, type Recette,
 } from "./logique";
 
-type SonBib = { fichier: string; categorie: string; duree: number; usage?: string };
+type SonBib = { fichier: string; categorie: string; duree: number; usage?: string; lufs?: number };
 type Modeles = {
   types: Record<string, string>; graphiques: string[]; modeles: Record<string, Carte>; styles: string[];
   sons: SonBib[]; durees: Record<string, [number, number]>; elements: Record<string, [number, number]>;
@@ -144,6 +144,7 @@ export const App: React.FC<{ source: Source; extra?: (o: { brouillon: boolean; e
   // Musique (batch 4b) : durée de chaque chanson (bibliothèque) et forme d'onde (outil.py onde, mise en cache)
   const [ondes, setOndes] = useState<Record<string, Onde>>({});
   const dureesChansons = useMemo(() => Object.fromEntries((modeles?.sons || []).map((s) => [s.fichier, s.duree])), [modeles]);
+  const niveauxChansons = useMemo(() => Object.fromEntries((modeles?.sons || []).filter((s) => s.lufs !== undefined).map((s) => [s.fichier, s.lufs as number])), [modeles]);
   const fichiersMusique = recette ? [...new Set(blocsMusique(recette).map((b) => b.fichier))].sort().join("|") : "";
   useEffect(() => {
     for (const f of fichiersMusique.split("|").filter(Boolean)) {
@@ -395,6 +396,7 @@ export const App: React.FC<{ source: Source; extra?: (o: { brouillon: boolean; e
   const total = recette ? Math.max(1 / FPS, dureeTotale(recette)) : 1;
   const inputProps = useMemo<PropsMontage>(() => ({
     recette: recette || ({ plages: [], plans: [], cartes: [], sous_titres: {} } as Recette), etat, mode, reperes, versions,
+    niveaux: niveauxChansons,   // change avec dureesChansons (les deux viennent de modeles)
     selection: selection?.genre === "carte" ? selection.index : null, proxies, durees: dureesChansons,
     lien: source.lien, lienSon: source.lienSon, apercu: source.lienApercu(), versionLiens,
   }), [recette, etat, mode, reperes, versions, selection, proxies, dureesChansons, source, versionLiens]);

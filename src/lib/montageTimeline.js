@@ -102,7 +102,10 @@ export function indexSons(index) {
   for (const s of index?.sons || []) {
     if (!s?.fichier || !s.chemin) continue
     chemins[s.fichier] = s.chemin
-    sons.push({ fichier: s.fichier, categorie: s.categorie, duree: Number(s.duree) || 0, usage: s.usage || '' })
+    // lufs : niveau de la chanson mesuré par l'agent (même mesure que le rendu), pour le volume en direct (16 oct. 2026)
+    const lufs = Number(s.lufs)
+    sons.push({ fichier: s.fichier, categorie: s.categorie, duree: Number(s.duree) || 0, usage: s.usage || '',
+      ...(s.lufs !== undefined && s.lufs !== null && Number.isFinite(lufs) ? { lufs } : {}) })
   }
   return { chemins, sons }
 }

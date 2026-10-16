@@ -7,7 +7,7 @@ import type { Etat } from "./Montage";
 import {
   FPS, blocsMusique, deplacerMusique, fondus, glisserContenu, reglerMusique, rognerMusique, segmentsMusique, type BlocMusique,
   deplacerCarte, deplacerSon, deplacerZoom, dureeTotale, estBase, etirerCarte, etirerZoom, formatTemps, morceaux, nomSon,
-  plansAffiches, rognerPlage, type Probleme, type Recette,
+  brutRetire, plansAffiches, rognerPlage, type Probleme, type Recette,
 } from "./logique";
 
 export type Selection = { genre: "carte" | "sous_titre" | "son" | "plage" | "plan" | "musique"; index: number } | null;
@@ -149,16 +149,36 @@ export const Timeline: React.FC<Props> = (p) => {
               onPointerDown={() => p.choisir(null)}>
               <div className="tl-nom">{piste.nom}</div>
               <div className="tl-blocs" style={{ left: GAUCHE }}>
-                {piste.cle === "video" && morceaux(p.recette).map((m, k) => (
-                  <div key={k} className={`bloc plage ${choisi("plage", k)}`}
-                    style={{ left: x(m.sortie), width: Math.max(4, x(m.duree) - 2) }}
-                    onPointerDown={(e) => { e.stopPropagation(); p.choisir({ genre: "plage", index: k }); }}
-                    title={`Morceau ${k + 1} : ${m.debut.toFixed(2)} à ${m.fin.toFixed(2)} s de la source (Suppr : le retirer)`}>
-                    <div className="poignee g" onPointerDown={(e) => glisser(e, (o, dt) => rognerPlage(o, k, "debut", o.plages[k].debut + dt, p.dureeSource), { genre: "plage", index: k })} />
-                    <span>{k + 1} · {formatTemps(m.debut)} à {formatTemps(m.fin)}</span>
-                    <div className="poignee d" onPointerDown={(e) => glisser(e, (o, dt) => rognerPlage(o, k, "fin", o.plages[k].fin + dt, p.dureeSource), { genre: "plage", index: k })} />
-                  </div>
-                ))}
+                {/* Morceaux : bords à tirer (comme CapCut) pour rogner ou récupérer du brut retiré ; une pastille « +2,2 s »
+                    montre le brut récupérable (0,5 s ou plus) et le récupère d'un clic (15 oct. 2026 : « Coupé ! » de Brice) */}
+                {piste.cle === "video" && morceaux(p.recette).map((m, k) => {
+                  const brut = brutRetire(p.recette, k, p.dureeSource);
+                  const s = (v: number) => v.toFixed(1).replace(".", ",");
+                  const recuperer = (e: React.PointerEvent, cote: "debut" | "fin") => {
+                    e.stopPropagation();
+                    p.choisir({ genre: "plage", index: k });
+                    const o = p.debutGlisser();
+                    const pl = o.plages[k];
+                    p.pendantGlisser(rognerPlage(o, k, cote, cote === "debut" ? pl.debut - brut.avant : pl.fin + brut.apres, p.dureeSource));
+                    p.finGlisser();
+                  };
+                  return (
+                    <div key={k} className={`bloc plage ${choisi("plage", k)}`}
+                      style={{ left: x(m.sortie), width: Math.max(4, x(m.duree) - 2) }}
+                      onPointerDown={(e) => { e.stopPropagation(); p.choisir({ genre: "plage", index: k }); }}
+                      title={`Morceau ${k + 1} : ${m.debut.toFixed(2)} à ${m.fin.toFixed(2)} s de la source. Tirer un bord pour couper plus tôt ou récupérer du brut retiré (Suppr : le retirer)`}>
+                      <div className={`poignee g plage-bord${brut.avant >= 0.5 ? " reserve" : ""}`} title={brut.avant > 0 ? `Tirer vers la gauche : ${s(brut.avant)} s de brut retiré à récupérer` : "Tirer vers la droite pour couper plus tard"}
+                        onPointerDown={(e) => glisser(e, (o, dt) => rognerPlage(o, k, "debut", o.plages[k].debut + dt, p.dureeSource), { genre: "plage", index: k })} />
+                      {brut.avant >= 0.5 && <button className="brut-retire g" onPointerDown={(e) => recuperer(e, "debut")}
+                        title={`${s(brut.avant)} s de brut retiré avant ce morceau : cliquer pour tout récupérer, ou tirer le bord`}>◂ +{s(brut.avant)} s</button>}
+                      <span>{k + 1} · {formatTemps(m.debut)} à {formatTemps(m.fin)}</span>
+                      {brut.apres >= 0.5 && <button className="brut-retire d" onPointerDown={(e) => recuperer(e, "fin")}
+                        title={`${s(brut.apres)} s de brut retiré après ce morceau : cliquer pour tout récupérer, ou tirer le bord`}>+{s(brut.apres)} s ▸</button>}
+                      <div className={`poignee d plage-bord${brut.apres >= 0.5 ? " reserve" : ""}`} title={brut.apres > 0 ? `Tirer vers la droite : ${s(brut.apres)} s de brut retiré à récupérer` : "Tirer vers la gauche pour couper plus tôt"}
+                        onPointerDown={(e) => glisser(e, (o, dt) => rognerPlage(o, k, "fin", o.plages[k].fin + dt, p.dureeSource), { genre: "plage", index: k })} />
+                    </div>
+                  );
+                })}
                 {piste.cle === "video" && (p.etat?.coupes || []).map((c, k) => <div key={`k${k}`} className="coupe" style={{ left: x(c) }} title="Coupe" />)}
                 {/* Zooms (batch 3b) : chaque plan zoomé est un bloc (IA ou Hugues) ; le cadrage de base (1,0) n'en est pas un */}
                 {piste.cle === "zooms" && p.recette.plans.map((pl, k) => {

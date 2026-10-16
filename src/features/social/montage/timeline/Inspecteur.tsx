@@ -6,7 +6,7 @@ import type { Selection } from "./Timeline";
 import {
   MUSIQUE_SOUS_VOIX, TAILLE_MANUELLE, ZOOM_MAX, boiteCarte, copie, deplacerZoom, etirerZoom, reglerZoom, corrigerSousTitre, deplacerCarte, formatTemps, morceaux, nomSon, placerCarte,
   positionAuto, reglerTaille, tailleAuto, FONDU_MAX, VOLUME_MUSIQUE, blocsMusique, changerChanson, deplacerMusique, fondus,
-  glisserContenu, reglerMusique, rognerMusique,
+  brutRetire, glisserContenu, reglerMusique, rognerMusique, rognerPlage,
   type Carte, type Element, type Recette,
 } from "./logique";
 
@@ -359,6 +359,11 @@ export const Inspecteur: React.FC<Props> = (p) => {
   const pl = recette.plages[selection.index];
   if (!m || !pl) return null;
   const dedans = p.temps > m.sortie + 0.1 && p.temps < m.sortie + m.duree - 0.1;
+  const dureeSource = etat?.duree_source ?? Infinity;
+  const brut = brutRetire(recette, selection.index, dureeSource);
+  const s = (v: number) => v.toFixed(2).replace(".", ",");
+  const recuperer = (cote: "debut" | "fin") =>
+    modifier(rognerPlage(recette, selection.index, cote, cote === "debut" ? pl.debut - brut.avant : pl.fin + brut.apres, dureeSource));
   return (
     <div className="inspecteur">
       <h3>Morceau {selection.index + 1}</h3>
@@ -368,7 +373,15 @@ export const Inspecteur: React.FC<Props> = (p) => {
         <button className="petit" disabled={!dedans} onClick={p.couper} title="Touche C">✂ Couper à la tête de lecture</button>
         {recette.plages.length > 1 && <button className="petit" onClick={supprimer} title="Touche Suppr">Supprimer ce morceau</button>}
       </div>
-      <p className="note">Tire les poignées pour couper plus tôt ou plus tard. Supprimer un morceau retire aussi les cartes, sons et sous-titres posés dedans ; tout ce qui suit recule. La vidéo en direct suit tout de suite ; « Appliquer » refait l'aperçu complet.</p>
+      {(brut.avant > 0 || brut.apres > 0) && (
+        <div className="ligne-boutons">
+          {brut.avant > 0 && <button className="petit" onClick={() => recuperer("debut")}
+            title="Rallonge le début du morceau jusqu'au brut gardé avant lui">◂ Récupérer {s(brut.avant)} s avant</button>}
+          {brut.apres > 0 && <button className="petit" onClick={() => recuperer("fin")}
+            title="Rallonge la fin du morceau jusqu'au brut gardé après lui (ou la fin de la vidéo)">Récupérer {s(brut.apres)} s après ▸</button>}
+        </div>
+      )}
+      <p className="note">Tire les bords du morceau dans la timeline pour couper plus tôt, ou plus tard pour récupérer du brut retiré (les pastilles « +2,2 s » le montrent). Supprimer un morceau retire aussi les cartes, sons et sous-titres posés dedans ; tout ce qui suit recule. La vidéo en direct suit tout de suite ; « Appliquer » refait l'aperçu complet.</p>
     </div>
   );
 };

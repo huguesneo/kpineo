@@ -6,7 +6,7 @@ import {
   Historique, ZOOMS, ajouterCarte, ajouterSon, bornerPlan, corrigerSousTitre, couperPlage, decaler, deplacerCarte, dureeTotale,
   etirerCarte, gardeFous, morceaux, poserZoom, rognerPlage, supprimerCarte, supprimerPlage,
   supprimerZoom, zoomA, avertissementsZooms, cadrage, deplacerZoom, estBase, etirerZoom, morceauxLecture, plansAffiches,
-  reglerZoom, avertissementsInterface, zonesTouchees,
+  reglerZoom, avertissementsInterface, zonesTouchees, brutRetire,
 } from "./logique.ts";
 
 const recette = () => ({
@@ -39,6 +39,16 @@ test("rogner le début d'une plage décale ce qui suit, les plans couvrent toujo
   for (let i = 1; i < out.plans.length; i++) assert.equal(out.plans[i].debut, out.plans[i - 1].fin);
   assert.ok(Math.abs(out.plans.at(-1).fin - dureeTotale(out)) < 1e-3);
   assert.equal(r.plages[2].debut, 10.644, "la recette d'origine ne change pas");
+});
+
+test("brut retiré récupérable aux bords d'une plage (15 oct. : le « Coupé ! » de Brice)", () => {
+  const r = recette();
+  assert.deepEqual(brutRetire(r, 0, 50.7), { avant: 0, apres: 0.273 });       // jusqu'à la plage suivante
+  assert.deepEqual(brutRetire(r, 2, 50.7), { avant: 0.142, apres: 15.324 });  // jusqu'à la fin de la source
+  assert.deepEqual(brutRetire(r, 2), { avant: 0.142, apres: 0 });             // durée de la source inconnue
+  const tout = rognerPlage(r, 2, "fin", r.plages[2].fin + brutRetire(r, 2, 50.7).apres, 50.7);
+  assert.equal(tout.plages[2].fin, 50.7);                                     // « tout récupérer »
+  assert.ok(Math.abs(tout.plans.at(-1).fin - dureeTotale(tout)) < 1e-3);
 });
 
 test("rogner la fin : bornée par la plage suivante et la durée de la source", () => {
@@ -554,4 +564,24 @@ test("4b coupe ou suppression d'un morceau de vidéo : les blocs suivent", () =>
   const r = deuxBlocs().recette;
   const k = supprimerPlage(r, 1, []);       // retire 6,6667 à 10,2333 (3,5667 s)
   assert.deepEqual(k.musiques.map((b) => [b.debut, b.fin]), [[2, 10.4333], [16.4333, 31.4]]);
+});
+
+import { gainMusique, parleA, db as dbLin, VOIX_LUFS, MUSIQUE_REFERENCE, BAISSE_SOUS_VOIX, LUFS_CHANSON_DEFAUT } from "./logique.ts";
+
+test("16 oct. : volume de la musique en direct = calcul du rendu (12 LU sous la voix à -23, -4 dB quand elle parle)", () => {
+  const b = { fichier: "musique/x.mp3", debut: 0, fin: 20, volume_db: -23, fondu_entree: 0, fondu_sortie: 0 };
+  const dB = (g) => 20 * Math.log10(g);
+  // chanson à -12 LUFS jouée au gain g : niveau -12 + dB(g) ; il doit valoir voix (-23,6) - 12 LU
+  assert.ok(Math.abs(-12 + dB(gainMusique(b, 5, -12, false)) - (VOIX_LUFS - 12)) < 1e-9);
+  assert.ok(Math.abs(dB(gainMusique(b, 5, -12, true)) - dB(gainMusique(b, 5, -12, false)) - BAISSE_SOUS_VOIX) < 1e-9);
+  assert.ok(Math.abs(dB(gainMusique({ ...b, volume_db: -17 }, 5, -12, false)) - dB(gainMusique(b, 5, -12, false)) - 6) < 1e-9);
+  // une chanson plus forte de 5 dB est jouée 5 dB plus bas : même niveau sous la voix
+  assert.ok(Math.abs(dB(gainMusique(b, 5, -7, false)) - dB(gainMusique(b, 5, -12, false)) + 5) < 1e-9);
+  assert.equal(gainMusique(b, 5, undefined, false), gainMusique(b, 5, LUFS_CHANSON_DEFAUT, false));   // niveau inconnu
+  assert.equal(gainMusique({ ...b, volume_db: -10 }, 5, -40, false), 1);                                 // plafond du lecteur
+  assert.equal(gainMusique({ ...b, fondu_entree: 2 }, 1, -12, false), gainMusique(b, 1, -12, false) * 0.5);
+  assert.equal(MUSIQUE_REFERENCE, 11);
+  assert.ok(Math.abs(dbLin(-6) - 0.501187) < 1e-6);
+  const groupes = [{ debut: 2, fin: 3 }];
+  assert.deepEqual([1.85, 1.95, 3.1, 3.25].map((t) => parleA(groupes, t)), [false, true, true, false]);
 });

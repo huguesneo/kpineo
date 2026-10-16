@@ -130,8 +130,8 @@ const Liens = React.createContext<(chemin?: string) => string | undefined>(() =>
 }
 
 const SousTitres: React.FC`],
-  [`export const Montage: React.FC<PropsMontage> = ({ recette, etat, mode, reperes, versions, selection, proxies, durees }) => {`,
-    `export const Montage: React.FC<PropsMontage> = ({ recette, etat, mode, reperes, selection, proxies, durees, lien, lienSon, apercu }) => {`],
+  [`export const Montage: React.FC<PropsMontage> = ({ recette, etat, mode, reperes, versions, selection, proxies, durees, niveaux }) => {`,
+    `export const Montage: React.FC<PropsMontage> = ({ recette, etat, mode, reperes, selection, proxies, durees, niveaux, lien, lienSon, apercu }) => {`],
   ["    return versions.apercu ? <Html5Video src={`/media/apercu.mp4?v=${versions.apercu}`} /> : <AbsoluteFill style={{ background: \"#0A1416\" }} />;",
     `    return apercu ? <Html5Video src={apercu} /> : <AbsoluteFill style={{ background: "#0A1416" }} />;`],
   [`  return (\n    <AbsoluteFill style={{ background: "#0A1416" }}>\n      <VideoSource recette={recette} plans={plans} proxies={proxies} />`,

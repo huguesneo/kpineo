@@ -107,11 +107,11 @@ describe('état de la timeline', () => {
 describe('sons et catalogue', () => {
   it('index des sons : le vrai nom (accents) mène à la clé du stockage', () => {
     const { chemins, sons } = indexSons({ sons: [
-      { fichier: 'musique/Motivation Émotion/atlas (1).mp3', categorie: 'musique', duree: 120.5, chemin: 'sons/musique/Motivation-Emotion/atlas-1-0123abcd.mp3' },
+      { fichier: 'musique/Motivation Émotion/atlas (1).mp3', categorie: 'musique', duree: 120.5, lufs: -8.73, chemin: 'sons/musique/Motivation-Emotion/atlas-1-0123abcd.mp3' },
       { fichier: 'sans-chemin.mp3', categorie: 'texte', duree: 1 },
     ] })
     expect(chemins['musique/Motivation Émotion/atlas (1).mp3']).toBe('sons/musique/Motivation-Emotion/atlas-1-0123abcd.mp3')
-    expect(sons).toEqual([{ fichier: 'musique/Motivation Émotion/atlas (1).mp3', categorie: 'musique', duree: 120.5, usage: '' }])
+    expect(sons).toEqual([{ fichier: 'musique/Motivation Émotion/atlas (1).mp3', categorie: 'musique', duree: 120.5, usage: '', lufs: -8.73 }])
     expect(indexSons(null)).toEqual({ chemins: {}, sons: [] })
     expect(modelesDe({ types: { texte: 'Texte' }, polices: {} }, sons)).toMatchObject({ types: { texte: 'Texte' }, sons })
   })

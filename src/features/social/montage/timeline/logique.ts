@@ -133,6 +133,18 @@ export const rognerPlage = (r: Recette, k: number, cote: "debut" | "fin", t: num
   return out;
 };
 
+/** Brut retiré qu'on récupère en étirant la plage k (secondes de la source), avant son début et après sa fin : jusqu'à
+ *  la plage voisine de la même source, au début de la source ou à dureeSource (0 si elle est inconnue). Mêmes bornes que
+ *  rognerPlage. Décision du 15 oct. 2026 : le « Coupé ! » retiré par l'IA doit se voir et se récupérer d'un geste. */
+export const brutRetire = (r: Recette, k: number, dureeSource = Infinity): { avant: number; apres: number } => {
+  const p = r.plages[k];
+  const avant = r.plages[k - 1], apres = r.plages[k + 1];
+  const mini = avant && avant.source === p.source ? avant.fin : 0;
+  const maxi = apres && apres.source === p.source ? apres.debut : dureeSource;
+  const s = (x: number) => (Number.isFinite(x) ? Math.max(0, Math.round(x * 1000) / 1000) : 0);
+  return { avant: s(p.debut - mini), apres: s(maxi - p.fin) };
+};
+
 /** Sons posés avec une carte (même début, à 0,05 s près) : ils la suivent. */
 export const sonsDeCarte = (r: Recette, k: number): number[] =>
   (r.sons || []).map((s, i) => ({ s, i })).filter(({ s }) => Math.abs(s.debut - r.cartes[k].debut) < 0.05).map(({ i }) => i);
@@ -547,6 +559,25 @@ export const FONDUS_MUSIQUE: [number, number] = [1.5, 2];   // défaut : entrée
 export const FONDU_MAX = 5;
 export const BLOC_MUSIQUE_MIN = 0.5;
 export const VOLUME_MUSIQUE: [number, number] = [-35, -10];
+// Réglage → niveau réel, même calcul que le rendu (moteur/neo_moteur/son.py, sons.py ; 16 oct. 2026) : la musique est
+// à (réglage + 11) LU de la voix (12 LU sous la voix à -23) et baisse de 4 dB pendant que la voix parle (groupes de
+// sous-titres, 0,1 s avant à 0,2 s après). La voix de la copie légère est à -23,6 LUFS (outil.py proxy) ; le niveau de
+// chaque chanson vient de la bibliothèque (« lufs », même mesure que le rendu), -14 LUFS si elle ne le donne pas.
+export const MUSIQUE_REFERENCE = 11;
+export const BAISSE_SOUS_VOIX = -4;
+export const VOIX_LUFS = -23.6;
+export const LUFS_CHANSON_DEFAUT = -14;
+export const PAROLE: [number, number] = [0.1, 0.2];
+export const db = (v: number) => Math.pow(10, v / 20);
+/** La voix parle à l'instant t (groupes de sous-titres du moteur) : la musique y baisse. */
+export const parleA = (groupes: { debut: number; fin: number }[], t: number): boolean =>
+  groupes.some((g) => t >= g.debut - PAROLE[0] && t < g.fin + PAROLE[1]);
+/** Volume (0 à 1) d'un bloc de musique à l'instant t dans l'aperçu en direct. */
+export const gainMusique = (b: BlocMusique, t: number, lufsChanson: number | undefined, parle: boolean): number => {
+  const lufs = Number.isFinite(lufsChanson) && (lufsChanson as number) > -70 ? (lufsChanson as number) : LUFS_CHANSON_DEFAUT;
+  const niveau = VOIX_LUFS + (b.volume_db ?? MUSIQUE_SOUS_VOIX) + MUSIQUE_REFERENCE - lufs;
+  return Math.min(1, db(niveau) * gainFondu(b, t) * (parle ? db(BAISSE_SOUS_VOIX) : 1));
+};
 const DEMANDEE = "musique posée dans la timeline par Hugues";
 const cent = (v: number) => Math.round(v * 100) / 100;
 const borner = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
