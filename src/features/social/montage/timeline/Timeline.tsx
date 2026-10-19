@@ -188,7 +188,7 @@ export const Timeline: React.FC<Props> = (p) => {
                   const glisse = pl.mouvement === "glisse" && pl.zoom_de !== pl.zoom_a;
                   const choix = { genre: "plan" as const, index: k };
                   return (
-                    <div key={k} className={`bloc plan ${pl.modele ? "modele" : ""} ${pl.bloque ? "avis" : ""} ${choisi("plan", k)}`}
+                    <div key={k} className={`bloc plan ${pl.modele ? "modele" : ""} ${choisi("plan", k)}`}
                       style={{ left: x(pl.debut), width: Math.max(3, x(pl.fin - pl.debut) - 1) }}
                       onPointerDown={(e) => glisser(e, (o, dt) => deplacerZoom(o, k, o.plans[k].debut + dt), choix)}
                       title={`Zoom ${z(pl.zoom_de)} → ${z(pl.zoom_a)} (${pl.mouvement === "glisse" ? "glisse" : "coupe"}) : glisser pour déplacer, poignées pour étirer, Suppr pour retirer${dezoome ? ` ; le moteur le dézoome pendant une carte (${z(vu.zoom_de)} → ${z(vu.zoom_a)})` : ""}`}>
@@ -210,7 +210,7 @@ export const Timeline: React.FC<Props> = (p) => {
                       {(c.elements || []).map((el, i) => el.a !== undefined && (
                         <div key={i} className="repere-element" style={{ left: x(el.a) }} title={`${el.texte} : ${el.a.toFixed(2)} s`} />
                       ))}
-                      {/* durée libre (la règle de durée du type est un avertissement) */}
+                      {/* durée libre (la règle de durée du type est pour l'IA seulement) */}
                       <div className="poignee d" onPointerDown={(e) => glisser(e, (o, dt) => etirerCarte(o, k, o.cartes[k].duree + dt, [0.8, 30]), { genre: "carte", index: k })} />
                     </div>
                   );

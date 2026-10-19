@@ -3,7 +3,6 @@
 // Testée par labo/timeline/tests/logique.test.mjs (node --test). Aucun import : le fichier reste autonome.
 
 export const FPS = 30;
-export const ECART_CARTES = 8;
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export type Element = { texte: string; a?: number; niveau?: number; valeur?: number; fort?: boolean };
@@ -27,7 +26,7 @@ export type Recette = {
   sous_titres: { groupes?: string[]; mots_cles?: string[]; [cle: string]: any };
   [cle: string]: any;
 };
-// erreur : limite technique (bloque le rendu) ; avis : règle de goût (jaune, jamais bloquant pour Hugues) ;
+// erreur : limite technique (bloque le rendu) ; avis : avertissement objectif (jaune, jamais bloquant) ;
 // info : ce que le moteur fait seul (dézoom, réduction), affiché discrètement
 export type Probleme = { message: string; carte: number | null; niveau: "erreur" | "avis" | "info" };
 
@@ -223,52 +222,20 @@ export const corrigerSousTitre = (r: Recette, groupesActuels: string[], i: numbe
 };
 
 // ------------------------------------------------------------------ garde-fous immédiats (le reste vient du moteur)
-export const textesCarte = (c: Carte): string[] => [
-  ...(c.lignes || []), ...(c.elements || []).map((e) => e.texte || ""),
-  ...["bouton", "sous_texte", "etiquette", "unite", "centre"].map((k) => (c[k] ? String(c[k]) : "")),
-  ...(c.bornes || []), ...(c.etiquettes || []),
-].filter(Boolean);
-
-// Contractions orales (même liste que moteur/neo_moteur/orthographe.py ; le moteur refait le contrôle complet,
-// avec « t' » en début de phrase)
-const ORALES = ["t'es", "t'as", "t'étais", "t'avais", "t'auras", "t'aurais", "t'sais", "y'a", "ya", "y'avait", "y'aura",
-  "chu", "chus", "j'suis", "j'sais", "j'pense", "j'vais", "j'veux", "p'tit", "p'tite", "p'tits", "p'tites", "pis",
-  "faque", "ouais", "c'pas"];
-
-export const gardeFous = (r: Recette): Probleme[] => {
-  const out: Probleme[] = [];
-  const ordre = r.cartes.map((c, i) => ({ c, i })).sort((a, b) => a.c.debut - b.c.debut);
-  for (let k = 1; k < ordre.length; k++) {
-    const ecart = ordre[k].c.debut - ordre[k - 1].c.debut;
-    if (ecart < ECART_CARTES - 1e-6)
-      out.push({ carte: ordre[k].i, niveau: "avis",
-        message: `Carte ${ordre[k].i + 1} : ${ecart.toFixed(1).replace(".", ",")} s après la carte ${ordre[k - 1].i + 1} (règle : au moins 8 s entre deux cartes)` });
-  }
-  r.cartes.forEach((c, i) => {
-    for (const t of textesCarte(c)) {
-      if (/[—–]/.test(t)) out.push({ carte: i, niveau: "erreur", message: `Carte ${i + 1} : « ${t} » contient un tiret cadratin` });
-      const bas = t.toLowerCase().replace(/’/g, "'");
-      const mots = bas.split(/[\s«»(),.!?;:]+/);
-      const trouve = ORALES.find((o) => mots.includes(o)) || (/^t'\p{L}/u.test(mots[0] || "") ? mots[0] : undefined);
-      if (trouve) out.push({ carte: i, niveau: "avis", message: `Carte ${i + 1} : « ${trouve} » est une contraction orale (règle : français professionnel)` });
-    }
-  });
-  const sons = [...(r.sons || [])].sort((a, b) => a.debut - b.debut);
-  for (let k = 1; k < sons.length; k++) {
-    if (sons[k].debut - sons[k - 1].debut < 2 - 1e-6)
-      out.push({ carte: null, niveau: "avis", message: `Son « ${nomSon(sons[k].fichier)} » à ${sons[k].debut.toFixed(1).replace(".", ",")} s : moins de 2 s après le précédent (règle : un son au plus toutes les 2 s)` });
-  }
-  out.push(...avertissementsZooms(r));
-  return out;
-};
-
 export const nomSon = (f: string) => (f.split("/").pop() || f).replace(/\.(mp3|wav|m4a|aac|ogg|flac|aiff?)$/i, "");
 
-/** Fusionne les problèmes immédiats et ceux du moteur, sans doublon (même carte, même sujet). */
-export const fusionner = (immediats: Probleme[], moteur: Probleme[]): Probleme[] => {
+/** Garde-fous de la timeline (décision de Hugues du 19 oct. 2026) : aucune règle de goût pour une édition à la main
+ *  (écart de 8 s, nombre de cartes, durées, rythme, sons, contractions, tiret, zooms : rien n'est montré). Restent les
+ *  limites techniques du moteur (rouges, elles bloquent le rendu), ce qu'il fait seul (info) et deux avertissements
+ *  objectifs : « Cette carte touche le visage » (moteur) et « hors de la zone visible Instagram/Facebook » (ici). */
+export const AVIS_OBJECTIFS = [/touche le visage/, /hors de la zone visible Instagram\/Facebook/];
+export const problemesTimeline = (
+  r: Recette, etat?: { cartes: PlacementCarte[]; sous_titres?: { groupes: GroupeSousTitre[]; hauteur: number; taille?: number }; problemes?: Probleme[] } | null,
+): Probleme[] => {
+  const tous = [...(etat ? avertissementsInterface(r, etat.cartes, etat.sous_titres) : []), ...(etat?.problemes || [])];
   const vus = new Set<string>();
-  const cle = (p: Probleme) => `${p.carte}|${/8 s/.test(p.message) ? "ecart" : /contraction/.test(p.message) ? "contraction" : /tiret/.test(p.message) ? "tiret" : /toutes les 2 s/.test(p.message) ? `son${p.message.slice(5, 40)}` : p.message}`;
-  return [...immediats, ...moteur].filter((p) => (vus.has(cle(p)) ? false : (vus.add(cle(p)), true)));
+  return tous.filter((p) => p.niveau !== "avis" || AVIS_OBJECTIFS.some((re) => re.test(p.message)))
+    .filter((p) => (vus.has(`${p.carte}|${p.message}`) ? false : (vus.add(`${p.carte}|${p.message}`), true)));
 };
 
 // ------------------------------------------------------------------ couper la vidéo
@@ -527,27 +494,6 @@ export const cadrage = (p: Plan | undefined, t: number, cadre: Cadre = {}) => {
   const voulu = { x: cx - 1 / z / 2, y: cy - pos / z };
   const x = Math.max(0, Math.min(1 - 1 / z, voulu.x)), y = Math.max(0, Math.min(1 - 1 / z, voulu.y));
   return { z, x, y, demande, decale: Math.max(Math.abs(x - voulu.x), Math.abs(y - voulu.y)) };
-};
-
-/** Avertissements des zooms (jaunes, jamais bloquants) : valeurs bloquées, cadrage qui sortirait de l'image 4K. */
-export const avertissementsZooms = (r: Recette): Probleme[] => {
-  const out: Probleme[] = [];
-  const cadre = (Object.values(r.sources || {})[0] as any)?.cadre || {};
-  r.plans.forEach((p) => {
-    const nom = `Zoom à ${p.debut.toFixed(1).replace(".", ",")} s`;
-    if (p.bloque) out.push({ carte: null, niveau: "avis", message: `${nom} : ${p.bloque}` });
-    for (const champ of ["zoom_de", "zoom_a"] as const) {
-      const v = p[champ];
-      if (typeof v === "number" && (v < ZOOM_BASE - 1e-9 || v > ZOOM_MAX + 1e-9))
-        out.push({ carte: null, niveau: "avis", message: `${nom} : ${champ.replace("_", " ")} ${v} impossible, bloqué à ${Math.max(ZOOM_BASE, Math.min(ZOOM_MAX, v))}` });
-    }
-    // Le visage voulu au cadrage demandé sortirait de l'image : le cadre est poussé contre le bord (comme le moteur)
-    // (à 1,0 la fenêtre est l'image entière : rien ne sort)
-    const pire = Math.max(...[p.debut, p.fin - 1 / FPS].map((t) => cadrage(p, t, cadre)).filter((c) => c.z > 1.001).map((c) => c.decale), 0);
-    if (pire > 0.02)
-      out.push({ carte: null, niveau: "avis", message: `${nom} : le cadrage sortirait de l'image 4K, bloqué au bord (visage décentré de ${Math.round(pire * 100)} %)` });
-  });
-  return out;
 };
 
 // ------------------------------------------------------------------ musique (batch 4b : piste comme CapCut)
@@ -819,7 +765,7 @@ export const zonesTouchees = (a: Rect, reseau: Reseau): string[] => {
 export type PlacementCarte = { haut?: number; x?: number; cx?: number; w?: number; h?: number; ajustement?: number };
 export type GroupeSousTitre = { affiche: string; debut: number; fin: number; largeur?: number };
 
-/** Garde-fou jaune : carte ou sous-titre qui touche une zone de l'interface Instagram ou Facebook. */
+/** Avertissement jaune : carte ou sous-titre hors de la zone visible Instagram/Facebook (sous l'interface, bord rogné). */
 export const avertissementsInterface = (
   r: Recette, cartes: PlacementCarte[], st?: { groupes: GroupeSousTitre[]; hauteur: number; taille?: number },
 ): Probleme[] => {
@@ -831,7 +777,7 @@ export const avertissementsInterface = (
     const memes = parReseau.length === 2 && parReseau[0].z.join() === parReseau[1].z.join();
     const detail = memes ? `${parReseau[0].z.join(" et ")} d'Instagram et de Facebook`
       : parReseau.map((x) => `${x.z.join(" et ")} ${x.n === "instagram" ? "d'Instagram" : "de Facebook"}`).join(" ; ");
-    out.push({ carte, niveau: "avis", message: `${quoi} passe sous ${detail} (zone de l'interface)` });
+    out.push({ carte, niveau: "avis", message: `${quoi} : hors de la zone visible Instagram/Facebook (passe sous ${detail})` });
   };
   r.cartes.forEach((c, k) => {
     const b = boiteCarte(c, cartes[k]); // place choisie à la main suivie tout de suite (batch 4)

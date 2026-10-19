@@ -1,8 +1,9 @@
 // Copie de video-neo/labo/timeline/src/App.tsx, retouchée pour le hub par scripts/synchro-timeline.mjs : ne pas modifier à la main.
 // Timeline du labo : montage du moteur recette, édité comme dans CapCut. Le moteur reste la référence :
 // chaque modification est revérifiée par lui (place sous le menton, 34 px, rendu possible), « Appliquer » rend l'aperçu.
-// Hugues décide (batch 3) : les règles de rythme et de goût sont des avertissements jaunes, jamais bloquants ; seules
-// les limites techniques sont en rouge. Le brouillon est sauvé à chaque geste.
+// Hugues décide (19 oct. 2026) : aucune règle de goût n'est montrée pour une édition à la main ; restent les limites
+// techniques en rouge et deux avertissements jaunes (carte sur le visage, hors de la zone visible Instagram/Facebook).
+// Le brouillon est sauvé à chaque geste.
 import { Player, type PlayerRef } from "@remotion/player";
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Source } from "./source";
@@ -10,8 +11,8 @@ import { Inspecteur, type InfosModeles } from "./Inspecteur";
 import { Montage, NOMS_REPERES, type Etat, type PropsMontage, type Reperes } from "./Montage";
 import { TYPES_DEPOT, Timeline, type Onde, type Selection } from "./Timeline";
 import {
-  AUDIOS_LECTEUR, FPS, Historique, SON_PAR_TYPE, ZOOMS, ajouterCarte, avertissementsInterface, ajouterSon, basculerHauteurTimeline, boiteCarte,
-  bornerHauteurTimeline, copie, couperPlage, dureeTotale, ecrireHauteurTimeline, formatTemps, fusionner, gardeFous, img,
+  AUDIOS_LECTEUR, FPS, Historique, SON_PAR_TYPE, ZOOMS, ajouterCarte, ajouterSon, basculerHauteurTimeline, boiteCarte,
+  bornerHauteurTimeline, copie, couperPlage, dureeTotale, ecrireHauteurTimeline, formatTemps, img, problemesTimeline,
   lireHauteurTimeline, nomSon, placerCarte, poserMusique, poserZoom, reglerTaille, supprimerCarte, supprimerPlage, blocsMusique,
   couperMusique, musiqueA, supprimerMusique,
   supprimerZoom, type Carte, type Recette,
@@ -391,8 +392,7 @@ export const App: React.FC<{ source: Source; extra?: (o: { brouillon: boolean; e
     return () => window.removeEventListener("keydown", touche);
   }, [annuler, retablir, supprimer, couper]);
 
-  const problemes = useMemo(() => (recette ? fusionner(
-    [...gardeFous(recette), ...(etat ? avertissementsInterface(recette, etat.cartes, etat.sous_titres) : [])], etat?.problemes || []) : []), [recette, etat]);
+  const problemes = useMemo(() => (recette ? problemesTimeline(recette, etat) : []), [recette, etat]);
   const total = recette ? Math.max(1 / FPS, dureeTotale(recette)) : 1;
   const inputProps = useMemo<PropsMontage>(() => ({
     recette: recette || ({ plages: [], plans: [], cartes: [], sous_titres: {} } as Recette), etat, mode, reperes, versions,
@@ -578,7 +578,7 @@ export const App: React.FC<{ source: Source; extra?: (o: { brouillon: boolean; e
         <aside className="tiroir">
           <div className="tete-colonne"><b>Garde-fous</b><button className="petit" onClick={() => setTiroir(false)}>✕</button></div>
           {etat?.erreur_outil && <div className="alerte erreur">Moteur : {etat.erreur_outil}</div>}
-          {!erreurs.length && avis.length > 0 && <p className="note petite">Avertissements : règles de goût du moteur, à toi de décider. « Appliquer » reste permis.</p>}
+          {!erreurs.length && avis.length > 0 && <p className="note petite">Avertissements : carte sur le visage ou hors de la zone visible Instagram/Facebook, à toi de décider. « Appliquer » reste permis.</p>}
           {!erreurs.length && !avis.length && <p className="note petite">Tout est bon.</p>}
           <ul>{[...erreurs, ...avis].map(ligneProbleme)}</ul>
           {infos.length > 0 && (

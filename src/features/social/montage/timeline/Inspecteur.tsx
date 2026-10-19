@@ -310,7 +310,7 @@ export const Inspecteur: React.FC<Props> = (p) => {
     return (
       <div className="inspecteur">
         <h3>Zoom {pl.modele ? "posé par Hugues" : "du montage"}</h3>
-        {pl.bloque && <div className="alerte avis">{pl.bloque}</div>}
+        {pl.bloque && <p className="note petite">{pl.bloque}</p>}
         {vu && (vu.zoom_de !== pl.zoom_de || vu.zoom_a !== pl.zoom_a) && <div className="note">Le moteur le dézoome pendant une carte (place sous le menton) : {vu.zoom_de} → {vu.zoom_a}.</div>}
         <div className="ligne-champs">
           <Nombre etiquette="Début (s)" valeur={pl.debut} changer={(v) => placer(deplacerZoom(recette, k, v ?? 0))} />
