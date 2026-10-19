@@ -375,7 +375,8 @@ export async function attachCard(db: DB, planId: string, temporaryToken: string,
         })
       : await validateAndStoreCard({
           idempotencyKey: crypto.randomUUID(),
-          orderId: `NEO-${ref}-V${attempt}`,
+          // Moneris n'accepte que [A-Za-z0-9-_] dans orderId : pas le nom (espaces, « . »)
+          orderId: `NEO-${shortId(planId)}-V${attempt}`,
           temporaryToken, eci, customerReference: ref, holder: holderOf(plan),
         })
   } catch (e) {
