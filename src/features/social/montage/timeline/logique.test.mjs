@@ -4,8 +4,8 @@ import assert from "node:assert/strict";
 import { test } from "vitest";
 import {
   Historique, ZOOMS, ajouterCarte, ajouterSon, bornerPlan, corrigerSousTitre, couperPlage, decaler, deplacerCarte, dureeTotale,
-  etirerCarte, gardeFous, morceaux, poserZoom, rognerPlage, supprimerCarte, supprimerPlage,
-  supprimerZoom, zoomA, avertissementsZooms, cadrage, deplacerZoom, estBase, etirerZoom, morceauxLecture, plansAffiches,
+  etirerCarte, problemesTimeline, morceaux, poserZoom, rognerPlage, supprimerCarte, supprimerPlage,
+  supprimerZoom, zoomA, cadrage, deplacerZoom, estBase, etirerZoom, morceauxLecture, plansAffiches,
   reglerZoom, avertissementsInterface, zonesTouchees, brutRetire,
 } from "./logique.ts";
 
@@ -99,20 +99,27 @@ test("ajouter une carte depuis la palette, avec son son", () => {
   assert.equal(avecSon.sons[0].fichier, "transitions/Riser-court_01.MP3");
 });
 
-test("garde-fous immédiats : 8 s et contraction en avertissement (Hugues décide), tiret cadratin bloquant", () => {
+test("19 oct. : aucune règle de goût en manuel ; restent les limites techniques et les 2 avertissements objectifs", () => {
   const r = recette();
-  r.cartes[1].debut = 21;
-  r.cartes[0].lignes = ["Tu es — vraiment"];
-  r.cartes[1].elements[0].texte = "T'es fatiguée";
-  const g = gardeFous(r);
-  const niveau = (re) => g.find((x) => re.test(x.message))?.niveau;
-  assert.equal(niveau(/4,0 s après la carte 1/), "avis");
-  assert.equal(niveau(/contraction/), "avis");
-  assert.equal(niveau(/tiret cadratin/), "erreur");     // le dessin de la carte le refuse : limite technique
-  assert.deepEqual(gardeFous(recette()), []);
-  const ok = recette();
-  ok.cartes[0].lignes = ["Je t'en parle", "Tu es là"];
-  assert.deepEqual(gardeFous(ok), [], "« t' » au milieu d'une phrase n'est pas une contraction de « tu »");
+  r.cartes[1].debut = 21;                                   // 4 s après la carte 1
+  r.cartes[0].lignes = ["Tu es — vraiment"];                // tiret
+  r.cartes[1].elements[0].texte = "T'es fatiguée";          // contraction
+  r.sons.push({ fichier: "impacts/deep-impact.mp3", debut: 18 });   // son à moins de 2 s
+  r.plans[0].zoom_de = 0.5;                                 // zoom hors bornes (bloqué à 1,0 à la lecture)
+  r.sources = { P1: { cadre: { cx: 0.98, cy: 0.5 } } };     // cadrage collé au bord
+  assert.deepEqual(problemesTimeline(r, null), []);
+  // Ce que le moteur renvoie : ses règles de goût (ancien agent) sont filtrées, le reste passe
+  const moteur = [
+    { carte: 1, niveau: "avis", message: "carte 2 commence 4,00 s après carte 1 : au moins 8 s entre le début de deux cartes" },
+    { carte: null, niveau: "avis", message: "Plans ajustés : plan 2 commence à 5,00 s" },
+    { carte: 0, niveau: "avis", message: "Cette carte touche le visage : carte 1 (texte, « Tu es »)" },
+    { carte: 2, niveau: "erreur", message: "Carte 3 : sort de l'image, le texte serait coupé" },
+    { carte: 0, niveau: "info", message: "Carte 1 réduite à 90 % pour tenir sous le menton" },
+  ];
+  const p = problemesTimeline(r, { cartes: [{ haut: 1650, x: 140, w: 800, h: 200 }], problemes: moteur });
+  assert.deepEqual(p.map((x) => x.niveau), ["avis", "avis", "erreur", "info"]);
+  assert.match(p[0].message, /^Carte 1 : hors de la zone visible Instagram\/Facebook \(passe sous .*le bas/);
+  assert.match(p[1].message, /touche le visage/);
 });
 
 test("corriger un groupe de sous-titres le rend écrit", () => {
@@ -131,14 +138,6 @@ test("annuler / rétablir", () => {
   assert.equal(annule.cartes[0].debut, 17);
   assert.equal(h.retablir(annule).cartes[0].debut, 10);
   assert.equal(h.annuler(annule)?.cartes[0].debut, 17);
-});
-
-test("sons à moins de 2 s : avertissement, jamais bloquant", () => {
-  const r = recette();
-  r.sons.push({ fichier: "impacts/deep-impact.mp3", debut: 18 });
-  const g = gardeFous(r).filter((x) => /2 s/.test(x.message));
-  assert.equal(g.length, 1);
-  assert.equal(g[0].niveau, "avis");
 });
 
 test("couper : la plage sous la tête devient deux morceaux, rien ne bouge", () => {
@@ -315,22 +314,19 @@ test("3b recalage : un rognage décale les zooms qui suivent", () => {
   assert.ok(Math.abs(s.plans.find((p) => p.zoom_de === 1.35).debut - (10.2333 - d)) < 0.05);
 });
 
-test("3b valeurs bloquées : zoom < 1,0 ou > 1,8 bloqué à la valeur permise, avertissement jaune", () => {
+test("3b valeurs bloquées : zoom < 1,0 ou > 1,8 bloqué à la valeur permise (note dans l'inspecteur)", () => {
   const r = recette();
   const s = reglerZoom(r, 0, "zoom_de", 0.8);
   assert.equal(s.plans[0].zoom_de, 1);
   assert.equal(s.plans[0].zoom_a, 1, "zoom fixe : les deux bougent");
   assert.match(s.plans[0].bloque, /0,8 demandé, bloqué à 1/);
-  const av = avertissementsZooms(s).concat(gardeFous(s).filter((p) => /Zoom/.test(p.message)));
-  assert.ok(av.length >= 1 && av.every((p) => p.niveau === "avis"), "jaune, jamais bloquant");
   const t = reglerZoom(s, 0, "zoom_de", 2.5);
   assert.equal(t.plans[0].zoom_de, 1.8);
   assert.match(t.plans[0].bloque, /bloqué à 1,8/);
   const u = reglerZoom(t, 0, "zoom_de", 1.3);
   assert.equal(u.plans[0].bloque, undefined, "valeur permise : plus d'avertissement");
-  // Valeur écrite à la main dans la recette (hors bornes) : avertissement et lecture bloquée
+  // Valeur écrite à la main dans la recette (hors bornes) : lecture bloquée (le moteur la refuse au rendu)
   const w = recette(); w.plans[0].zoom_de = 0.5; w.plans[0].zoom_a = 0.5;
-  assert.ok(avertissementsZooms(w).some((p) => /impossible, bloqué à 1/.test(p.message)));
   assert.equal(cadrage(w.plans[0], 1, {}).z, 1);
 });
 
@@ -343,9 +339,9 @@ test("3b cadrage : même calcul que le zoompan du moteur, jamais hors de l'image
     const k = cadrage({ debut: 0, fin: 1, zoom_de: z }, 0, { cx, cy });
     assert.ok(k.x >= 0 && k.x <= 1 - 1 / k.z + 1e-12 && k.y >= 0 && k.y <= 1 - 1 / k.z + 1e-12);
   }
-  // Visage collé au bord à 1,8 : le cadre est poussé contre le bord, avertissement jaune
-  const r = recette(); r.sources = { P1: { cadre: { cx: 0.98, cy: 0.5 } } };
-  assert.ok(avertissementsZooms(r).some((p) => /sortirait de l'image 4K/.test(p.message) && p.niveau === "avis"));
+  // Visage collé au bord à 1,8 : le cadre est poussé contre le bord (sans avertissement depuis le 19 oct. 2026)
+  const r = cadrage({ debut: 0, fin: 1, zoom_de: 1.8 }, 0, { cx: 0.98, cy: 0.5 });
+  assert.ok(r.decale > 0.02 && r.x <= 1 - 1 / r.z + 1e-12);
 });
 
 test("3b lecture en direct : une plage coupée sans rien retirer reste un seul morceau ; plans du moteur périmés ignorés", () => {
@@ -373,7 +369,7 @@ test("3b zone de l'interface : le sous-titre de instagram-reel.png passe sous le
   assert.equal(a[0].niveau, "avis", "jaune, jamais bloquant");
   assert.match(a[0].message, /toujours avant l'action/);
   assert.match(a[0].message, /colonne de droite \(cœur, commentaires, partage\) d'Instagram/);
-  assert.doesNotMatch(a[0].message, /Facebook/, "la colonne de Facebook commence plus bas (1267 px)");
+  assert.doesNotMatch(a[0].message, /de Facebook/, "la colonne de Facebook commence plus bas (1267 px)");
 });
 
 test("3b zone de l'interface : cartes (bas, haut, bord rogné), sous-titre caché pendant une carte", () => {
