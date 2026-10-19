@@ -2,7 +2,8 @@
 // Timeline du labo : montage du moteur recette, édité comme dans CapCut. Le moteur reste la référence :
 // chaque modification est revérifiée par lui (place sous le menton, 34 px, rendu possible), « Appliquer » rend l'aperçu.
 // Hugues décide (19 oct. 2026) : aucune règle de goût n'est montrée pour une édition à la main ; restent les limites
-// techniques en rouge et deux avertissements jaunes (carte sur le visage, hors de la zone visible Instagram/Facebook).
+// techniques en rouge et trois avertissements jaunes (carte sur le visage, hors de la zone visible Instagram/Facebook,
+// orthographe de « NEO Performance »).
 // Le brouillon est sauvé à chaque geste.
 import { Player, type PlayerRef } from "@remotion/player";
 import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -578,7 +579,7 @@ export const App: React.FC<{ source: Source; extra?: (o: { brouillon: boolean; e
         <aside className="tiroir">
           <div className="tete-colonne"><b>Garde-fous</b><button className="petit" onClick={() => setTiroir(false)}>✕</button></div>
           {etat?.erreur_outil && <div className="alerte erreur">Moteur : {etat.erreur_outil}</div>}
-          {!erreurs.length && avis.length > 0 && <p className="note petite">Avertissements : carte sur le visage ou hors de la zone visible Instagram/Facebook, à toi de décider. « Appliquer » reste permis.</p>}
+          {!erreurs.length && avis.length > 0 && <p className="note petite">Avertissements : carte sur le visage, hors de la zone visible Instagram/Facebook ou orthographe de « NEO Performance », à toi de décider. « Appliquer » reste permis.</p>}
           {!erreurs.length && !avis.length && <p className="note petite">Tout est bon.</p>}
           <ul>{[...erreurs, ...avis].map(ligneProbleme)}</ul>
           {infos.length > 0 && (

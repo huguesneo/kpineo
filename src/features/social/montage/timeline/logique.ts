@@ -226,9 +226,10 @@ export const nomSon = (f: string) => (f.split("/").pop() || f).replace(/\.(mp3|w
 
 /** Garde-fous de la timeline (décision de Hugues du 19 oct. 2026) : aucune règle de goût pour une édition à la main
  *  (écart de 8 s, nombre de cartes, durées, rythme, sons, contractions, tiret, zooms : rien n'est montré). Restent les
- *  limites techniques du moteur (rouges, elles bloquent le rendu), ce qu'il fait seul (info) et deux avertissements
- *  objectifs : « Cette carte touche le visage » (moteur) et « hors de la zone visible Instagram/Facebook » (ici). */
-export const AVIS_OBJECTIFS = [/touche le visage/, /hors de la zone visible Instagram\/Facebook/];
+ *  limites techniques du moteur (rouges, elles bloquent le rendu), ce qu'il fait seul (info) et trois avertissements
+ *  jaunes : « Cette carte touche le visage » et l'orthographe de « NEO Performance » (moteur, sous-titres et cartes),
+ *  « hors de la zone visible Instagram/Facebook » (ici). */
+export const AVIS_OBJECTIFS = [/touche le visage/, /hors de la zone visible Instagram\/Facebook/, /la marque s'écrit/];
 export const problemesTimeline = (
   r: Recette, etat?: { cartes: PlacementCarte[]; sous_titres?: { groupes: GroupeSousTitre[]; hauteur: number; taille?: number }; problemes?: Probleme[] } | null,
 ): Probleme[] => {

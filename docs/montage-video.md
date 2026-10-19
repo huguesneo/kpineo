@@ -742,9 +742,9 @@ Plan et décisions : `docs/plan-timeline-hub.md`. Contrat de l'agent : `video-ne
   dans git ni dans le build ; police absente → carte refusée dans le lecteur, jamais une autre police.
 - **Garde-fous en manuel** (décision de Hugues du 19 oct. 2026) : aucune règle de goût (8 s entre cartes, nombre de
   cartes, durées, rythme, sons, contractions, tiret, zooms, plans ou sous-titres réparés) ; restent les limites
-  techniques, ce que le moteur fait seul, « Cette carte touche le visage » et « hors de la zone visible
-  Instagram/Facebook » (`problemesTimeline`). Les règles restent pour l'IA. Liste complète : video-neo,
-  `docs/labo/decisions.md` n° 120.
+  techniques, ce que le moteur fait seul, « Cette carte touche le visage », « hors de la zone visible
+  Instagram/Facebook » et l'orthographe de « NEO Performance » (`problemesTimeline`). Les règles restent pour l'IA. Liste complète : video-neo,
+  `docs/labo/decisions.md` n° 120 et 121.
 - **Lecteur jamais noir** (19 oct. 2026) : la copie légère garde le même lien tant qu'elle se lit (`lienVideo` : un
   nouveau lien rechargerait la vidéo, donc ni une modif ni le renouvellement n'y touchent) ; si elle échoue (lien
   expiré), elle reçoit le lien frais et reprend au même moment (`echecVideo`, un essai par 5 s). Chaque son n'occupe une

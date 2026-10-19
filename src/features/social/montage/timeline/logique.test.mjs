@@ -115,9 +115,11 @@ test("19 oct. : aucune règle de goût en manuel ; restent les limites technique
     { carte: 0, niveau: "avis", message: "Cette carte touche le visage : carte 1 (texte, « Tu es »)" },
     { carte: 2, niveau: "erreur", message: "Carte 3 : sort de l'image, le texte serait coupé" },
     { carte: 0, niveau: "info", message: "Carte 1 réduite à 90 % pour tenir sous le menton" },
+    { carte: 1, niveau: "avis", message: "carte 2 (Chez Neo) : « Neo » interdit, la marque s'écrit « NEO Performance »" },
   ];
   const p = problemesTimeline(r, { cartes: [{ haut: 1650, x: 140, w: 800, h: 200 }], problemes: moteur });
-  assert.deepEqual(p.map((x) => x.niveau), ["avis", "avis", "erreur", "info"]);
+  assert.deepEqual(p.map((x) => x.niveau), ["avis", "avis", "erreur", "info", "avis"]);
+  assert.match(p[4].message, /la marque s'écrit « NEO Performance »/);   // orthographe : jaune en manuel
   assert.match(p[0].message, /^Carte 1 : hors de la zone visible Instagram\/Facebook \(passe sous .*le bas/);
   assert.match(p[1].message, /touche le visage/);
 });
