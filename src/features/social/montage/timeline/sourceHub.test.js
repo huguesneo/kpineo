@@ -92,6 +92,39 @@ describe('liens signés', () => {
     await vi.advanceTimersByTimeAsync(50)
     expect(liens.lien('y')).toBe(`u${t}`)
   })
+
+  it('19 oct. : la vidéo garde son lien au renouvellement (jamais rechargée) ; après un échec, lien frais et reprise', async () => {
+    let t = 0
+    const signes = []
+    const client = fauxClient({}, { signer: (b, c) => { signes.push(t); return { data: c.map(x => ({ path: x, signedUrl: `u${t}`, error: null })) } } })
+    const liens = creerLiens(client, { maintenant: () => t })
+    const vu = vi.fn()
+    liens.abonner(vu)
+    expect(liens.lienVideo('p.mp4')).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(50)
+    expect(liens.lienVideo('p.mp4')).toBe('u0')
+    // modifs pendant la lecture, puis renouvellement à 13 min : la vidéo garde son adresse, les autres liens suivent
+    t = 13 * 60_000
+    expect(liens.lienVideo('p.mp4')).toBe('u0')
+    await vi.advanceTimersByTimeAsync(50)
+    expect(liens.lien('p.mp4')).toBe(`u${13 * 60_000}`)
+    expect(liens.lienVideo('p.mp4')).toBe('u0')
+    // 16 min : le lien gardé a expiré, la vidéo échoue → le lien frais déjà renouvelé lui est donné tout de suite
+    t = 16 * 60_000
+    const avant = vu.mock.calls.length
+    liens.echecVideo('p.mp4')
+    expect(vu.mock.calls.length).toBe(avant + 1)
+    expect(liens.lienVideo('p.mp4')).toBe(`u${13 * 60_000}`)
+    // un 2e échec dans les 5 s ne redemande rien ; plus tard, le lien qui a échoué est jeté et un neuf demandé
+    liens.echecVideo('p.mp4')
+    t += 6_000
+    const n = signes.length
+    liens.echecVideo('p.mp4')
+    expect(liens.lienVideo('p.mp4')).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(50)
+    expect(signes.length).toBe(n + 1)
+    expect(liens.lienVideo('p.mp4')).toBe(`u${t}`)
+  })
 })
 
 describe('source du hub', () => {

@@ -585,3 +585,41 @@ test("16 oct. : volume de la musique en direct = calcul du rendu (12 LU sous la 
   const groupes = [{ debut: 2, fin: 3 }];
   assert.deepEqual([1.85, 1.95, 3.1, 3.25].map((t) => parleA(groupes, t)), [false, true, true, false]);
 });
+
+import { pistesAudio, AUDIOS_LECTEUR } from "./logique.ts";
+
+// Plus grand nombre de balises audio prises à une même image
+const auPlus = (p) => {
+  const ivs = [...p.sons, ...p.musique].map(({ de, n }) => [de, de + n]);
+  let max = 0;
+  for (const [a] of ivs) max = Math.max(max, ivs.filter(([x, y]) => x <= a && a < y).length);
+  return max;
+};
+
+test("19 oct. : un son n'occupe une balise audio que le temps de son fichier (plus d'écran noir au 6e son)", () => {
+  // montage réel m-33ae7fd2 : 9 sons, + une carte ajoutée (son pop) ; avant, le 6e son posé faisait planter le lecteur
+  const r = { ...recette(), plages: [{ source: "P1", debut: 0, fin: 93.5 }] };
+  r.sons = [0.88, 3.44, 18.82, 32.49, 43.41, 55.51, 73.67, 84.89, 89.97, 60].map((debut, i) => ({ fichier: `s${i % 3}.mp3`, debut }));
+  const durees = { "s0.mp3": 0.6, "s1.mp3": 1.2, "s2.mp3": 2.5 };
+  const p = pistesAudio(r, durees);
+  assert.equal(p.sons.length, 10);
+  assert.equal(p.muets, 0);
+  assert.ok(auPlus(p) <= 2);
+  const pop = p.sons.find((s) => s.k === 0);
+  assert.deepEqual([pop.de, pop.n], [26, 18]);                          // 0,88 s → image 26, 0,6 s → 18 images
+  assert.equal(p.sons.find((s) => s.k === 2).n, 75);                    // 2,5 s
+  // durée inconnue : 3 s ; un son près de la fin s'arrête à la fin de la vidéo
+  const q = pistesAudio({ ...r, sons: [{ fichier: "x.mp3", debut: 10 }, { fichier: "x.mp3", debut: 93.4 }] }, {});
+  assert.deepEqual(q.sons.map((s) => s.n), [90, 3]);
+});
+
+test("19 oct. : jamais plus de balises audio que le lecteur n'en a, même avec des sons empilés", () => {
+  const r = { ...recette(), plages: [{ source: "P1", debut: 0, fin: 30 }] };
+  r.sons = Array.from({ length: 25 }, (_, i) => ({ fichier: "long.mp3", debut: 1 + i * 0.1 }));
+  r.musiques = [{ fichier: "musique/a.mp3", debut: 0, fin: 30 }];
+  const p = pistesAudio(r, { "long.mp3": 8, "musique/a.mp3": 12 });
+  assert.ok(auPlus(p) <= AUDIOS_LECTEUR - 2);
+  assert.equal(p.musique.length, 3);                                     // 12 s + 12 s + 6 s (en boucle)
+  assert.equal(p.sons.length + p.muets, 25);
+  assert.ok(p.muets > 0);
+});

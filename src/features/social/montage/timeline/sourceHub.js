@@ -237,6 +237,8 @@ export function creerSourceHub({ client, job, liens, onErreur = () => {}, attend
     montage, modeles, proxies, verifier, sauver, jeter, onde, appliquer, ia, travail, annuler,
     enCours: () => Boolean(suivi),
     lien: liens.lien,
+    lienVideo: liens.lienVideo,
+    echecVideo: liens.echecVideo,
     lienSon: (fichier) => liens.url(BUCKET_TIMELINE, sons.chemins[fichier]),
     lienApercu: () => liens.url(BUCKET_APERCUS, apercu) ?? null,
     abonner: liens.abonner,

@@ -14,6 +14,8 @@ export type Source = {
   ia(recette: unknown, demande: string): Promise<{ travail?: any; refus?: string }>;
   travail(): Promise<{ travail: any }>;
   lien(chemin?: string): string | undefined;
+  lienVideo(chemin?: string): string | undefined;   // même adresse tant que la vidéo marche
+  echecVideo(chemin?: string): void;                // la vidéo a échoué : lien frais au prochain rendu
   lienSon(fichier: string): string | undefined;
   lienApercu(): string | null;
   abonner(f: () => void): () => void;

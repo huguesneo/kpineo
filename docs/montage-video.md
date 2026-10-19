@@ -740,6 +740,11 @@ Plan et décisions : `docs/plan-timeline-hub.md`. Contrat de l'agent : `video-ne
   la palette et polices des graphiques (`hub/`, migration `20261015b`, publiés par l'agent à chaque démarrage). Onde
   d'une musique ajoutée : calculée dans le navigateur (même calcul que `outil.py onde`). Polices Allrounder : jamais
   dans git ni dans le build ; police absente → carte refusée dans le lecteur, jamais une autre police.
+- **Lecteur jamais noir** (19 oct. 2026) : la copie légère garde le même lien tant qu'elle se lit (`lienVideo` : un
+  nouveau lien rechargerait la vidéo, donc ni une modif ni le renouvellement n'y touchent) ; si elle échoue (lien
+  expiré), elle reçoit le lien frais et reprend au même moment (`echecVideo`, un essai par 5 s). Chaque son n'occupe une
+  balise audio que le temps de son fichier, 16 balises au plus (`pistesAudio`) : avant, le 6e son posé faisait lever
+  une erreur à Remotion et le lecteur devenait noir. Un média illisible est signalé dans la console, jamais levé.
 - **Code** : `src/features/social/montage/timeline/`. `logique.ts`, `Timeline.tsx`, `Inspecteur.tsx`, graphiques et
   repères sont recopiés du labo, `App.tsx`, `Montage.tsx` et `style.css` retouchés, par `node scripts/synchro-timeline.mjs`
   (à relancer après un batch du labo ; `--verifier` compare, testé par Vitest). Propre au hub : `sourceHub.js`,

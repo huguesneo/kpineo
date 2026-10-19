@@ -10,7 +10,7 @@ import { Inspecteur, type InfosModeles } from "./Inspecteur";
 import { Montage, NOMS_REPERES, type Etat, type PropsMontage, type Reperes } from "./Montage";
 import { TYPES_DEPOT, Timeline, type Onde, type Selection } from "./Timeline";
 import {
-  FPS, Historique, SON_PAR_TYPE, ZOOMS, ajouterCarte, avertissementsInterface, ajouterSon, basculerHauteurTimeline, boiteCarte,
+  AUDIOS_LECTEUR, FPS, Historique, SON_PAR_TYPE, ZOOMS, ajouterCarte, avertissementsInterface, ajouterSon, basculerHauteurTimeline, boiteCarte,
   bornerHauteurTimeline, copie, couperPlage, dureeTotale, ecrireHauteurTimeline, formatTemps, fusionner, gardeFous, img,
   lireHauteurTimeline, nomSon, placerCarte, poserMusique, poserZoom, reglerTaille, supprimerCarte, supprimerPlage, blocsMusique,
   couperMusique, musiqueA, supprimerMusique,
@@ -399,6 +399,7 @@ export const App: React.FC<{ source: Source; extra?: (o: { brouillon: boolean; e
     niveaux: niveauxChansons,   // change avec dureesChansons (les deux viennent de modeles)
     selection: selection?.genre === "carte" ? selection.index : null, proxies, durees: dureesChansons,
     lien: source.lien, lienSon: source.lienSon, apercu: source.lienApercu(), versionLiens,
+    lienVideo: source.lienVideo, echecVideo: source.echecVideo,
   }), [recette, etat, mode, reperes, versions, selection, proxies, dureesChansons, source, versionLiens]);
   const parCategorie = useMemo(() => {
     const g: Record<string, SonBib[]> = {};
@@ -504,7 +505,7 @@ export const App: React.FC<{ source: Source; extra?: (o: { brouillon: boolean; e
         <div className="lecteur" ref={zoneLecteur}>
           <div className="cadre-lecteur" style={{ width: largeurLecteur, height: hLecteur }}>
             <Player ref={player} component={Montage} inputProps={inputProps} durationInFrames={Math.max(1, img(total))}
-              compositionWidth={1080} compositionHeight={1920} fps={FPS} controls clickToPlay={false}
+              compositionWidth={1080} compositionHeight={1920} fps={FPS} controls clickToPlay={false} numberOfSharedAudioTags={AUDIOS_LECTEUR}
               style={{ width: largeurLecteur, height: hLecteur, borderRadius: 14, overflow: "hidden", background: "#000" }} acknowledgeRemotionLicense />
             {mode === "direct" && selection?.genre === "carte" && (
               <PoigneesCarte recette={recette} etat={etat} k={selection.index} temps={temps} echelle={largeurLecteur / 1080}

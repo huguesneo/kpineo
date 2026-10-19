@@ -713,6 +713,40 @@ export const segmentsMusique = (b: BlocMusique, dureeChanson?: number) => {
   return out;
 };
 
+// ------------------------------------------------------------------ balises audio du lecteur (19 oct. 2026)
+/** Balises audio du Player (numberOfSharedAudioTags) : au-delà, Remotion lève une erreur et le lecteur devient noir. */
+export const AUDIOS_LECTEUR = 16;
+const AUDIOS_MARGE = 2;             // une balise rendue et la suivante prise dans la même image
+const DUREE_SON_INCONNUE = 3;
+
+/** Sons et morceaux de musique joués par le lecteur en direct (en images). Un son n'occupe une balise que le temps de
+ *  son fichier : avant, il restait monté jusqu'à la fin de la vidéo et le 6e son posé faisait planter le lecteur.
+ *  S'il en faudrait plus à un même moment, les sons suivants ne sont pas joués dans le lecteur (`muets`, le rendu
+ *  les garde). */
+export const pistesAudio = (r: Recette, durees: Record<string, number> = {}, limite = AUDIOS_LECTEUR - AUDIOS_MARGE) => {
+  const total = img(dureeTotale(r));
+  const pris: [number, number][] = [];
+  const libre = (de: number, fin: number) => pris.filter(([a, b]) => a < fin && de < b).length < limite;
+  const musique: { k: number; j: number; bloc: BlocMusique; depuis: number; de: number; n: number }[] = [];
+  blocsMusique(r).forEach((bloc, k) => segmentsMusique(bloc, durees[bloc.fichier]).forEach((sg, j) => {
+    const de = img(sg.debut), fin = Math.max(de + 1, img(sg.debut + sg.duree));
+    if (!libre(de, fin)) return;
+    pris.push([de, fin]);
+    musique.push({ k, j, bloc, depuis: sg.depuis, de, n: fin - de });
+  }));
+  const sons: { k: number; de: number; n: number }[] = [];
+  let muets = 0;
+  (r.sons || []).map((s, k) => ({ s, k })).sort((a, b) => a.s.debut - b.s.debut).forEach(({ s, k }) => {
+    const de = img(s.debut);
+    const d = durees[s.fichier] > 0 ? durees[s.fichier] : DUREE_SON_INCONNUE;
+    const fin = Math.min(Math.max(total, de + 1), de + Math.max(1, Math.ceil(d * FPS)));
+    if (!libre(de, fin)) { muets += 1; return; }
+    pris.push([de, fin]);
+    sons.push({ k, de, n: fin - de });
+  });
+  return { sons, musique, muets };
+};
+
 // ------------------------------------------------------------------ historique (annuler / rétablir)
 export class Historique {
   passe: string[] = [];

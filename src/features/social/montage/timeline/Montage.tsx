@@ -3,12 +3,12 @@
 // sous-titres et cartes. Graphiques : dessinés en direct par les composants de labo/graphiques. Cartes
 // Python : PNG du moteur (cache) ; carte chiffre avec photo : animée (photo de l'équipe, compteur qui défile).
 import React from "react";
-import { AbsoluteFill, Html5Audio, Html5Video, Img, Sequence, useCurrentFrame, useVideoConfig } from "remotion";
+import { AbsoluteFill, Html5Audio, Html5Video, Img, Sequence, useCurrentFrame } from "remotion";
 import { Graphique } from "./graphiques/Graphique";
 import type { PropsGraphique } from "./graphiques/commun";
 import calqueFacebook from "./reperes/facebook.png";
 import calqueInstagram from "./reperes/instagram.png";
-import { FPS, ZONES_INTERFACE, blocsMusique, boiteCarte, db, gainMusique, parleA, segmentsMusique, cadrage, img, morceauxLecture, planA, plansAffiches, type Cadre as CadreSource, type Plan, type Recette, type Reseau } from "./logique";
+import { FPS, ZONES_INTERFACE, boiteCarte, db, gainMusique, parleA, pistesAudio, cadrage, img, morceauxLecture, planA, plansAffiches, type Cadre as CadreSource, type Plan, type Recette, type Reseau } from "./logique";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type Glyphe = { sx: number; l: number; t: number; r: number; b: number };
@@ -38,6 +38,8 @@ export type PropsMontage = {
   // Hub : chemin du stockage privé → lien signé (undefined tant qu'il n'est pas prêt) ; son → lien signé ; aperçu rendu
   lien: (chemin?: string) => string | undefined; lienSon: (fichier: string) => string | undefined; apercu: string | null;
   versionLiens?: number;
+  // Vidéo : même lien tant qu'elle marche (un nouveau src la recharge) ; echecVideo quand elle échoue (lien expiré)
+  lienVideo: (chemin?: string) => string | undefined; echecVideo: (chemin?: string) => void;
 };
 const Liens = React.createContext<(chemin?: string) => string | undefined>(() => undefined);
 export type Reperes = "aucun" | "visage" | Reseau;
@@ -218,7 +220,11 @@ const Cadre: React.FC<{ plans: Plan[]; cadre: CadreSource; debut: number; childr
   );
 };
 
-const VideoSource: React.FC<{ recette: Recette; plans: Plan[]; proxies: Record<string, string> }> = ({ recette, plans, proxies }) => (
+// Média illisible (lien expiré, réseau) : signalé, jamais d'erreur levée (Remotion ferait planter le lecteur en noir).
+const mediaIllisible = (quoi: string) => (e: Error) => console.warn(`Timeline : ${quoi} illisible`, e.message);
+
+// Vidéo qui échoue : onErreur(source) laisse le hub lui redonner un lien ; le lecteur reprend au même moment.
+const VideoSource: React.FC<{ recette: Recette; plans: Plan[]; proxies: Record<string, string>; onErreur?: (source: string) => void }> = ({ recette, plans, proxies, onErreur }) => (
   <>
     {morceauxLecture(recette).map((m, k) => {
       const src = proxies[m.source];
@@ -227,7 +233,8 @@ const VideoSource: React.FC<{ recette: Recette; plans: Plan[]; proxies: Record<s
       return (
         <Sequence key={`${k}-${m.source}-${img(m.debut)}`} from={img(m.sortie)} durationInFrames={n} premountFor={FPS}>
           <Cadre plans={plans} cadre={cadre as CadreSource} debut={img(m.sortie) / FPS}>
-            {src ? <Html5Video src={src} trimBefore={img(m.debut)} style={{ width: 1080, height: 1920, objectFit: "cover" }} acceptableTimeShiftInSeconds={0.25} />
+            {src ? <Html5Video src={src} trimBefore={img(m.debut)} style={{ width: 1080, height: 1920, objectFit: "cover" }} acceptableTimeShiftInSeconds={0.25}
+              onError={(e) => { mediaIllisible(`vidéo ${m.source}`)(e); onErreur?.(m.source); }} />
               : <AbsoluteFill style={{ display: "grid", placeItems: "center", color: "#9FB0AE", fontSize: 40, fontFamily: "Satoshi, sans-serif" }}>Préparation de la vidéo source…</AbsoluteFill>}
           </Cadre>
         </Sequence>
@@ -236,37 +243,36 @@ const VideoSource: React.FC<{ recette: Recette; plans: Plan[]; proxies: Record<s
   </>
 );
 
-export const Montage: React.FC<PropsMontage> = ({ recette, etat, mode, reperes, selection, proxies, durees, niveaux, lien, lienSon, apercu }) => {
-  const { durationInFrames } = useVideoConfig();
+export const Montage: React.FC<PropsMontage> = ({ recette, etat, mode, reperes, selection, proxies, durees, niveaux, lien, lienSon, apercu, lienVideo, echecVideo }) => {
   if (mode === "apercu") {
     return apercu ? <Html5Video src={apercu} /> : <AbsoluteFill style={{ background: "#0A1416" }} />;
   }
   const plans = plansAffiches(recette.plans, etat?.plans); // dézooms du moteur compris, si l'état est à jour
   const parle = (t: number) => parleA(etat?.sous_titres.groupes || [], t);
-  const liens = Object.fromEntries(Object.entries(proxies).map(([k, v]) => [k, lien(v)]).filter(([, v]) => v)) as Record<string, string>;
+  const pistes = pistesAudio(recette, durees);
+  const liens = Object.fromEntries(Object.entries(proxies).map(([k, v]) => [k, lienVideo(v)]).filter(([, v]) => v)) as Record<string, string>;
   return (
     <Liens.Provider value={lien}><AbsoluteFill style={{ background: "#0A1416" }}>
-      <VideoSource recette={recette} plans={plans} proxies={liens} />
-      {(recette.sons || []).map((s, k) => !lienSon(s.fichier) ? null : (
-        <Sequence key={`s${k}`} from={img(s.debut)} durationInFrames={Math.max(1, durationInFrames - img(s.debut))} layout="none">
-          <Html5Audio src={lienSon(s.fichier)!} volume={() => Math.min(1, 0.35 * db(s.volume_db ?? 0))} />
+      <VideoSource recette={recette} plans={plans} proxies={liens} onErreur={(s) => echecVideo(proxies[s])} />
+      {/* Chaque son occupe une balise audio le temps de son fichier seulement (pistesAudio, 19 oct. 2026). */}
+      {pistes.sons.map(({ k, de, n }) => { const s = recette.sons![k]; return !lienSon(s.fichier) ? null : (
+        <Sequence key={`s${k}`} from={de} durationInFrames={n} layout="none">
+          <Html5Audio src={lienSon(s.fichier)!} volume={() => Math.min(1, 0.35 * db(s.volume_db ?? 0))}
+            onError={mediaIllisible(s.fichier)} />
         </Sequence>
-      ))}
+      ); })}
       {/* Musique (batch 4b) : chaque bloc joue la chanson à partir de son décalage (puis en boucle depuis le début,
           comme -stream_loop du moteur), à son volume sous la voix, avec ses fondus linéaires (afade) et la baisse de
           4 dB quand la voix parle : gainMusique, même calcul que le rendu. Un Html5Audio par morceau de chanson joué. */}
-      {blocsMusique(recette).map((b, k) => !lienSon(b.fichier) ? null : segmentsMusique(b, durees?.[b.fichier]).map((sg, j) => {
-        const de = img(sg.debut);
-        return (
-          <Sequence key={`m${k}-${j}-${b.fichier}`} from={de} durationInFrames={Math.max(1, img(sg.debut + sg.duree) - de)} layout="none">
-            <Html5Audio src={lienSon(b.fichier)!} trimBefore={img(sg.depuis)}
-              volume={(f) => {
-                const t = (de + f) / FPS;
-                return gainMusique(b, t, niveaux?.[b.fichier], parle(t));
-              }} />
-          </Sequence>
-        );
-      }))}
+      {pistes.musique.map(({ k, j, bloc: b, depuis, de, n }) => !lienSon(b.fichier) ? null : (
+        <Sequence key={`m${k}-${j}-${b.fichier}`} from={de} durationInFrames={n} layout="none">
+          <Html5Audio src={lienSon(b.fichier)!} trimBefore={img(depuis)}
+            volume={(f) => {
+              const t = (de + f) / FPS;
+              return gainMusique(b, t, niveaux?.[b.fichier], parle(t));
+            }} onError={mediaIllisible(b.fichier)} />
+        </Sequence>
+      ))}
       {etat && <SousTitres etat={etat} recette={recette} />}
       {recette.cartes.map((c, k) => {
         const brut = etat?.cartes[k];

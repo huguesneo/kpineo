@@ -86,6 +86,7 @@ export const App: React.FC<{ source: Source; extra?: (o: { brouillon: boolean; e
   }), [recette, etat, mode, reperes, versions, selection, proxies, dureesChansons]);`,
     `    selection: selection?.genre === "carte" ? selection.index : null, proxies, durees: dureesChansons,
     lien: source.lien, lienSon: source.lienSon, apercu: source.lienApercu(), versionLiens,
+    lienVideo: source.lienVideo, echecVideo: source.echecVideo,
   }), [recette, etat, mode, reperes, versions, selection, proxies, dureesChansons, source, versionLiens]);`],
   [`<b>NEO</b> Timeline <span>labo · `, `<b>NEO</b> Timeline <span>{source.titre} · `],
   [`          <button onClick={annuler} disabled={!hist.current.passe.length} title="⌘Z">↶ Annuler</button>`,
@@ -117,6 +118,8 @@ sorties.set("Montage.tsx", ENTETE("labo/timeline/src/Montage.tsx") + retoucher("
   // Hub : chemin du stockage privé → lien signé (undefined tant qu'il n'est pas prêt) ; son → lien signé ; aperçu rendu
   lien: (chemin?: string) => string | undefined; lienSon: (fichier: string) => string | undefined; apercu: string | null;
   versionLiens?: number;
+  // Vidéo : même lien tant qu'elle marche (un nouveau src la recharge) ; echecVideo quand elle échoue (lien expiré)
+  lienVideo: (chemin?: string) => string | undefined; echecVideo: (chemin?: string) => void;
 };
 const Liens = React.createContext<(chemin?: string) => string | undefined>(() => undefined);`],
   [`  const c = info.compteur!;\n`, `  const c = info.compteur!;\n  const lien = React.useContext(Liens);\n  if (!lien(c.sprite) || !lien(c.fond)) return null;\n`],
@@ -131,18 +134,17 @@ const Liens = React.createContext<(chemin?: string) => string | undefined>(() =>
 
 const SousTitres: React.FC`],
   [`export const Montage: React.FC<PropsMontage> = ({ recette, etat, mode, reperes, versions, selection, proxies, durees, niveaux }) => {`,
-    `export const Montage: React.FC<PropsMontage> = ({ recette, etat, mode, reperes, selection, proxies, durees, niveaux, lien, lienSon, apercu }) => {`],
+    `export const Montage: React.FC<PropsMontage> = ({ recette, etat, mode, reperes, selection, proxies, durees, niveaux, lien, lienSon, apercu, lienVideo, echecVideo }) => {`],
   ["    return versions.apercu ? <Html5Video src={`/media/apercu.mp4?v=${versions.apercu}`} /> : <AbsoluteFill style={{ background: \"#0A1416\" }} />;",
     `    return apercu ? <Html5Video src={apercu} /> : <AbsoluteFill style={{ background: "#0A1416" }} />;`],
   [`  return (\n    <AbsoluteFill style={{ background: "#0A1416" }}>\n      <VideoSource recette={recette} plans={plans} proxies={proxies} />`,
-    `  const liens = Object.fromEntries(Object.entries(proxies).map(([k, v]) => [k, lien(v)]).filter(([, v]) => v)) as Record<string, string>;
+    `  const liens = Object.fromEntries(Object.entries(proxies).map(([k, v]) => [k, lienVideo(v)]).filter(([, v]) => v)) as Record<string, string>;
   return (
     <Liens.Provider value={lien}><AbsoluteFill style={{ background: "#0A1416" }}>
-      <VideoSource recette={recette} plans={plans} proxies={liens} />`],
-  [`{(recette.sons || []).map((s, k) => (`, `{(recette.sons || []).map((s, k) => !lienSon(s.fichier) ? null : (`],
+      <VideoSource recette={recette} plans={plans} proxies={liens} onErreur={(s) => echecVideo(proxies[s])} />`],
+  [`{pistes.sons.map(({ k, de, n }) => { const s = recette.sons![k]; return (`, `{pistes.sons.map(({ k, de, n }) => { const s = recette.sons![k]; return !lienSon(s.fichier) ? null : (`],
   ["<Html5Audio src={`/sons/${s.fichier.split(\"/\").map(encodeURIComponent).join(\"/\")}`}", "<Html5Audio src={lienSon(s.fichier)!}"],
-  [`{blocsMusique(recette).map((b, k) => segmentsMusique(b, durees?.[b.fichier]).map((sg, j) => {`,
-    `{blocsMusique(recette).map((b, k) => !lienSon(b.fichier) ? null : segmentsMusique(b, durees?.[b.fichier]).map((sg, j) => {`],
+  [`{pistes.musique.map(({ k, j, bloc: b, depuis, de, n }) => (`, `{pistes.musique.map(({ k, j, bloc: b, depuis, de, n }) => !lienSon(b.fichier) ? null : (`],
   ["<Html5Audio src={`/sons/${b.fichier.split(\"/\").map(encodeURIComponent).join(\"/\")}`}", "<Html5Audio src={lienSon(b.fichier)!}"],
   [`              <Graphique {...info.props} duree={c.duree} n={n} apercuFlou />`,
     `              <GardeGraphique texte={info.texte || c.type || "graphique"}><Graphique {...info.props} duree={c.duree} n={n} apercuFlou /></GardeGraphique>`],
