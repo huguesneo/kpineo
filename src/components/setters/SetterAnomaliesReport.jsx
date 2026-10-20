@@ -8,6 +8,8 @@ import { usePayPeriodConfig, listPayPeriods } from '../../hooks/usePayPeriod'
 import { loadSetterCommissionData } from '../../lib/commissions/loadSetterData'
 import { computeSetterCommissions, computeSetterAnomalies, ANOMALIES } from '../../lib/commissions/setterCommissions'
 import { BASCULE_DATE, RDV_NON_SHOWED } from '../../lib/commissions/config'
+import { telechargerCsv } from '../../lib/exportCsv'
+import { lienFicheGHL } from '../../lib/v2/salesConfig'
 
 // Ce qui peut changer un montant de paie → à régler avant de payer.
 // Le reste est informatif (contact test déjà exclu).
@@ -20,6 +22,16 @@ const fmtDate = iso => iso
   ? new Intl.DateTimeFormat('fr-CA', { timeZone: 'America/Toronto', day: 'numeric', month: 'short' }).format(new Date(iso))
   : '—'
 const fmtPeriod = p => `${format(parseISO(p.start), 'd MMM', { locale: fr })} → ${format(parseISO(p.end), 'd MMM yyyy', { locale: fr })}`
+// Export CSV : toutes les lignes de tous les tableaux, avec leur détail
+const COLONNES_CSV = [
+  { cle: 'libelle', titre: 'Anomalie' }, { cle: 'code', titre: 'Code' },
+  { cle: 'contact', titre: 'Contact' }, { cle: 'contact_id', titre: 'ID contact' },
+  { cle: 'setter', titre: 'Setter (setter__nom)' }, { cle: 'pipeline', titre: 'Pipeline' }, { cle: 'etape', titre: 'Étape' },
+  { cle: 'type_booking', titre: 'Type de booking' }, { cle: 'date_rdv', titre: 'Date du RDV' }, { cle: 'statut_rdv', titre: 'Statut du RDV' },
+  { cle: 'date_de_close', titre: 'Date de close' }, { cle: 'montant_retenu', titre: 'Payé' }, { cle: 'montant_potentiel', titre: 'Montant si setter' },
+  { cle: 'opportunite', titre: 'ID opportunité' }, { cle: l => (l.contact_id ? lienFicheGHL(l.contact_id) : null), titre: 'Fiche GHL' },
+]
+
 const fmtCAD = n => Number(n ?? 0).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD', maximumFractionDigits: 0 })
 
 export default function SetterAnomaliesReport({ setters }) {
@@ -75,7 +87,7 @@ export default function SetterAnomaliesReport({ setters }) {
     // Montant « perdu » : ce que paieraient les cartes sans setter si elles en avaient un.
     const sansSetter = anomalies.filter(a => a.code === 'sans_setter')
     const perdu = sansSetter.reduce((s, a) => s + (a.montant_potentiel ?? 0), 0)
-    return { totals, groups, bloquantes, total: anomalies.length, perdu, perduCartes: sansSetter.length }
+    return { anomalies, totals, groups, bloquantes, total: anomalies.length, perdu, perduCartes: sansSetter.length }
   }, [data, period, setters])
 
   return (
@@ -111,6 +123,14 @@ export default function SetterAnomaliesReport({ setters }) {
           className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-[#e5e7eb] bg-white text-[#6b7280] hover:border-[#6366f1]/40 disabled:opacity-50"
         >
           {loading ? 'Actualisation…' : 'Actualiser'}
+        </button>
+        <button
+          onClick={() => telechargerCsv(`anomalies-setters-${period.start}-au-${period.end}`, report.anomalies, COLONNES_CSV)}
+          disabled={!report?.total}
+          title="Télécharger toutes les lignes de tous les tableaux (CSV, s'ouvre dans Excel)"
+          className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-[#e5e7eb] bg-white text-[#00bbb1] hover:border-[#00bbb1]/40 disabled:opacity-50"
+        >
+          ⬇ Exporter CSV
         </button>
         <p className="text-xs text-[#9ca3af]">
           Bascule des pipelines : {format(parseISO(BASCULE_DATE), 'd MMM yyyy', { locale: fr })} · RDV non « showed » : {RDV_NON_SHOWED === 'bloquer' ? 'non payé' : 'payé et signalé'}
