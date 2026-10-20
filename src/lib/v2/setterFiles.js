@@ -277,3 +277,20 @@ export function trierLeads(leads, tri = TRI_DEFAUT) {
     return parAge(a, b, tri?.sens ?? 'vieux')
   })
 }
+
+// Fiche ouverte sans sa carte setting (tâche du jour, notification) : reprend la
+// carte du lead s'il est dans une liste, sinon la carte du pipeline setting la
+// plus récente du contact. Sans elle, « Non qualifié » et « Pas intéressé » sont
+// grisés dans Résultat.
+export function completerLead(lead, { leads = [], opps = [] } = {}) {
+  if (!lead || lead.opportunityId) return lead
+  const carte = leads.find(l => l.contactId === lead.contactId && l.opportunityId)
+    ?? leads.find(l => l.contactId === lead.contactId)
+  if (carte?.opportunityId) return carte
+  let opp = null
+  for (const o of opps) {
+    if (o.pipeline_id !== PIPELINE_SETTING.id || o.contact_id !== lead.contactId) continue
+    if (!opp || (ms(o.created_at_ghl) ?? 0) > (ms(opp.created_at_ghl) ?? 0)) opp = o
+  }
+  return { ...(carte ?? lead), opportunityId: opp?.ghl_id ?? null }
+}

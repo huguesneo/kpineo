@@ -22,7 +22,7 @@ import { useSetterActions } from '../../hooks/v2/useSetterActions'
 import { useConfirmation } from '../../hooks/v2/useConfirmation'
 import { useAppelsRecents } from '../../hooks/v2/useAppelsRecents'
 import { usePayPeriodConfig, getCurrentPayPeriod } from '../../hooks/usePayPeriod'
-import { rdvBookesAujourdhui, jourMontreal, aConfirmerAFaire } from '../../lib/v2/setterFiles'
+import { rdvBookesAujourdhui, jourMontreal, aConfirmerAFaire, completerLead } from '../../lib/v2/setterFiles'
 import { enrichirAConfirmer, filtrerAConfirmer, FILTRES_DEFAUT } from '../../lib/v2/confirmation'
 import { fmtCAD, fmtRdvRelatif } from '../../lib/v2/format'
 
@@ -107,7 +107,15 @@ export default function SetterJournee({ profile, droite = null, setterFiles, onC
   // Fiche pop-up du lead (clic sur le nom, une tâche ou une notification)
   const [ficheLead, setFicheLead] = useState(null)
   const [params, setParams] = useSearchParams()
-  const ouvrirLead = useCallback(lead => { setFicheLead(lead); lock?.(lead.contactId) }, [lock])
+  // Toutes les cartes connues, pour retrouver celle d'une fiche ouverte depuis une tâche
+  const leadsConnus = useMemo(
+    () => [...files.nouveauxLeads, ...files.aRappeler, ...files.contactEtabli, ...files.aRebooker, ...files.aConfirmer],
+    [files],
+  )
+  const ouvrirLead = useCallback(lead => {
+    setFicheLead(completerLead(lead, { leads: leadsConnus, opps: raw.opps }))
+    lock?.(lead.contactId)
+  }, [lock, leadsConnus, raw.opps])
   const fermerFiche = useCallback(() => {
     setFicheLead(null)
     if (params.get('fiche')) { const p = new URLSearchParams(params); p.delete('fiche'); setParams(p, { replace: true }) }
@@ -126,7 +134,6 @@ export default function SetterJournee({ profile, droite = null, setterFiles, onC
   }, [])
 
   // ── Listes Setting v2 : propriété (règle des 60 s), tri en 4 groupes ──
-  const tousLeads = useMemo(() => [...files.nouveauxLeads, ...files.aRappeler], [files])
   const ctxPriorite = useMemo(() => ({
     appelsParContact: setting.appelsParContact, rappelsParContact: setting.rappelsParContact,
     nomsParId: setting.nomsParId, now,
@@ -183,9 +190,8 @@ export default function SetterJournee({ profile, droite = null, setterFiles, onC
   useEffect(() => {
     const id = params.get('fiche')
     if (!id || ficheLead?.contactId === id) return
-    const trouve = [...tousLeads, ...files.contactEtabli, ...files.aRebooker, ...files.aConfirmer].find(l => l.contactId === id)
-    setFicheLead(trouve ?? { contactId: id, key: id, nom: 'Lead', opportunityId: null })
-  }, [params, tousLeads, files, ficheLead?.contactId])
+    setFicheLead(completerLead({ contactId: id, key: id, nom: 'Lead', opportunityId: null }, { leads: leadsConnus, opps: raw.opps }))
+  }, [params, leadsConnus, raw.opps, ficheLead?.contactId])
 
   const rdvBookes = useMemo(
     () => rdvBookesAujourdhui({ appts: raw.appts, opps: raw.opps, setterName: profile?.full_name, now }),

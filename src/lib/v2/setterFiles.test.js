@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { computeSetterFiles, isSourceChaude, tentativeDeLEtape } from './setterFiles'
+import { completerLead, computeSetterFiles, isSourceChaude, tentativeDeLEtape } from './setterFiles'
 import { PIPELINE_SETTING, PIPELINE_VENTE, CALENDARS, FIELDS } from './salesConfig'
 
 const NOW = new Date('2026-09-22T15:00:00Z').getTime()
@@ -209,5 +209,26 @@ describe('tri des files', () => {
     expect(t1).toEqual({ cle: 'tentatives', sens: 'plus' })
     expect(triSuivant(t1, 'tentatives')).toEqual({ cle: 'tentatives', sens: 'moins' })
     expect(triSuivant(t1, 'age')).toEqual({ cle: 'age', sens: 'vieux' })
+  })
+})
+
+describe('completerLead', () => {
+  const tache = { contactId: 'mh', nom: 'Mélanie Hebert' }
+  it('reprend la carte du lead déjà dans une liste (Résultat utilisable depuis une tâche)', () => {
+    const carte = { contactId: 'mh', key: 'mh:o-mh', nom: 'Mélanie Hebert', opportunityId: 'o-mh', source: 'Optin VS' }
+    expect(completerLead(tache, { leads: [carte], opps: [] })).toBe(carte)
+  })
+  it('sinon, prend la carte du pipeline setting la plus récente du contact', () => {
+    const opps = [
+      oppSetting('mh', S.tentative1, { ghl_id: 'vieille', created_at_ghl: h(-200) }),
+      oppSetting('mh', S.tentative2, { ghl_id: 'recente', created_at_ghl: h(-10) }),
+      { ...oppSetting('mh', 'x'), ghl_id: 'vente', pipeline_id: PIPELINE_VENTE.id, created_at_ghl: h(-1) },
+    ]
+    expect(completerLead(tache, { leads: [], opps })).toEqual({ ...tache, opportunityId: 'recente' })
+  })
+  it('laisse le lead tel quel quand il a déjà sa carte ou que rien n’est trouvé', () => {
+    const complet = { ...tache, opportunityId: 'o-1' }
+    expect(completerLead(complet, { leads: [], opps: [oppSetting('mh', S.nouveau)] })).toBe(complet)
+    expect(completerLead(tache, { leads: [], opps: [] })).toEqual({ ...tache, opportunityId: null })
   })
 })
