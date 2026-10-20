@@ -18,7 +18,7 @@ const FIELD_CLOSER = 'JSltN3nE7nm4cUjuGxTs'     // closeur de l'opportunité (m�
 // « maude NEO » -> « Maude », « marie-michèle cardinal » -> « Marie-Michèle »
 export { firstNameCap }
 
-async function ghl(path: string): Promise<J | null> {
+export async function ghl(path: string): Promise<J | null> {
   const key = Deno.env.get('GHL_API_KEY')
   if (!key) return null
   try {
@@ -28,14 +28,14 @@ async function ghl(path: string): Promise<J | null> {
   } catch (e) { console.error('[GHL]', e); return null }
 }
 
-async function locationId(db: DB): Promise<string | null> {
+export async function locationId(db: DB): Promise<string | null> {
   const env = Deno.env.get('GHL_LOCATION_ID')
   if (env) return env
   const { data } = await db.from('ghl_config').select('location_id').limit(1).maybeSingle()
   return data?.location_id ?? null
 }
 
-async function contactIdByEmail(db: DB, loc: string, email: string): Promise<string | null> {
+export async function contactIdByEmail(db: DB, loc: string, email: string): Promise<string | null> {
   const r = await ghl(`/contacts/search/duplicate?locationId=${loc}&email=${encodeURIComponent(email)}`)
   if (r?.contact?.id) return r.contact.id
   const { data } = await db.from('ghl_contacts').select('ghl_id').ilike('email', email).order('synced_at', { ascending: false }).limit(1).maybeSingle()

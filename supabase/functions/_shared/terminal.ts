@@ -16,6 +16,7 @@ import { addInterval, todayMontreal } from './schedule.js'
 import { createSalesReceipt, qboEnabled } from './qbo.ts'
 import { firstNameCap, lookupEvaluationDate, lookupTherapistAndSetter } from './ghl.ts'
 import { customerNotes } from './qboNotes.js'
+import { syncVenteGhl } from './venteGhl.ts'
 
 declare const Deno: { env: { get(key: string): string | undefined } }
 
@@ -174,6 +175,17 @@ async function markPaid(db: DB, plan: Plan, inst: Installment, paymentId: string
     await db.from('payment_plans').update({ status: 'completed', updated_at: new Date().toISOString() }).eq('id', plan.id)
   }
   await sendToMake(db, plan, inst, paymentId, todayMontreal(new Date(paidAtIso)))
+  await majCarteVente(db, plan)
+}
+
+// Carte 🎯 Vente du client : nouveau total payé avant taxes et closeur. Ne bloque jamais le paiement.
+async function majCarteVente(db: DB, plan: Plan) {
+  try {
+    const r = await syncVenteGhl(db, plan.client_email, { appliquer: true })
+    if (r.erreur) await notifySlack(`⚠️ Carte 🎯 Vente non mise à jour pour ${clientName(plan)} (${r.valeur.toFixed(2)} $ avant taxes) : ${r.erreur}`)
+  } catch (e) {
+    console.error('[Carte Vente]', e)
+  }
 }
 
 // ── Abonnement Moneris pour les versements restants ───────────

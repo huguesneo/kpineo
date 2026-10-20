@@ -58,7 +58,14 @@ Supabase > Edge Functions > Secrets :
 | `MAKE_PAYMENT_WEBHOOK_URL` | webhook Make du reçu QuickBooks |
 | `SLACK_PAYMENTS_WEBHOOK_URL` | optionnel, alertes de refus |
 
-Déploiement des fonctions : `moneris-terminal` avec vérification JWT, `moneris-pay-link` et `moneris-charge-due` sans (`--no-verify-jwt`).
+Déploiement des fonctions : `moneris-terminal` et `terminal-vente-ghl` avec vérification JWT, `moneris-pay-link`, `moneris-webhook` et `moneris-charge-due` sans (`--no-verify-jwt`).
+
+## Carte 🎯 Vente dans GHL
+
+À chaque paiement réussi (`markPaid`), la carte la plus récente du client dans 🎯 Vente (ouverte ou gagnée, jamais perdue)
+reçoit : valeur = total payé au terminal **avant taxes** (toutes ses ventes) ; champ closeur = nom GHL exact du closeur de la
+vente (utilisateur GHL relié au profil, ex. « Vicky NEO »). Sans carte ou en cas d'erreur : alerte Slack, le paiement n'est
+jamais bloqué. Rattrapage des ventes passées : `terminal-vente-ghl` (`{ "appliquer": false }` = aperçu, rien n'est écrit).
 Le cron est dans la migration `20261001_terminal_moneris.sql`, commenté : l'activer après les tests.
 
 ## Données envoyées à Make (par paiement réussi)
