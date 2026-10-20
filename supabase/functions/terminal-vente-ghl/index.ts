@@ -22,8 +22,11 @@ Deno.serve(async (req) => {
 
   const db = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
   const jwt = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '')
-  // Clé service (lancement depuis le poste de l'admin) ou utilisateur admin / superviseur
-  if (jwt !== Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')) {
+  // Clé service (lancement depuis le poste de l'admin) ou utilisateur admin / superviseur.
+  // La passerelle vérifie la signature du JWT (déployée AVEC vérification JWT) : le rôle lu ici est fiable.
+  let role = ''
+  try { role = JSON.parse(atob(jwt.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).role ?? '' } catch { /* pas un JWT */ }
+  if (role !== 'service_role') {
     const { data: { user } } = jwt ? await db.auth.getUser(jwt) : { data: { user: null } }
     if (!user) return json({ error: 'Non autorisé' }, 401)
     const { data: profile } = await db.from('profiles').select('role').eq('id', user.id).maybeSingle()
