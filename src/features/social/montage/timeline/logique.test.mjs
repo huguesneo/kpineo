@@ -6,7 +6,7 @@ import {
   Historique, ZOOMS, ajouterCarte, ajouterSon, bornerPlan, corrigerSousTitre, couperPlage, decaler, deplacerCarte, dureeTotale,
   etirerCarte, problemesTimeline, morceaux, poserZoom, rognerPlage, supprimerCarte, supprimerPlage,
   supprimerZoom, zoomA, cadrage, deplacerZoom, estBase, etirerZoom, morceauxLecture, plansAffiches,
-  reglerZoom, avertissementsInterface, zonesTouchees, brutRetire,
+  reglerZoom, avertissementsInterface, zonesTouchees, brutRetire, normaliserPlans,
 } from "./logique.ts";
 
 const recette = () => ({
@@ -359,6 +359,45 @@ test("3b lecture en direct : une plage coupée sans rien retirer reste un seul m
   assert.equal(plansAffiches(coupe.plans, moteur), coupe.plans);
   const plusFort = r.plans.map((p) => ({ ...p, zoom_de: 1.7, zoom_a: 1.7 }));   // valeur périmée (Hugues vient de baisser)
   assert.equal(plansAffiches(r.plans, plusFort)[0].zoom_de, 1.45);
+});
+
+// ------------------------------------------------------------------ zooms sans saccade (21 oct. 2026, recette.py)
+const sansCoupe = (plans) => ({ plages: [{ source: "P1", debut: 0, fin: 20 }], plans, cartes: [] });
+
+test("zoom de moins de 0,5 s (ou retour au cadrage de base) : fondu dans le précédent, tenu à son zoom", () => {
+  const r = normaliserPlans(sansCoupe([
+    { debut: 0, fin: 3, zoom_de: 1, zoom_a: 1.2, mouvement: "glisse", courbe: "douce" },
+    { debut: 3, fin: 3.3, zoom_de: 1, zoom_a: 1, mouvement: "coupe" },             // « trou » de 0,3 s
+    { debut: 3.3, fin: 20, zoom_de: 1.2, zoom_a: 1.2, mouvement: "coupe" },
+  ]));
+  assert.deepEqual(r.plans.map((p) => [p.debut, p.fin]), [[0, 3.3], [3.3, 20]]);
+  assert.equal(r.plans[0].rampe, 3);                                              // monte en 3 s, puis tient 1,2
+  assert.equal(zoomA(r.plans[0], 3.25), 1.2);
+});
+
+test("zoom glissé : part du zoom de l'image d'avant, sauf à une coupe", () => {
+  const punch = { zoom_de: 1, zoom_a: 1.35, mouvement: "glisse", courbe: "sortie", rampe: 0.25 };
+  const r = normaliserPlans(sansCoupe([{ debut: 0, fin: 5, zoom_de: 1.15, zoom_a: 1.15 }, { debut: 5, fin: 20, ...punch }]));
+  assert.equal(r.plans[1].zoom_de, 1.15);
+  const coupe = { plages: [{ source: "P1", debut: 0, fin: 5 }, { source: "P1", debut: 6, fin: 20 }], cartes: [],
+    plans: [{ debut: 0, fin: 5, zoom_de: 1.15, zoom_a: 1.15 }, { debut: 5, fin: 19, ...punch }] };
+  assert.equal(normaliserPlans(coupe), coupe);                                     // rien ne change : même objet
+});
+
+test("zoom court entre deux coupes : gardé (le fondre mettrait une coupe au milieu d'un plan)", () => {
+  const r = { plages: [{ source: "P1", debut: 0, fin: 5 }, { source: "P1", debut: 6, fin: 6.3 }, { source: "P1", debut: 7, fin: 20 }],
+    cartes: [], plans: [{ debut: 0, fin: 5, zoom_de: 1, zoom_a: 1 }, { debut: 5, fin: 5.3, zoom_de: 1.2, zoom_a: 1.2 },
+      { debut: 5.3, fin: 18.3, zoom_de: 1, zoom_a: 1 }] };
+  assert.equal(normaliserPlans(r), r);
+});
+
+test("plans du moteur : un voisin de dézoom devenu glissé est montré glissé (aperçu en direct = rendu)", () => {
+  const r = sansCoupe([{ debut: 0, fin: 5, zoom_de: 1.12, zoom_a: 1.12, mouvement: "coupe" },
+    { debut: 5, fin: 20, zoom_de: 1.12, zoom_a: 1, mouvement: "glisse", courbe: "douce" }]);
+  const moteur = [{ debut: 0, fin: 5, zoom_de: 1.12, zoom_a: 1, mouvement: "glisse", courbe: "douce" },
+    { debut: 5, fin: 20, zoom_de: 1, zoom_a: 1, mouvement: "glisse", courbe: "douce" }];
+  const vus = plansAffiches(r.plans, moteur);
+  assert.ok(Math.abs(zoomA(vus[0], 4.96) - zoomA(vus[1], 5)) < 1e-3);          // aucun saut d'une image à l'autre
 });
 
 // ------------------------------------------------------------------ batch 3b : repères réseaux sociaux

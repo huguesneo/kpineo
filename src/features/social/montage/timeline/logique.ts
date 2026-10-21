@@ -64,10 +64,17 @@ export const morceauxLecture = (r: Recette) => {
 export const plansAffiches = (recette: Plan[], moteur?: Plan[] | null): Plan[] => {
   if (!moteur || moteur.length !== recette.length
     || !moteur.every((p, i) => img(p.debut) === img(recette[i].debut) && img(p.fin) === img(recette[i].fin))) return recette;
-  // Le moteur ne fait que dézoomer : une valeur plus forte que celle de la recette est un état périmé
+  // Le moteur ne fait que dézoomer : une valeur plus forte que celle de la recette est un état périmé. Un plan voisin
+  // d'un dézoom peut devenir glissé (cartes.raccorder, 21 oct. 2026) : mouvement, courbe et rampe suivent le moteur.
   const z = (p: Plan, k: "zoom_de" | "zoom_a") => p[k] ?? p.zoom_de ?? 1;
-  return recette.map((p, i) => (z(moteur[i], "zoom_de") <= z(p, "zoom_de") + 1e-9 && z(moteur[i], "zoom_a") <= z(p, "zoom_a") + 1e-9
-    && (moteur[i].mouvement || "coupe") === (p.mouvement || "coupe") ? { ...p, zoom_de: moteur[i].zoom_de, zoom_a: moteur[i].zoom_a } : p));
+  return recette.map((p, i) => {
+    const m = moteur[i];
+    if (z(m, "zoom_de") > z(p, "zoom_de") + 1e-9 || z(m, "zoom_a") > z(p, "zoom_a") + 1e-9) return p;
+    const q: Plan = { ...p, zoom_de: m.zoom_de, zoom_a: m.zoom_a, mouvement: m.mouvement || "coupe" };
+    if (m.courbe !== undefined) q.courbe = m.courbe;
+    if (m.rampe !== undefined) q.rampe = m.rampe; else delete q.rampe;
+    return q;
+  });
 };
 
 /** Décale de `delta` tout ce qui commence après `borne` (cartes, sons, plans) ; le plan qui contient la borne
@@ -396,6 +403,72 @@ const imagesDesCoupes = (r: Recette): Set<number> =>
     const av = r.plages[i], ap = r.plages[i + 1];
     return !(av.source === ap.source && img(av.fin) === img(ap.debut));
   }).map((m) => img(m.sortie)));
+
+// Zooms sans saccade (21 oct. 2026) : même calcul que recette.py (lisser_plans), sur la recette de la timeline, pour
+// que l'aperçu en direct montre ce que le moteur rend. Un zoom (ou un retour au cadrage de base) de moins de 0,5 s est
+// fondu dans le précédent, tenu à son dernier zoom, ou dans le suivant si une coupe le sépare du précédent ; hors coupe,
+// un zoom glissé part du zoom où était l'image juste avant, jamais de 1,0 par défaut.
+export const ZOOM_COURT = 0.5;        // recette.py : ZOOM_COURT_S
+const ECART_ZOOM_MIN = 0.15;          // recette.py : une coupe change le zoom d'au moins 0,15
+
+/** Zoom de la dernière image d'un plan (un plan « coupe » reste à zoom_de, comme image.zoom_image). */
+export const zoomFin = (p: Plan): number =>
+  (p.mouvement || "coupe") === "glisse" ? p.zoom_a ?? p.zoom_de ?? 1 : p.zoom_de ?? 1;
+
+/** Nombre de coupes sans changement de zoom (recette.py, coupes_sans_zoom). */
+const fautesCoupes = (coupes: Set<number>, plans: Plan[]): number => [...coupes].filter((k) => {
+  const av = plans.find((p) => img(p.fin) === k), ap = plans.find((p) => img(p.debut) === k);
+  return !av || !ap || Math.round(Math.abs((av.zoom_a ?? av.zoom_de ?? 1) - (ap.zoom_de ?? 1)) * 1000) / 1000 < ECART_ZOOM_MIN;
+}).length;
+
+/** Plan prolongé jusqu'à l'image `fin`, tenu à son dernier zoom (un glissé garde la durée de son mouvement). */
+const tenir = (p: Plan, fin: number): Plan => {
+  const q: Plan = { ...p, fin: Math.round(fin / FPS * 10000) / 10000 };
+  if ((p.mouvement || "coupe") === "glisse" && (p.zoom_de ?? 1) !== (p.zoom_a ?? p.zoom_de ?? 1) && p.rampe === undefined)
+    q.rampe = Math.round((p.fin - p.debut) * 10000) / 10000;
+  return q;
+};
+
+const fondrePlan = (plans: Plan[], k: number, cote: "avant" | "apres"): Plan[] => {
+  const out = plans.map((p) => ({ ...p }));
+  const [p] = out.splice(k, 1);
+  if (cote === "avant") out[k - 1] = tenir(out[k - 1], img(p.fin));
+  else out[k].debut = p.debut;
+  return out;
+};
+
+/** Recette aux zooms lissés ; la même recette (même objet) si rien ne change. */
+export const normaliserPlans = (r: Recette): Recette => {
+  const coupes = imagesDesCoupes(r);
+  let plans = r.plans.map((p) => ({ ...p }));
+  for (;;) {
+    if (plans.length < 2) break;
+    const fautes = fautesCoupes(coupes, plans);
+    let fondu: Plan[] | null = null;
+    for (let k = 0; k < plans.length && !fondu; k++) {
+      const p = plans[k];
+      if (img(p.fin) - img(p.debut) >= img(ZOOM_COURT)) continue;
+      if (k > 0 && !coupes.has(img(p.debut))) {
+        const essai = fondrePlan(plans, k, "avant");
+        if (fautesCoupes(coupes, essai) <= fautes) { fondu = essai; break; }
+      }
+      if (k < plans.length - 1 && !coupes.has(img(p.fin))) {
+        const essai = fondrePlan(plans, k, "apres");
+        if (fautesCoupes(coupes, essai) <= fautes) fondu = essai;
+      }
+    }
+    if (!fondu) break;
+    plans = fondu;
+  }
+  for (let i = 1; i < plans.length; i++) {
+    const b = plans[i], z0 = b.zoom_de ?? 1, z1 = b.zoom_a ?? z0;
+    if ((b.mouvement || "coupe") !== "glisse" || z0 === z1 || coupes.has(img(b.debut))) continue;
+    const z = zoomFin(plans[i - 1]);
+    if (Math.abs(z0 - z) > 1e-9) b.zoom_de = z;
+  }
+  if (JSON.stringify(plans) === JSON.stringify(r.plans)) return r;
+  return { ...r, plans };
+};
 
 /** Fond les plans de base voisins (rien ne les distingue, aucune coupe entre eux). */
 const fondreBases = (r: Recette, plans: Plan[]): Plan[] => {

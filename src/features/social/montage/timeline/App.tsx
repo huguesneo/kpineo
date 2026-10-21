@@ -14,7 +14,7 @@ import { TYPES_DEPOT, Timeline, type Onde, type Selection } from "./Timeline";
 import {
   AUDIOS_LECTEUR, FPS, Historique, SON_PAR_TYPE, ZOOMS, ajouterCarte, ajouterSon, basculerHauteurTimeline, boiteCarte,
   bornerHauteurTimeline, copie, couperPlage, dureeTotale, ecrireHauteurTimeline, formatTemps, img, problemesTimeline,
-  lireHauteurTimeline, nomSon, placerCarte, poserMusique, poserZoom, reglerTaille, supprimerCarte, supprimerPlage, blocsMusique,
+  lireHauteurTimeline, nomSon, normaliserPlans, placerCarte, poserMusique, poserZoom, reglerTaille, supprimerCarte, supprimerPlage, blocsMusique,
   couperMusique, musiqueA, supprimerMusique,
   supprimerZoom, type Carte, type Recette,
 } from "./logique";
@@ -167,8 +167,9 @@ export const App: React.FC<{ source: Source; extra?: (o: { brouillon: boolean; e
   const charger = useCallback(async (garderHistorique: boolean) => {
     const m = await source.montage();
     if (garderHistorique && recette) hist.current.noter(recette);
-    sauvee.current = JSON.stringify(m.recette);
-    setRecette(m.recette);
+    const lue = normaliserPlans(m.recette);   // zooms lissés comme le moteur (pas un brouillon tant que rien ne change)
+    sauvee.current = JSON.stringify(lue);
+    setRecette(lue);
     setVersions(m.medias);
     setBrouillon(Boolean(m.brouillon));
     setProxies(m.proxies || {});
@@ -234,7 +235,7 @@ export const App: React.FC<{ source: Source; extra?: (o: { brouillon: boolean; e
     const maintenant = Date.now();
     if (!cle || cle !== derniere.current.cle || maintenant - derniere.current.t > 1500) hist.current.noter(recette);
     derniere.current = { cle, t: maintenant };
-    setRecette(r);
+    setRecette(normaliserPlans(r));
   }, [recette]);
 
   const annuler = useCallback(() => {
@@ -571,7 +572,7 @@ export const App: React.FC<{ source: Source; extra?: (o: { brouillon: boolean; e
           graphiques={modeles.graphiques} noms={noms} dureeSource={etat?.duree_source ?? Infinity}
           allerA={allerA} choisir={setSelection} deposer={deposer}
           debutGlisser={() => { hist.current.noter(recette); derniere.current = { cle: "", t: 0 }; return recette; }}
-          pendantGlisser={(r) => setRecette(r)} finGlisser={() => rafraichir((x) => x + 1)} hauteur={hTimeline - 34}
+          pendantGlisser={(r) => setRecette(r)} finGlisser={() => { setRecette((r) => r && normaliserPlans(r)); rafraichir((x) => x + 1); }} hauteur={hTimeline - 34}
           dureesChansons={dureesChansons} ondes={ondes} />
       </footer>
 
