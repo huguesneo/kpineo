@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import AttributionVente from './AttributionVente'
 import AnnulerVente from './AnnulerVente'
 import ModifierDates from './ModifierDates'
+import PaiementUnique from './PaiementUnique'
 
 const lists = {
   closers: [{ id: 'cloe', label: 'Cloé' }, { id: 'maude', label: 'Maude' }],
@@ -83,5 +84,15 @@ describe('ModifierDates', () => {
   it('prélèvements arrêtés : pas de bouton', () => {
     const arrete = { ...jessica, payments_stopped_at: '2026-10-21' }
     expect(renderToStaticMarkup(<ModifierDates plan={arrete} who={{ isSupervisor: true }} onConfirm={noop} />)).toBe('')
+  })
+})
+
+describe('PaiementUnique', () => {
+  it('description et montant avant taxes, sans échéancier ni produit QuickBooks', () => {
+    const html = renderToStaticMarkup(<PaiementUnique onCreate={noop} />)
+    expect(html).toContain('Paiement unique')
+    expect(html).toContain('Rien n’est créé dans QuickBooks')
+    expect(html).toContain('Montant avant taxes')
+    expect(html).not.toContain('Prélever tous les')
   })
 })

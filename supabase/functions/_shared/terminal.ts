@@ -36,6 +36,7 @@ export interface Plan {
   training_addon?: boolean; guarantee_addon?: boolean
   discount_type?: 'percent' | 'amount' | null; discount_value?: number | null
   moneris_subscription_id: string | null; subscription_status: string | null
+  manual?: boolean
   client_street_number?: string | null; client_street_name?: string | null; client_unit?: string | null
   client_city?: string | null; client_province?: string | null; client_postal_code?: string | null
 }
@@ -174,6 +175,8 @@ async function markPaid(db: DB, plan: Plan, inst: Installment, paymentId: string
   if (count === 0) {
     await db.from('payment_plans').update({ status: 'completed', updated_at: new Date().toISOString() }).eq('id', plan.id)
   }
+  // Paiement unique hors produit : reçu QuickBooks fait à la main, ne compte pas dans la carte 🎯 Vente
+  if (plan.manual) return
   await sendToMake(db, plan, inst, paymentId, todayMontreal(new Date(paidAtIso)))
   await majCarteVente(db, plan)
 }

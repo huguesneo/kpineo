@@ -1,5 +1,6 @@
 // Terminal de paiement : actions des closeurs (JWT obligatoire).
 //   create_plan        crée le plan et l'échéancier
+//   create_manual      paiement unique hors produit (hugues@, info@) : un débit, taxes ajoutées, rien dans QuickBooks
 //   create_link        génère le lien sécurisé à envoyer au client (7 jours)
 //   attach_card        le closeur entre la carte (jeton temporaire Moneris)
 //   retry_subscription relance la création de l'échéancier chez Moneris
@@ -78,6 +79,19 @@ Deno.serve(async (req) => {
         return `Moneris n’a pas annulé l’échéancier (${c.message}). Rien n’a été annulé ici.`
       }
       return null
+    }
+
+    // ID client Moneris : « Prénom Nom ». Si déjà pris, on ajoute un « . » à la fin.
+    const customerRefFor = async (first: string, last: string) => {
+      const baseRef = `${first} ${last}`.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^A-Za-z0-9 '\-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 40) || 'Client'
+      let customerRef = baseRef
+      for (let i = 0; i < 20; i++) {
+        const { data: taken } = await db.from('payment_plans').select('id').eq('customer_reference', customerRef).limit(1)
+        if (!taken?.length) break
+        customerRef += '.'
+      }
+      return customerRef
     }
 
     if (action === 'attribution') {
@@ -166,15 +180,7 @@ Deno.serve(async (req) => {
       try { schedule = buildSaleSchedule(price, { count, frequencyUnit, frequencyInterval, firstDate, secondDate }) }
       catch (e) { return json({ error: (e as Error).message }, 400) }
 
-      // ID client Moneris : « Prénom Nom ». Si déjà pris, on ajoute un « . » à la fin.
-      const baseRef = `${first} ${last}`.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^A-Za-z0-9 '\-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 40) || 'Client'
-      let customerRef = baseRef
-      for (let i = 0; i < 20; i++) {
-        const { data: taken } = await db.from('payment_plans').select('id').eq('customer_reference', customerRef).limit(1)
-        if (!taken?.length) break
-        customerRef += '.'
-      }
+      const customerRef = await customerRefFor(first, last)
 
       const { data: plan, error } = await db.from('payment_plans').insert({
         customer_reference: customerRef,
@@ -205,6 +211,40 @@ Deno.serve(async (req) => {
       const { error: e2 } = await db.from('payment_installments').insert(
         schedule.map(s => ({ plan_id: plan.id, number: s.number, amount_cents: s.amountCents, due_date: s.dueDate })),
       )
+      if (e2) { await db.from('payment_plans').delete().eq('id', plan.id); throw e2 }
+      return json({ planId: plan.id })
+    }
+
+    // Paiement unique hors produit (comme le terminal en clinique) : un seul débit aujourd'hui,
+    // taxes ajoutées. Ni reçu QuickBooks (fait à la main), ni carte 🎯 Vente.
+    if (action === 'create_manual') {
+      if (!isSupervisor) return json({ error: 'Seuls Hugues et info@ peuvent faire un paiement unique' }, 403)
+      if (!profile) return json({ error: 'Ton compte n’a pas de profil dans l’app : impossible de créer une vente' }, 403)
+      const first = String(body.clientFirstName ?? '').trim()
+      const last = String(body.clientLastName ?? '').trim()
+      const email = String(body.clientEmail ?? '').trim().toLowerCase()
+      const description = String(body.description ?? '').trim()
+      if (!first || !last) return json({ error: 'Prénom et nom du client requis' }, 400)
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ error: 'Courriel du client invalide' }, 400)
+      if (!description) return json({ error: 'Décris ce qui est payé' }, 400)
+      let price
+      try { price = priceSale({ pretaxCents: Math.round(Number(body.pretaxAmount) * 100) }) }
+      catch (e) { return json({ error: (e as Error).message }, 400) }
+      const today = todayMontreal()
+
+      const { data: plan, error } = await db.from('payment_plans').insert({
+        manual: true, customer_reference: await customerRefFor(first, last),
+        closer_id: profile.id, closer_name: profile.full_name ?? user.email, created_by: profile.id,
+        attribution_confirmed_at: new Date().toISOString(),
+        client_first_name: first, client_last_name: last, client_email: email,
+        client_phone: String(body.clientPhone ?? '').trim() || null,
+        client_postal_code: String(body.clientPostalCode ?? '').trim().toUpperCase().replace(/^(\w{3})\s?(\w{3})$/, '$1 $2') || null,
+        product_name: description.slice(0, 200), installments_count: 1,
+        total_amount_cents: price.totalCents, pretax_amount_cents: price.basePretax,
+        frequency_days: 1, frequency_unit: 'DAY', frequency_interval: 1, first_charge_date: today,
+      }).select('id').single()
+      if (error) throw error
+      const { error: e2 } = await db.from('payment_installments').insert({ plan_id: plan.id, number: 1, amount_cents: price.totalCents, due_date: today })
       if (e2) { await db.from('payment_plans').delete().eq('id', plan.id); throw e2 }
       return json({ planId: plan.id })
     }

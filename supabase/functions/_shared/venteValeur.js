@@ -12,11 +12,11 @@ export function avantTaxes(totalCents) {
   return base
 }
 
-// Total payé avant taxes, toutes ventes du client confondues (sauf ventes retirées)
+// Total payé avant taxes, toutes ventes du client confondues (sauf ventes retirées et paiements uniques hors produit)
 export function payeAvantTaxes(plans) {
   let total = 0
   for (const p of plans) {
-    if (p.removed_at) continue
+    if (p.removed_at || p.manual) continue
     const paye = (p.payment_installments ?? []).filter(i => i.status === 'paid').reduce((a, i) => a + i.amount_cents, 0)
     total += avantTaxes(paye)
   }

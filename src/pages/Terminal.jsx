@@ -9,6 +9,7 @@ import MonerisCardFrame from '../components/terminal/MonerisCardFrame'
 import AttributionVente from '../components/terminal/AttributionVente'
 import AnnulerVente from '../components/terminal/AnnulerVente'
 import ModifierDates from '../components/terminal/ModifierDates'
+import PaiementUnique from '../components/terminal/PaiementUnique'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import {
@@ -472,7 +473,7 @@ function PlanRow({ plan, isManager, isSupervisor, profileId, onAction, highlight
         <div>
           <p className="font-semibold text-[#1a1a1a]">{plan.client_first_name} {plan.client_last_name}</p>
           <p className="text-xs text-[#6b7280]">
-            {plan.product_name}{isManager ? ` · ${plan.closer_name}` : ''}
+            {plan.product_name}{plan.manual ? ' · Paiement unique, hors QuickBooks' : ''}{isManager ? ` · ${plan.closer_name}` : ''}
           </p>
         </div>
         <div className="text-right">
@@ -601,7 +602,15 @@ export function TerminalPanel({ showHeader = true, prefill = null, seulementForm
       </div>}
 
       <div className={seulementFormulaire ? '' : 'grid grid-cols-1 lg:grid-cols-2 gap-6 items-start'}>
-        <NewPlanForm onCreated={onCreated} prefill={prefill} />
+        <div className="space-y-6">
+          <NewPlanForm onCreated={onCreated} prefill={prefill} />
+          {isSupervisor && !seulementFormulaire && (
+            <PaiementUnique onCreate={async (f) => {
+              const { planId } = await callTerminal({ action: 'create_manual', ...f })
+              await onCreated(planId, 'card')
+            }} />
+          )}
+        </div>
 
         {!seulementFormulaire && <div className="space-y-3">
           <div className="flex gap-2">

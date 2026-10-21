@@ -41,10 +41,10 @@ async function nomCloserGhl(db: DB, closerId: string | null, closerName: string 
 // appliquer = false : calcule seulement ce qui serait écrit (aperçu du rattrapage)
 export async function syncVenteGhl(db: DB, email: string, { appliquer }: { appliquer: boolean }): Promise<ResultatVente> {
   const { data: plans } = await db.from('payment_plans')
-    .select('closer_id, closer_name, client_first_name, client_last_name, created_at, removed_at, payment_installments(amount_cents, status)')
+    .select('closer_id, closer_name, client_first_name, client_last_name, created_at, removed_at, manual, payment_installments(amount_cents, status)')
     .ilike('client_email', email.trim().replace(/[\\%_]/g, '\\$&')) // courriel exact, sans jokers
   const liste = (plans ?? []) as J[]
-  const payes = liste.filter(p => !p.removed_at && (p.payment_installments ?? []).some((i: J) => i.status === 'paid'))
+  const payes = liste.filter(p => !p.removed_at && !p.manual && (p.payment_installments ?? []).some((i: J) => i.status === 'paid'))
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
   const ref = payes[0] ?? liste[0]
   const res: ResultatVente = {

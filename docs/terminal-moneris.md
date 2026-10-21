@@ -81,3 +81,7 @@ Le cron est dans la migration `20261001_terminal_moneris.sql`, commenté : l'act
 
 Visa `4242424242424242`, Mastercard `5454545454545454`, n'importe quelle date future et CVC.
 Le montant en cents détermine la réponse du simulateur (voir « Penny Value Simulator » dans la doc Moneris).
+
+### Paiement unique (`create_manual`)
+
+hugues@ et info@ seulement, comme le terminal en clinique. Prénom, nom, description libre et montant avant taxes (TPS et TVQ toujours ajoutées), un seul débit aujourd'hui, carte entrée par la personne connectée. La vente est marquée `manual = true` : aucun reçu QuickBooks (fait à la main), ne compte pas dans la carte 🎯 Vente de GHL ni dans les commissions. Courriel et code postal optionnels.

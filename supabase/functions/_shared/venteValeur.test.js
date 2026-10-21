@@ -13,6 +13,9 @@ describe('avantTaxes', () => {
 describe('payeAvantTaxes', () => {
   const plan = (insts, extra = {}) => ({ payment_installments: insts, ...extra })
   const v = (amount_cents, status = 'paid') => ({ amount_cents, status })
+  it('ignore les paiements uniques hors produit', () => {
+    expect(payeAvantTaxes([plan([v(55188)]), plan([v(63236)], { manual: true })])).toBe(48000)
+  })
   it('additionne les versements payés de toutes les ventes du client, avant taxes', () => {
     expect(payeAvantTaxes([
       plan([v(55188), v(55188), v(55188, 'scheduled'), v(55188, 'declined')]),
