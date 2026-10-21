@@ -128,3 +128,16 @@ export function confirmText(key, plan) {
   ].filter(Boolean).join(' ')
   return `Retirer la vente de ${client} ? Elle disparaîtra de la liste (la trace est gardée : qui, quand, raison).${extra ? ' ' + extra : ''}`
 }
+
+// ── Bouton « Modifier les dates » ────────────────────────────
+
+// hugues@ et info@ seulement. Change les dates des versements « prévu », jamais ceux déjà payés.
+// Retourne { visible, enabled, reason }.
+export function rescheduleChoice(plan, who) {
+  const c = { visible: !!who?.isSupervisor && !plan?.removed_at, enabled: false, reason: '' }
+  if (plan?.status !== 'active' || plan?.payments_stopped_at || !hasLiveSubscription(plan)) c.reason = 'Aucun prélèvement à venir chez Moneris.'
+  else if (insts(plan).some(i => ['processing', 'declined'].includes(i.status))) c.reason = 'Un paiement est en cours ou refusé : règle-le avant de changer les dates.'
+  else if (!insts(plan).some(i => i.status === 'scheduled')) c.reason = 'Aucun versement à venir.'
+  else c.enabled = true
+  return c
+}

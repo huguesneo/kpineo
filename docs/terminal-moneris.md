@@ -35,6 +35,10 @@ Un seul bouton, trois choix, chacun avec une confirmation. Les choix qui ne s'ap
 
 Un reçu QuickBooks ne peut pas exister pour une vente retirée : il n'est créé qu'après un paiement réussi.
 
+### Bouton « Modifier les dates » (`reschedule_plan`)
+
+hugues@ et info@ seulement. On choisit la date du prochain prélèvement et la fréquence ; seuls les versements « prévu » changent, les paiements passés ne bougent pas. Le serveur synchronise d'abord avec Moneris, crée un nouvel abonnement sur la carte déjà enregistrée (aucun numéro de carte requis), puis annule l'ancien. Si l'ancien ne s'annule pas, le nouveau est annulé et rien ne change (alerte Slack si les deux restent actifs). Refusé si un paiement est en cours ou refusé, ou si les prélèvements sont arrêtés.
+
 Fonctions à redéployer après un changement de `_shared/ghl.ts`, `_shared/terminal.ts` ou `_shared/terminalAttribution.js` : `moneris-terminal`, `moneris-pay-link`, `moneris-webhook`.
 
 ## Configuration

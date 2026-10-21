@@ -9,10 +9,10 @@
 //   SLACK_PAYMENTS_WEBHOOK_URL webhook Slack pour les refus de paiement
 
 import {
-  chargeAndStoreCard, validateAndStoreCard, createSubscription, getSubscription, getPayment, listRecentPayments,
+  chargeAndStoreCard, validateAndStoreCard, createSubscription, cancelSubscription, getSubscription, getPayment, listRecentPayments,
   MonerisResult, CardHolder,
 } from './moneris.ts'
-import { addInterval, todayMontreal } from './schedule.js'
+import { addInterval, approxDays, rescheduleInstallments, todayMontreal } from './schedule.js'
 import { createSalesReceipt, qboEnabled } from './qbo.ts'
 import { firstNameCap, lookupEvaluationDate, lookupTherapistAndSetter } from './ghl.ts'
 import { customerNotes } from './qboNotes.js'
@@ -262,6 +262,67 @@ export async function createPlanSubscription(db: DB, planId: string): Promise<{ 
     subscription_error: null, updated_at: new Date().toISOString(),
   }).eq('id', planId)
   return { ok: true, message: 'Échéancier créé chez Moneris' }
+}
+
+// ── Modifier les dates des prochains prélèvements ─────────────
+
+// Nouvel abonnement Moneris sur la carte enregistrée (aucun numéro de carte requis),
+// puis annulation de l'ancien. Si l'ancien ne s'annule pas, le nouveau est annulé :
+// jamais deux abonnements actifs. Les versements payés ne bougent pas.
+export async function reschedulePlan(
+  db: DB, plan: Plan & { payment_installments: Installment[] },
+  opts: { startDate: string; unit: 'DAY' | 'WEEK' | 'MONTH'; interval: number },
+): Promise<{ ok: boolean; message: string }> {
+  const moves = rescheduleInstallments(plan.payment_installments, opts)
+  if (!moves.length) return { ok: false, message: 'Aucun versement à venir' }
+  if (!plan.moneris_payment_method_id || !plan.moneris_subscription_id) return { ok: false, message: 'Carte ou échéancier absent' }
+  const remaining = plan.payment_installments.filter(i => i.status === 'scheduled').sort((a, b) => a.number - b.number)
+  const amountCents = remaining[remaining.length - 1].amount_cents
+
+  let r
+  try {
+    r = await createSubscription({
+      idempotencyKey: crypto.randomUUID(),
+      orderId: `NEO-${shortId(plan.id)}-S${Date.now().toString(36)}`,
+      customerReference: custRef(plan),
+      paymentMethodId: plan.moneris_payment_method_id,
+      issuerId: plan.moneris_issuer_id,
+      unit: opts.unit, interval: opts.interval,
+      count: moves.length, amountCents, startDate: opts.startDate,
+      callbackUrl: webhookUrl(),
+    })
+  } catch (e) {
+    console.error('[reschedulePlan] création', e)
+    return { ok: false, message: 'Impossible de joindre Moneris. Rien n’a été changé, réessaie.' }
+  }
+  if (!r.ok || !r.subscriptionId) {
+    console.error('[reschedulePlan] refus', JSON.stringify(r.raw))
+    return { ok: false, message: `Moneris a refusé le nouvel échéancier (${r.message}). Rien n’a été changé.` }
+  }
+
+  let old
+  try { old = await cancelSubscription(plan.moneris_subscription_id, 'Dates modifiées par NEO') }
+  catch (e) { console.error('[reschedulePlan] annulation ancien', e) }
+  if (!old || (!old.ok && old.status !== 'CANCELED' && old.status !== 'COMPLETED')) {
+    let undone = false
+    try { const u = await cancelSubscription(r.subscriptionId, 'Ancien échéancier toujours actif'); undone = u.ok || u.status === 'CANCELED' }
+    catch (e) { console.error('[reschedulePlan] annulation nouveau', e) }
+    if (!undone) {
+      await notifySlack(
+        `🚨 Deux échéanciers Moneris actifs pour ${clientName(plan)} : ancien ${plan.moneris_subscription_id}, nouveau ${r.subscriptionId}.\n` +
+        'Annuler le nouveau dans le portail Moneris avant le prochain prélèvement.',
+      )
+    }
+    return { ok: false, message: 'Moneris n’a pas annulé l’ancien échéancier. Rien n’a été changé, réessaie.' }
+  }
+
+  for (const m of moves) await db.from('payment_installments').update({ due_date: m.due_date }).eq('id', m.id)
+  await db.from('payment_plans').update({
+    moneris_subscription_id: r.subscriptionId, subscription_status: r.status ?? 'ACTIVE', subscription_error: null,
+    frequency_unit: opts.unit, frequency_interval: opts.interval, frequency_days: approxDays(opts.unit, opts.interval),
+    updated_at: new Date().toISOString(),
+  }).eq('id', plan.id)
+  return { ok: true, message: `Dates modifiées. Prochain prélèvement le ${moves[0].due_date}.` }
 }
 
 // ── Synchronisation avec Moneris (webhook + passage quotidien) ──

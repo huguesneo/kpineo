@@ -3,6 +3,7 @@ import { describe, it, expect } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import AttributionVente from './AttributionVente'
 import AnnulerVente from './AnnulerVente'
+import ModifierDates from './ModifierDates'
 
 const lists = {
   closers: [{ id: 'cloe', label: 'Cloé' }, { id: 'maude', label: 'Maude' }],
@@ -59,5 +60,28 @@ describe('AnnulerVente', () => {
   })
   it('closeur sur la vente d’un autre : pas de bouton', () => {
     expect(renderToStaticMarkup(<AnnulerVente plan={justin} who={{ isSupervisor: false, profileId: 'maude' }} onConfirm={noop} />)).toBe('')
+  })
+})
+
+describe('ModifierDates', () => {
+  const inst = (number, status, due_date) => ({ id: `i${number}`, number, status, due_date, amount_cents: 55188 })
+  const jessica = {
+    status: 'active', client_first_name: 'Jessica', client_last_name: 'Lapointe',
+    moneris_subscription_id: 'sr1', subscription_status: 'ACTIVE', frequency_unit: 'WEEK', frequency_interval: 2,
+    payment_installments: [inst(1, 'paid', '2026-10-20'), inst(2, 'scheduled', '2099-11-18'), inst(3, 'scheduled', '2099-12-02')],
+  }
+
+  it('hugues@ et info@ : bouton et fenêtre ; les paiements passés restent inchangés', () => {
+    const html = renderToStaticMarkup(<ModifierDates plan={jessica} who={{ isSupervisor: true }} onConfirm={noop} ouvertInitial />)
+    expect(html).toContain('>Modifier les dates</button>')
+    expect(html).toContain('Payé, inchangé')
+    expect(html).toContain('value="2099-11-18"')
+  })
+  it('closeur : pas de bouton', () => {
+    expect(renderToStaticMarkup(<ModifierDates plan={jessica} who={{ isSupervisor: false }} onConfirm={noop} />)).toBe('')
+  })
+  it('prélèvements arrêtés : pas de bouton', () => {
+    const arrete = { ...jessica, payments_stopped_at: '2026-10-21' }
+    expect(renderToStaticMarkup(<ModifierDates plan={arrete} who={{ isSupervisor: true }} onConfirm={noop} />)).toBe('')
   })
 })

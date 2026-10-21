@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   NONE, attributionLists, attributionComplete, cancelChoices, confirmText, firstNameCap, isSupervisorEmail,
-  matchByFirstName, resolveAttribution,
+  matchByFirstName, rescheduleChoice, resolveAttribution,
 } from './terminalAttribution.js'
 
 const profiles = [
@@ -143,5 +143,23 @@ describe('confirmText', () => {
     expect(confirmText('remove_plan', p)).toMatch(/Retirer la vente de Justin Bélanger \?.*Le lien de paiement ne fonctionnera plus\./)
     expect(confirmText('remove_plan', { ...p, status: 'active', moneris_subscription_id: 's', subscription_status: 'ACTIVE' }))
       .toMatch(/L’abonnement Moneris sera annulé\./)
+  })
+})
+
+describe('rescheduleChoice', () => {
+  const plan = (extra = {}) => ({
+    status: 'active', moneris_subscription_id: 'sr1', subscription_status: 'ACTIVE',
+    payment_installments: [{ status: 'paid' }, { status: 'scheduled' }], ...extra,
+  })
+  const SUP = { isSupervisor: true }
+  it('hugues@ et info@ seulement', () => {
+    expect(rescheduleChoice(plan(), SUP)).toMatchObject({ visible: true, enabled: true })
+    expect(rescheduleChoice(plan(), { isSupervisor: false }).visible).toBe(false)
+  })
+  it('refusé si paiement en cours ou refusé, prélèvements arrêtés ou plus rien à venir', () => {
+    expect(rescheduleChoice(plan({ payment_installments: [{ status: 'declined' }, { status: 'scheduled' }] }), SUP).enabled).toBe(false)
+    expect(rescheduleChoice(plan({ payments_stopped_at: 'x' }), SUP).enabled).toBe(false)
+    expect(rescheduleChoice(plan({ subscription_status: 'CANCELED' }), SUP).enabled).toBe(false)
+    expect(rescheduleChoice(plan({ payment_installments: [{ status: 'paid' }] }), SUP).enabled).toBe(false)
   })
 })

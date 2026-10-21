@@ -8,6 +8,7 @@ import Modal from '../components/shared/Modal'
 import MonerisCardFrame from '../components/terminal/MonerisCardFrame'
 import AttributionVente from '../components/terminal/AttributionVente'
 import AnnulerVente from '../components/terminal/AnnulerVente'
+import ModifierDates from '../components/terminal/ModifierDates'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import {
@@ -454,6 +455,12 @@ function PlanRow({ plan, isManager, isSupervisor, profileId, onAction, highlight
     else if (key === 'remove_plan') onAction.toast('Vente retirée de la liste.')
     else onAction.toast(r.tagged ? 'Programme annulé. Tag « statut-client-annuler » ajouté dans GHL.' : 'Programme annulé. Attention : le tag GHL n’a pas pu être ajouté, fais-le à la main.', !r.tagged)
   }
+  // Bouton « Modifier les dates » : l'erreur remonte dans la fenêtre
+  const onReschedule = async (opts) => {
+    const r = await callTerminal({ action: 'reschedule_plan', planId: plan.id, ...opts })
+    onAction.refresh()
+    onAction.toast(r.message)
+  }
   const retrySubscription = () => run('sub', async () => {
     const r = await callTerminal({ action: 'retry_subscription', planId: plan.id })
     onAction.toast(r.message); onAction.refresh()
@@ -517,6 +524,7 @@ function PlanRow({ plan, isManager, isSupervisor, profileId, onAction, highlight
             )}
             {needsCard && <Button size="sm" onClick={() => onAction.enterCard(plan)}>Entrer la carte</Button>}
             {needsCard && <Button size="sm" variant="secondary" loading={busy === 'link'} onClick={makeLink}>Lien pour le client</Button>}
+            <ModifierDates plan={plan} who={{ isSupervisor }} onConfirm={onReschedule} />
             <AnnulerVente plan={plan} who={{ isSupervisor, profileId }} onConfirm={onCancelChoice} />
           </div>
           {link && <p className="text-xs break-all bg-[#f5f5f7] rounded p-2">{link}</p>}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildSchedule, installmentsForProduct, addDays, addMonths, addInterval, todayMontreal } from './schedule.js'
+import { buildSchedule, installmentsForProduct, addDays, addMonths, addInterval, todayMontreal, rescheduleInstallments } from './schedule.js'
 
 describe('installmentsForProduct', () => {
   it('lit le nombre de paiements dans le nom du produit', () => {
@@ -91,5 +91,19 @@ describe('priceSale', () => {
   it('refuse un rabais trop grand', () => {
     expect(() => priceSale({ pretaxCents: 5000, discountType: 'amount', discountValue: 60 })).toThrow()
     expect(() => priceSale({ pretaxCents: 5000, discountType: 'percent', discountValue: 100 })).toThrow()
+  })
+})
+
+describe('rescheduleInstallments', () => {
+  it('seulement les versements « prévu », depuis la nouvelle date, à la nouvelle fréquence', () => {
+    const insts = [
+      { id: 'c', number: 3, status: 'scheduled', due_date: '2026-12-02' },
+      { id: 'a', number: 1, status: 'paid', due_date: '2026-10-20' },
+      { id: 'b', number: 2, status: 'scheduled', due_date: '2026-11-18' },
+    ]
+    expect(rescheduleInstallments(insts, { startDate: '2026-11-24', unit: 'WEEK', interval: 3 })).toEqual([
+      { id: 'b', number: 2, due_date: '2026-11-24' },
+      { id: 'c', number: 3, due_date: '2026-12-15' },
+    ])
   })
 })

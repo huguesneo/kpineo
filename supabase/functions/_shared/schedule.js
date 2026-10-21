@@ -141,3 +141,11 @@ export function buildSchedule(opts) {
 export function formatCents(cents) {
   return (cents / 100).toLocaleString('fr-CA', { style: 'currency', currency: 'CAD' })
 }
+
+// Modifier les dates : nouvelles dates des versements encore « prévu » (le 1er à startDate,
+// puis selon la fréquence). Les versements payés, refusés ou annulés ne bougent pas.
+export function rescheduleInstallments(installments, { startDate, unit, interval }) {
+  return (installments ?? []).filter(i => i.status === 'scheduled')
+    .sort((a, b) => a.number - b.number)
+    .map((i, k) => ({ id: i.id, number: i.number, due_date: addInterval(startDate, unit, interval, k) }))
+}

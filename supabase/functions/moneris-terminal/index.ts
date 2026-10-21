@@ -4,16 +4,17 @@
 //   attach_card        le closeur entre la carte (jeton temporaire Moneris)
 //   retry_subscription relance la création de l'échéancier chez Moneris
 //   attribution        listes closeur / setter / naturopathe + préremplissage GHL (lecture seule)
+//   reschedule_plan    modifie les dates des prochains prélèvements (nouvel abonnement Moneris, même carte)
 //   stop_payments      annule les prochains prélèvements chez Moneris, le client reste dans son programme
 //   cancel_plan        annule l'abonnement chez Moneris et les versements à venir (programme annulé)
 //   remove_plan        retire une vente saisie par erreur (0 $ encaissé) : cachée, jamais effacée
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { attachCard, createPlanSubscription, newLinkToken, sha256 } from '../_shared/terminal.ts'
+import { attachCard, createPlanSubscription, newLinkToken, reschedulePlan, sha256, syncPlan } from '../_shared/terminal.ts'
 import { ECI, cancelSubscription } from '../_shared/moneris.ts'
 import { addTagByEmail, lookupAttribution } from '../_shared/ghl.ts'
 import {
-  attributionLists, cancelChoices, isSupervisorEmail, matchByFirstName, resolveAttribution,
+  attributionLists, cancelChoices, isSupervisorEmail, matchByFirstName, rescheduleChoice, resolveAttribution,
 } from '../_shared/terminalAttribution.js'
 import { FREQUENCY_UNITS, TERMINAL_PRODUCTS, approxDays, buildSaleSchedule, installmentsForProduct, priceSale, todayMontreal } from '../_shared/schedule.js'
 
@@ -236,6 +237,29 @@ Deno.serve(async (req) => {
       if (plan.status !== 'active') return json({ error: 'Le plan doit être actif' }, 400)
       const r = await createPlanSubscription(db, plan.id)
       return json(r, r.ok ? 200 : 502)
+    }
+
+    // Modifier les dates des prochains prélèvements. Les versements payés ne bougent pas.
+    if (action === 'reschedule_plan') {
+      if (!isSupervisor) return json({ error: 'Seuls Hugues et info@ peuvent modifier les dates' }, 403)
+      const startDate = String(body.startDate ?? '')
+      const unit = String(body.frequencyUnit ?? '').toUpperCase() as 'DAY' | 'WEEK' | 'MONTH'
+      const interval = Number(body.frequencyInterval)
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || startDate <= todayMontreal()) {
+        return json({ error: 'Le prochain prélèvement doit être une date à venir' }, 400)
+      }
+      if (!FREQUENCY_UNITS.includes(unit) || !Number.isInteger(interval) || interval < 1 || interval > 99) {
+        return json({ error: 'Fréquence invalide' }, 400)
+      }
+      if (!(await loadPlan(body.planId))) return json({ error: 'Plan introuvable' }, 404)
+      // Un prélèvement fait aujourd'hui par Moneris doit être vu avant de changer les dates
+      try { await syncPlan(db, String(body.planId)) } catch (e) { console.error('[reschedule_plan] synchro', e) }
+      const plan = await loadPlan(body.planId)
+      if (!plan) return json({ error: 'Plan introuvable' }, 404)
+      const choice = rescheduleChoice(plan, { isSupervisor })
+      if (!choice.enabled) return json({ error: choice.reason }, 400)
+      const r = await reschedulePlan(db, plan, { startDate, unit, interval })
+      return r.ok ? json(r) : json({ error: r.message }, 502)
     }
 
     // Annuler le paiement : le prochain prélèvement et les suivants, chez Moneris. Le programme continue.
