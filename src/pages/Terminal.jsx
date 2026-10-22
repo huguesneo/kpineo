@@ -15,7 +15,7 @@ import { useAuth } from '../context/AuthContext'
 import {
   TERMINAL_PRODUCTS, basePriceKey, buildSaleSchedule, priceSale, withTax, installmentsForProduct, todayMontreal, formatCents, addDays,
 } from '../../supabase/functions/_shared/schedule.js'
-import { NONE, attributionComplete, isSupervisorEmail } from '../../supabase/functions/_shared/terminalAttribution.js'
+import { NONE, attributionComplete, isSupervisorEmail, matchByFirstName } from '../../supabase/functions/_shared/terminalAttribution.js'
 
 const FREQUENCY_UNITS = [
   { value: 'DAY', label: 'jour(s)' },
@@ -120,9 +120,12 @@ function BasePricesEditor({ prices, onSaved }) {
 }
 
 // prefill (optionnel) : champs préremplis, ex. après une rencontre d'évaluation (espace v2)
+// prefill.therapistNom : prénom de la naturopathe qui fait l'évaluation (journée portes ouvertes) ;
+// elle passe avant celle lue dans GHL, et n'est pas envoyée au serveur.
 function NewPlanForm({ onCreated, prefill = null }) {
   const { user } = useAuth()
-  const [form, setForm] = useState(() => ({ ...emptyForm(), ...(prefill ?? {}) }))
+  const { therapistNom, ...champsPrefill } = prefill ?? {}
+  const [form, setForm] = useState(() => ({ ...emptyForm(), ...champsPrefill }))
   const [saving, setSaving] = useState('')
   const [error, setError] = useState('')
   const [showPrices, setShowPrices] = useState(false)
@@ -162,7 +165,8 @@ function NewPlanForm({ onCreated, prefill = null }) {
         ...f,
         closerId: touched.current.closerId ? f.closerId : p.closerId,
         setterId: touched.current.setterId ? f.setterId : orNone(p.setterId),
-        therapistId: touched.current.therapistId ? f.therapistId : orNone(p.therapistId),
+        therapistId: touched.current.therapistId ? f.therapistId
+          : (matchByFirstName(r.lists?.therapists, therapistNom) || orNone(p.therapistId)),
       }))
     } catch (e) { setAttr(a => ({ ...a, error: e.message })) }
   }, [])
