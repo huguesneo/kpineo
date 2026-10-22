@@ -115,6 +115,32 @@ export function lienFicheGHL(contactId) {
   return `https://app.gohighlevel.com/v2/location/${GHL_LOCATION_ID}/contacts/detail/${contactId}`
 }
 
+// ── Journée portes ouvertes : « Évaluation – Suite » (naturopathes) ──────────
+// Deux calendriers round robin du groupe « évaluation portes ouvertes » (GHL, 22 oct. 2026).
+// Réservés à Jessica, Tamara, Brice et Thibault (menu « Prendre rendez-vous : porte ouverte »).
+// Même configuration côté serveur : supabase/functions/ghl-eval-book/index.ts.
+export const PORTE_OUVERTE = {
+  types: [
+    { cle: 'po_ligne',    libelle: 'Évaluation – Suite en ligne',    calendarId: 'PiNNPMJrj3slPnvJOkAO', duree: 45, enLigne: true },
+    { cle: 'po_clinique', libelle: 'Évaluation – Suite en clinique', calendarId: 'RdKRZfabxttrGNAA3dPX', duree: 45, enLigne: false },
+  ],
+  // Les quatre : courriel de connexion → userId GHL (c'est aussi la liste d'accès)
+  membres: [
+    { email: 'jessica@neoperformance.ca',  userId: 'qwjs0d2A8frAz2rguIja', nom: 'Jessica' },
+    { email: 'tamara@neoperformance.ca',   userId: 'LSAWdBBxee2VD7YkPZyB', nom: 'Tamara' },
+    { email: 'brice@neoperformance.ca',    userId: '8h1d4Xjwbv0XXuFA1m9k', nom: 'Brice' },
+    { email: 'thibault@neoperformance.ca', userId: 'PqbFLm1W2ErWQpBUOHRL', nom: 'Thibault' },
+  ],
+  // Noms exacts du formulaire « Évaluation porte ouverte » (envoyés tels quels à GHL)
+  forfaits: ["Programme d'optimisation métabolique (portes ouvertes)", 'À la carte'],
+}
+
+// Membre porte ouverte correspondant au courriel de connexion (null = pas d'accès)
+export function membrePorteOuverte(email) {
+  const e = String(email ?? '').trim().toLowerCase()
+  return PORTE_OUVERTE.membres.find(m => m.email === e) ?? null
+}
+
 // ── Rencontre d'évaluation (prise de rendez-vous intégrée, closeurs) ─────────
 // Calendriers round robin « optimisé selon la disponibilité » (vérifié le 2 oct. 2026)
 export const EVALUATION = {

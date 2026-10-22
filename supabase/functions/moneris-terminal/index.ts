@@ -46,7 +46,11 @@ Deno.serve(async (req) => {
     // annulent les paiements ou un programme
     const isSupervisor = isSupervisorEmail(user.email)
     const isManager = isSupervisor || ['admin', 'resp_vente'].includes(profile?.role)
+    // Naturopathes de la journée portes ouvertes (Jessica, Tamara, Brice, Thibault) : elles encaissent
+    // comme un closeur, sur leurs propres ventes (même liste que ghl-eval-book)
+    const ACCES_PORTE_OUVERTE = ['jessica@neoperformance.ca', 'tamara@neoperformance.ca', 'brice@neoperformance.ca', 'thibault@neoperformance.ca']
     const isCloser = profile?.role === 'closer' || (profile?.secondary_roles ?? []).includes('closer')
+      || ACCES_PORTE_OUVERTE.includes(String(user.email ?? '').toLowerCase())
     if (!isSupervisor && (!profile || (!isManager && !isCloser))) return json({ error: 'Accès réservé aux closeurs' }, 403)
 
     const body = await req.json() as Record<string, unknown>
