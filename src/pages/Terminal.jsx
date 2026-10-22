@@ -126,6 +126,7 @@ function NewPlanForm({ onCreated, prefill = null }) {
   const { user } = useAuth()
   const { therapistNom, ...champsPrefill } = prefill ?? {}
   const [form, setForm] = useState(() => ({ ...emptyForm(), ...champsPrefill }))
+  const naturoVoulue = useRef(therapistNom)
   const [saving, setSaving] = useState('')
   const [error, setError] = useState('')
   const [showPrices, setShowPrices] = useState(false)
@@ -166,7 +167,7 @@ function NewPlanForm({ onCreated, prefill = null }) {
         closerId: touched.current.closerId ? f.closerId : p.closerId,
         setterId: touched.current.setterId ? f.setterId : orNone(p.setterId),
         therapistId: touched.current.therapistId ? f.therapistId
-          : (matchByFirstName(r.lists?.therapists, therapistNom) || orNone(p.therapistId)),
+          : (matchByFirstName(r.lists?.therapists, naturoVoulue.current) || orNone(p.therapistId)),
       }))
     } catch (e) { setAttr(a => ({ ...a, error: e.message })) }
   }, [])
