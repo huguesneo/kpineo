@@ -202,9 +202,12 @@ export default function EvaluationReservation({
   const nomMembre = id => P.membres.find(m => m.userId === id)?.nom
 
   // Terminal prérempli à partir du forfait, du nombre de paiements et de la date de l'évaluation
-  const terminalPrerempli = confirme
+  const prerempli = confirme
     ? prefillTerminal({ forfait: form.forfait, nbPaiements: form.nbPaiements, dateEvaluation: confirme.startTime, client: form })
     : null
+  // Porte ouverte : la naturopathe de la vente est celle qui fait l'évaluation
+  const evaluatrice = P.terminalAutorise && confirme ? nomMembre(confirme.assignedUserId) : null
+  const terminalPrerempli = prerempli && evaluatrice ? { ...prerempli, therapistNom: evaluatrice } : prerempli
 
   return (
     <>
