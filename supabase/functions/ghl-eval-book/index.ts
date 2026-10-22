@@ -8,6 +8,8 @@
 //                    Sans contactId (Centre de vente, nouveau client) : le contact
 //                    est créé ou retrouvé par courriel/téléphone (upsert GHL).
 // Accès : utilisateur connecté, rôle admin, resp_vente ou closeur.
+// Exception : les calendriers « Évaluation – Suite » de la journée portes ouvertes
+// (types po_*) sont réservés à Jessica, Tamara, Brice et Thibault, quel que soit leur rôle.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { decouperPeriode, extraireCreneaux, grouperParJour, creneauLibre, bornesMois, joursDuMois } from './creneaux.js'
 
@@ -26,11 +28,17 @@ const FUSEAU = 'America/Toronto'
 const HORIZON_JOURS = 30
 
 // Même configuration que src/lib/v2/salesConfig.js (EVALUATION)
-const TYPES: Record<string, { calendarId: string; libelle: string; enLigne: boolean }> = {
+const TYPES: Record<string, { calendarId: string; libelle: string; enLigne: boolean; porteOuverte?: boolean }> = {
   clinique:  { calendarId: 'nF4GjzBPg0JJu7aSdi4d', libelle: 'Évaluation en clinique', enLigne: false },
   ligne:     { calendarId: 'EN1rRFnOcotGonaMAV3N', libelle: 'Évaluation en ligne',    enLigne: true },
   ouverture: { calendarId: '7BpembfPxvDHewFh51EN', libelle: 'Ouverture de dossier',   enLigne: true },
+  po_ligne:    { calendarId: 'PiNNPMJrj3slPnvJOkAO', libelle: 'Évaluation – Suite (Google Meet)', enLigne: true,  porteOuverte: true },
+  po_clinique: { calendarId: 'RdKRZfabxttrGNAA3dPX', libelle: 'Évaluation – Suite (en personne)', enLigne: false, porteOuverte: true },
 }
+// Naturopathes autorisés à réserver les calendriers portes ouvertes (courriel de connexion)
+const ACCES_PORTE_OUVERTE = new Set([
+  'jessica@neoperformance.ca', 'tamara@neoperformance.ca', 'brice@neoperformance.ca', 'thibault@neoperformance.ca',
+])
 const MEMBRES = new Set(['8h1d4Xjwbv0XXuFA1m9k', 'PqbFLm1W2ErWQpBUOHRL', 'LSAWdBBxee2VD7YkPZyB', 'qwjs0d2A8frAz2rguIja', '8f13uqX2I4N2ovK6Y4ck'])
 const CHAMP_FORFAIT = 'MmpQg7j8EyzfQ7aYhigw'
 const CHAMP_NB_PAIEMENTS = '7UixfQ3XzMDT3Yh362QI'
@@ -39,6 +47,7 @@ const FORFAITS = new Set([
   "Programme d'optimisation métabolique plus 10%",
   "Programme d'optimisation métabolique plus garanti",
   "Programme d'optimisation métabolique plus 10% & garanti",
+  "Programme d'optimisation métabolique (portes ouvertes)",
   'À la carte',
 ])
 const NB_PAIEMENTS = new Set(['1', '3', '5'])
@@ -81,7 +90,9 @@ Deno.serve(async (req) => {
     }
     const { data: profil } = await supabase.from('profiles').select('full_name, role, secondary_roles').eq('id', user.id).maybeSingle()
     const roles = [profil?.role, ...((profil?.secondary_roles as string[] | null) ?? [])]
-    if (!roles.some(r => ROLES.includes(String(r)))) {
+    const roleVente = roles.some(r => ROLES.includes(String(r)))
+    const accesPorteOuverte = ACCES_PORTE_OUVERTE.has(String(user.email ?? '').toLowerCase())
+    if (!roleVente && !accesPorteOuverte) {
       console.warn(`[ghl-eval-book] refus : ${profil?.full_name ?? user.email} (rôles ${roles.filter(Boolean).join(', ') || 'aucun'})`)
       return json({ ok: false, motif: 'non_autorise' }, 403)
     }
@@ -92,6 +103,11 @@ Deno.serve(async (req) => {
     const body = await req.json() as Record<string, string>
     const type = TYPES[String(body.type ?? '')]
     if (!type) return json({ ok: false, motif: 'type_inconnu' }, 400)
+    // Calendriers portes ouvertes : seulement les quatre naturopathes ; les autres types : rôles de vente
+    if (type.porteOuverte ? !accesPorteOuverte : !roleVente) {
+      console.warn(`[ghl-eval-book] refus : ${profil?.full_name ?? user.email} pour le type ${body.type}`)
+      return json({ ok: false, motif: 'non_autorise' }, 403)
+    }
     const userId = body.userId ? String(body.userId) : null
     if (userId && !MEMBRES.has(userId)) return json({ ok: false, motif: 'membre_inconnu' }, 400)
 

@@ -67,6 +67,8 @@ export function prefillTerminal({ forfait, nbPaiements, dateEvaluation, client =
     addGuarantee: /garanti/i.test(f),
     discountType: 'percent',
     discountValue: /10\s*%/.test(f) ? '10' : '',
+    // Journée portes ouvertes : prix imposé, avant taxes (les closeurs gardent le prix de base)
+    ...(/\(portes ouvertes\)/i.test(f) ? { totalAmount: '2100' } : {}),
     frequencyUnit: 'WEEK',
     frequencyInterval: semaines ?? 2,
     chargeDate: semaines && dateEvaluation ? plusJours(jourMontreal(dateEvaluation), semaines * 7) : '',

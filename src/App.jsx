@@ -22,6 +22,7 @@ import EquipeNaturo from './pages/EquipeNaturo'
 import SaleCallScript from './pages/SaleCallScript'
 import CloserCalendar from './pages/CloserCalendar'
 import CentreVente from './pages/CentreVente'
+import PorteOuverte from './pages/PorteOuverte'
 import MetaAds from './pages/MetaAds'
 import Performance from './pages/Performance'
 import MaPerformance from './pages/MaPerformance'
@@ -35,6 +36,7 @@ import MontageEditeur from './features/social/montage/MontageEditeur'
 import MontageTemplates from './features/social/montage/MontageTemplates'
 import PageTimeline from './features/social/montage/timeline/PageTimeline'
 import { TERMINAL_ENABLED, canUseTerminal } from './lib/terminal/flag'
+import { membrePorteOuverte } from './lib/v2/salesConfig'
 import { hasSocialAccess } from './lib/socialAccess'
 import { MONTAGE_VIDEO_ENABLED, TIMELINE_ENABLED, routeMontage, canConfigureMontageVideo } from './lib/montageVideoAccess'
 import { useMontageVideoAccess } from './hooks/useMontageVideoAccess'
@@ -127,6 +129,15 @@ function TerminalRoute({ children }) {
   return children
 }
 
+// Prendre rendez-vous : porte ouverte — Jessica, Tamara, Brice et Thibault seulement
+function PorteOuverteRoute({ children }) {
+  const { user, loading } = useAuth()
+  if (loading) return <LoadingScreen />
+  if (!user) return <Navigate to="/login" replace />
+  if (!membrePorteOuverte(user.email)) return <Navigate to="/dashboard" replace />
+  return children
+}
+
 function PublicRoute({ children }) {
   const { user, loading } = useAuth()
   if (loading) return <LoadingScreen />
@@ -159,6 +170,7 @@ function AppRoutes() {
       <Route path="/calendrier" element={<PrivateRoute><CloserCalendar /></PrivateRoute>} />
       <Route path="/sale-call-script/:appointmentGhlId" element={<PrivateRoute><SaleCallScript /></PrivateRoute>} />
       <Route path="/centre-vente" element={<PrivateRoute><CentreVente /></PrivateRoute>} />
+      <Route path="/porte-ouverte" element={<PorteOuverteRoute><PorteOuverte /></PorteOuverteRoute>} />
       <Route path="/meta-ads"    element={<SalesManagerRoute><MetaAds /></SalesManagerRoute>} />
       <Route path="/performance" element={<HuguesRoute><Performance /></HuguesRoute>} />
       <Route path="/ma-performance" element={<PrivateRoute><MaPerformance /></PrivateRoute>} />

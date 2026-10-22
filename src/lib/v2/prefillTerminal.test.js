@@ -32,6 +32,21 @@ describe('préremplissage du terminal', () => {
       .toMatchObject({ addGuarantee: true, discountValue: '' })
   })
 
+  it('programme (portes ouvertes) : prix 2 100 $ avant taxes, mêmes règles de dates', () => {
+    const f = "Programme d'optimisation métabolique (portes ouvertes)"
+    expect(prefillTerminal({ forfait: f, nbPaiements: '1', dateEvaluation: EVAL }))
+      .toMatchObject({ productName: 'Forfait 15 semaines NEO - 1 paiement', totalAmount: '2100', payToday: true, chargeDate: '' })
+    expect(prefillTerminal({ forfait: f, nbPaiements: '3', dateEvaluation: EVAL }))
+      .toMatchObject({ totalAmount: '2100', chargeDate: '2026-11-19', frequencyInterval: 5 })
+    expect(prefillTerminal({ forfait: f, nbPaiements: '5', dateEvaluation: EVAL }))
+      .toMatchObject({ totalAmount: '2100', chargeDate: '2026-11-05', frequencyInterval: 3 })
+  })
+
+  it('programme normal et à la carte : pas de prix imposé (prix de base du produit)', () => {
+    expect(prefillTerminal({ forfait: "Programme d'optimisation métabolique", nbPaiements: '1', dateEvaluation: EVAL }).totalAmount).toBeUndefined()
+    expect(prefillTerminal({ forfait: 'À la carte', nbPaiements: '1', dateEvaluation: EVAL }).totalAmount).toBeUndefined()
+  })
+
   it('à la carte : évaluation naturopathie', () => {
     expect(prefillTerminal({ forfait: 'À la carte', nbPaiements: '1', dateEvaluation: EVAL }))
       .toMatchObject({ productName: 'Évaluation naturopathie', payToday: true, addGuarantee: false, discountValue: '' })

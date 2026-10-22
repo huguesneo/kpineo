@@ -117,13 +117,22 @@ function RechercheClient({ contactId, onChoisir }) {
 // formulaire. Utilisé dans la fenêtre du script de vente (ModalEvaluation) et
 // directement dans la page du Centre de vente.
 //   rechercheClient : affiche la recherche de client (Centre de vente)
+//   parametres      : types, membres, forfaits… autres que ceux des closeurs (journée portes ouvertes)
+//                     { types, membres, forfaits, nbPaiements, membreParDefaut, terminalAutorise }
+//   onSecours       : lien « Un problème ? » (absent : le lien n'est pas affiché)
+const PARAMETRES_CLOSEURS = {
+  types: EVALUATION.types, membres: EVALUATION.membres, forfaits: EVALUATION.forfaits,
+  nbPaiements: EVALUATION.nbPaiements, membreParDefaut: '', terminalAutorise: false,
+}
+
 export default function EvaluationReservation({
   client = null, contactId: contactIdInitial = null, onSecours, onConfirme, onTermine,
-  libelleTermine = 'Fermer', rechercheClient = false,
+  libelleTermine = 'Fermer', rechercheClient = false, parametres = PARAMETRES_CLOSEURS,
 }) {
+  const P = parametres
   const [contactId, setContactId] = useState(contactIdInitial)
-  const [type, setType] = useState('clinique')
-  const [membre, setMembre] = useState('') // '' = tout membre disponible (round robin)
+  const [type, setType] = useState(P.types[0].cle)
+  const [membre, setMembre] = useState(P.membreParDefaut) // '' = tout membre disponible (round robin)
   // Mois affiché dans le calendrier ('AAAA-MM') ; on peut avancer jusqu'à 12 mois
   const moisCourant = jourDe(new Date().toISOString()).slice(0, 7)
   const [mois, setMois] = useState(moisCourant)
@@ -134,7 +143,7 @@ export default function EvaluationReservation({
   const [jour, setJour] = useState(null)
   const [creneau, setCreneau] = useState(null)
   const { user, isAdmin, isAdminOrRespVente, hasCloserRole } = useAuth()
-  const terminalPermis = canUseTerminal({ isAdmin, isAdminOrRespVente, hasCloserRole, email: user?.email })
+  const terminalPermis = P.terminalAutorise || canUseTerminal({ isAdmin, isAdminOrRespVente, hasCloserRole, email: user?.email })
   const [form, setForm] = useState({
     prenom: client?.first_name ?? '', nom: client?.last_name ?? '',
     telephone: client?.phone ?? '', courriel: client?.email ?? '',
@@ -146,7 +155,7 @@ export default function EvaluationReservation({
   const [envoi, setEnvoi] = useState(false)
   const [confirme, setConfirme] = useState(null)
 
-  const typeChoisi = EVALUATION.types.find(t => t.cle === type)
+  const typeChoisi = P.types.find(t => t.cle === type)
   const set = cle => e => setForm(f => ({ ...f, [cle]: e.target.value }))
 
   const charger = useCallback(async () => {
@@ -190,7 +199,7 @@ export default function EvaluationReservation({
     if (r?.motif === 'creneau_pris') { setCreneau(null); setCalendrierOuvert(true); charger() }
   }
 
-  const nomMembre = id => EVALUATION.membres.find(m => m.userId === id)?.nom
+  const nomMembre = id => P.membres.find(m => m.userId === id)?.nom
 
   // Terminal prérempli à partir du forfait, du nombre de paiements et de la date de l'évaluation
   const terminalPrerempli = confirme
@@ -234,8 +243,8 @@ export default function EvaluationReservation({
         ) : (
           <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-4 flex flex-col gap-5">
             {/* 1. Type */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-              {EVALUATION.types.map(t => (
+            <div className={`grid grid-cols-1 gap-2 ${P.types.length === 2 ? 'sm:grid-cols-2' : 'sm:grid-cols-3'}`}>
+              {P.types.map(t => (
                 <button key={t.cle} onClick={() => setType(t.cle)}
                   className={`min-h-[48px] px-4 py-2.5 rounded-xl border-2 text-sm font-bold text-left sm:text-center transition-colors ${type === t.cle ? 'border-[#00bbb1] bg-[#00bbb1]/5 text-[#00897f]' : 'border-[#e5e7eb] text-[#4b5563] hover:border-[#00bbb1]/40'}`}>
                   {t.libelle}<span className="block text-[11px] font-semibold text-[#9ca3af]">{t.duree} min{t.enLigne ? ' · en ligne' : ' · en clinique'}</span>
@@ -250,7 +259,7 @@ export default function EvaluationReservation({
                   <span className="text-xs font-bold text-[#6b7280] uppercase tracking-wide">Membre du personnel</span>
                   <select value={membre} onChange={e => setMembre(e.target.value)} className={champCls}>
                     <option value="">Tout membre disponible (répartition automatique)</option>
-                    {EVALUATION.membres.map(m => <option key={m.userId} value={m.userId}>{m.nom}</option>)}
+                    {P.membres.map(m => <option key={m.userId} value={m.userId}>{m.nom}</option>)}
                   </select>
                 </label>
 
@@ -325,11 +334,11 @@ export default function EvaluationReservation({
                 </div>
                 <select className={champCls} value={form.forfait} onChange={set('forfait')} aria-label="Type de forfait">
                   <option value="">Type de forfait…</option>
-                  {EVALUATION.forfaits.map(f => <option key={f} value={f}>{f}</option>)}
+                  {P.forfaits.map(f => <option key={f} value={f}>{f}</option>)}
                 </select>
                 <select className={champCls} value={form.nbPaiements} onChange={set('nbPaiements')} aria-label="Nombre de paiements">
                   <option value="">Nombre de paiements…</option>
-                  {EVALUATION.nbPaiements.map(n => <option key={n} value={n}>{n} paiement{n === '1' ? '' : 's'}</option>)}
+                  {P.nbPaiements.map(n => <option key={n} value={n}>{n} paiement{n === '1' ? '' : 's'}</option>)}
                 </select>
 
                 {erreur && jours.length > 0 && <p className="text-sm font-semibold text-[#b91c1c]">{erreur}</p>}
@@ -348,9 +357,11 @@ export default function EvaluationReservation({
               </div>
             </div>
 
-            <button onClick={onSecours} className="self-center text-xs font-semibold text-[#6b7280] underline underline-offset-2 hover:text-[#1a1a1a]">
-              Un problème ? Ouvrir le calendrier GoHighLevel
-            </button>
+            {onSecours && (
+              <button onClick={onSecours} className="self-center text-xs font-semibold text-[#6b7280] underline underline-offset-2 hover:text-[#1a1a1a]">
+                Un problème ? Ouvrir le calendrier GoHighLevel
+              </button>
+            )}
           </div>
         )}
     </>
