@@ -146,6 +146,26 @@ La table `qbo_produits_map` remplace la copie du skill pour le Hub seulement : l
 neo-leo-commandes garde sa propre table (les skills de Léo ne sont pas modifiés). Un
 nouvel article se met dans les deux.
 
+## Mise en ligne et retour en arrière
+
+En production : https://performanceneo.netlify.app/adjoint (site Netlify « performanceneo »,
+mis en ligne le 23 oct. 2026). La page n'existe que si la variable Netlify
+`VITE_ADJOINT_HUB=true` est posée au moment du build (Vite l'inscrit dans le code).
+
+Si quelque chose casse :
+1. Netlify, site performanceneo, Site configuration, Environment variables : supprimer
+   `VITE_ADJOINT_HUB` (ou la mettre à `false`).
+2. Redéployer : Deploys, Trigger deploy, « Deploy site ». Changer une variable ne
+   republie pas tout seul.
+3. Vérifier : la page `/adjoint` renvoie au tableau de bord et l'entrée « Adjoint »
+   disparaît du menu.
+
+Ce que le retrait du flag n'arrête pas : les edge functions leo-adjoint et gmail-sync
+(projet neo-admin), le cron `gmail-sync` (chaque minute) et la table
+`qbo_produits_map` (Clinique). Léo et Make continuent comme avant, le Hub ne leur
+enlève rien. Pour arrêter aussi la copie de la boîte de réception :
+`select cron.unschedule('gmail-sync');` sur neo-admin.
+
 ## Secrets (projet neo-admin `cbqwrmyctsfdqmenczhm`)
 
 ```bash
