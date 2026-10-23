@@ -112,10 +112,10 @@ describe('FiltreDates', () => {
     expect(plageDates({ mode: 'range', du: '', au: '' })).toBeNull()
     expect(plageDates(SANS_DATE)).toBeNull()
   })
-  it('total de la période, sans les ventes annulées', () => {
+  it('total de la période avant taxes, sans les ventes annulées', () => {
     const html = renderToStaticMarkup(<FiltreDates value={{ mode: 'range', du: '2026-10-01', au: '2026-10-23' }} onChange={noop} plans={[
-      vente('2026-10-02T15:00:00Z', { payment_installments: [{ status: 'paid', amount_cents: 2500 }] }),
-      vente('2026-10-03T15:00:00Z'),
+      vente('2026-10-02T15:00:00Z', { total_amount_cents: 11498, payment_installments: [{ status: 'paid', amount_cents: 2874 }] }),
+      vente('2026-10-03T15:00:00Z', { total_amount_cents: 11498 }),
       vente('2026-10-04T15:00:00Z', { status: 'canceled' }),
     ]} />)
     expect(html).toContain('2 ventes')
