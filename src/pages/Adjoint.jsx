@@ -8,11 +8,12 @@ import ListeTraites from '../components/adjoint/ListeTraites'
 import TableCommandes from '../components/adjoint/TableCommandes'
 import Recherche from '../components/adjoint/Recherche'
 import PagePersonne from '../components/adjoint/PagePersonne'
-import Toast from '../components/adjoint/Toast'
+import Bandeau from '../components/adjoint/Bandeau'
 import { Carte, Chargement, Erreur, Icone, Puce, Vide } from '../components/adjoint/ui'
 import { SECTIONS, sousSectionsDe } from '../../supabase/functions/_shared/adjoint.js'
 import { appelAdjoint, signalerMaj } from '../lib/adjoint/api'
-import { creerEnvoiDiffere, DELAI_ANNULATION_MS } from '../lib/adjoint/envoiDiffere'
+import { creerEnvoiDiffere } from '../lib/adjoint/envoiDiffere'
+import { bilanLot, suivantApres } from '../lib/adjoint/actions'
 import { useAdjointCompteurs } from '../hooks/useAdjointCompteurs'
 import { useInboxNonTraites } from '../hooks/useInboxNonTraites'
 import CourrielNonTraite from '../components/adjoint/CourrielNonTraite'
@@ -50,7 +51,8 @@ export default function Adjoint() {
 
   const { compteurs } = useAdjointCompteurs(true)
   const [version, setVersion] = useState(0)
-  const [toasts, setToasts] = useState([])
+  const [actions, setActions] = useState([]) // en attente ou en cours d'envoi
+  const [erreurs, setErreurs] = useState([])
   const envoi = useRef(creerEnvoiDiffere())
 
   const naviguer = useCallback((maj, remplacer = false) => {
@@ -121,64 +123,100 @@ export default function Adjoint() {
     return () => { window.removeEventListener('beforeunload', avantDeQuitter); window.removeEventListener('pagehide', enQuittant); e.vider() }
   }, [])
 
-  const majToast = useCallback((cle, t) => setToasts(l => (t ? l.map(x => (x.cle === cle ? { ...t, cle } : x)) : l.filter(x => x.cle !== cle))), [])
-  const erreurToast = useCallback((texte) => setToasts(l => [...l, { cle: `${Date.now()}-${Math.random()}`, ton: 'erreur', texte }]), [])
+  const ajouterErreur = useCallback((texte) => setErreurs(l => [...l, { cle: `${Date.now()}-${Math.random()}`, texte }]), [])
+  const finAction = useCallback((cle) => setActions(l => l.filter(x => x.cle !== cle)), [])
+  const masquer = useCallback((ids, oui) => setMasques(m => {
+    const n = new Set(m)
+    for (const id of ids) { if (oui) n.add(id); else n.delete(id) }
+    return n
+  }), [])
 
-  const decider = useCallback((args, { toast: texte }) => {
-    const id = selection
-    if (!id) return
-    const i = fileVisible.findIndex(d => d.id === id)
-    const suivant = i >= 0 ? (fileVisible[i + 1] ?? fileVisible[i - 1] ?? null) : null
-    const masquer = (oui) => setMasques(m => { const n = new Set(m); if (oui) n.add(id); else n.delete(id); return n })
-
-    const cle = `${Date.now()}-${id}`
+  // Une action (un dossier ou une sélection) : retirée de la file tout de suite, envoyée
+  // après 6 s. Pas de toast de succès : le bandeau se vide. Toute erreur reste en rouge.
+  const programmer = useCallback(({ ids, appel, texte, surResultat, rouvrir }) => {
+    const cle = `${Date.now()}-${ids.join(',')}`
+    const dansFile = ids.filter(id => fileVisible.some(d => d.id === id))
     let annuler
     try {
       annuler = envoi.current.programmer({
         executer: async () => {
-          const r = await appelAdjoint('decider', { id, ...args })
-          // Jamais de succès silencieux : la fonction doit confirmer la ligne modifiée
-          if (!r?.ok) throw new Error(r?.error ?? 'Le hub n’a pas confirmé l’enregistrement. Le dossier n’a pas changé.')
+          setActions(l => l.map(x => (x.cle === cle ? { ...x, annulable: false } : x)))
+          const r = await appel()
+          // Jamais de succès silencieux : la fonction doit confirmer ce qu'elle a écrit
+          if (!r?.ok) throw new Error(r?.error ?? 'Le hub n’a pas confirmé l’enregistrement. Rien n’a changé.')
           return r
         },
         surSucces: (r) => {
-          majToast(cle, r?.gmail?.erreur
-            ? { ton: 'erreur', texte: `${texte}, mais non archivé dans Gmail : ouvre le dossier pour réessayer` }
-            : { texte: r?.enAttenteDeMake ? `${texte} : transmis à Make` : texte })
+          const { aReafficher = [], erreurs: e = [] } = surResultat(r) ?? {}
+          e.forEach(ajouterErreur)
+          finAction(cle)
           signalerMaj()
           setVersion(v => v + 1)
-          setMasques(m => { const n = new Set(m); n.delete(id); return n })
-          if (i < 0) setRechargeDossier(n => n + 1)
+          // Les dossiers fermés restent masqués jusqu'au rechargement de la file
+          masquer(aReafficher, false)
+          if (!dansFile.length) setRechargeDossier(n => n + 1)
         },
         surErreur: (e) => {
-          masquer(false)
-          majToast(cle, { ton: 'erreur', texte: `${texte} : échec. ${e.message}` })
+          masquer(ids, false)
+          finAction(cle)
+          ajouterErreur(`${texte} : échec. ${e.message}`)
           setVersion(v => v + 1)
           setRechargeDossier(n => n + 1)
         },
         surAnnulation: () => {
-          masquer(false)
-          majToast(cle, null)
-          choisir(id)
+          masquer(ids, false)
+          finAction(cle)
+          if (rouvrir) choisir(rouvrir)
         },
       })
     } catch (e) {
-      erreurToast(`${texte} : l’action n’a pas pu être programmée (${e.message}). Rien n’a été enregistré.`)
-      return
+      ajouterErreur(`${texte} : l’action n’a pas pu être programmée (${e.message}). Rien n’a été enregistré.`)
+      return false
     }
-    if (i >= 0) { masquer(true); choisir(suivant?.id ?? null) }
-    setToasts(l => [...l, { cle, texte, onAnnuler: () => annuler(), debut: Date.now() }])
-  }, [selection, fileVisible, choisir, majToast, erreurToast])
+    if (dansFile.length) {
+      masquer(dansFile, true)
+      const suivant = suivantApres(fileVisible, dansFile, selection)
+      if (suivant !== selection) choisir(suivant)
+    }
+    setActions(l => [...l, { cle, annulable: true, annuler: () => annuler() }])
+    return true
+  }, [fileVisible, selection, choisir, masquer, ajouterErreur, finAction])
 
-  // Toasts : succès 4 s, erreur 10 s ; ceux en attente passent à « envoi en cours » après 6 s
-  useEffect(() => {
-    const minuteurs = toasts.map(t => {
-      if (t.onAnnuler) return setTimeout(() => majToast(t.cle, { texte: `${t.texte} : envoi en cours`, envoi: true }), Math.max(0, DELAI_ANNULATION_MS - (Date.now() - t.debut)))
-      if (t.envoi) return null
-      return setTimeout(() => majToast(t.cle, null), t.ton === 'erreur' ? 10000 : 4000)
+  const decider = useCallback((args, { toast: texte }) => {
+    const id = selection
+    if (!id) return
+    programmer({
+      ids: [id],
+      texte,
+      rouvrir: id,
+      appel: () => appelAdjoint('decider', { id, ...args }),
+      surResultat: (r) => ({ erreurs: r?.gmail?.erreur ? [`${texte}, mais non archivé dans Gmail : ouvre le dossier pour réessayer`] : [] }),
     })
-    return () => minuteurs.forEach(m => m && clearTimeout(m))
-  }, [toasts, majToast])
+  }, [selection, programmer])
+
+  // Sélection multiple : une seule action groupée, annulable pendant 6 s
+  const [coches, setCoches] = useState(() => new Set())
+  useEffect(() => { setCoches(new Set()) }, [section, sous])
+  const deciderSelection = useCallback((action) => {
+    const ids = [...coches].filter(id => fileVisible.some(d => d.id === id && !d.inbox))
+    if (!ids.length) return
+    const texte = action === 'rejeter' ? `Rejet de ${ids.length} dossiers` : `${ids.length} dossiers déjà traités`
+    const ok = programmer({
+      ids,
+      texte,
+      appel: async () => {
+        const r = await appelAdjoint('deciderLot', { ids, action })
+        const b = bilanLot(r, action, ids.length)
+        if (b.echecs === null) throw new Error(b.erreurs[0])
+        return r
+      },
+      surResultat: (r) => {
+        const b = bilanLot(r, action, ids.length)
+        return { aReafficher: b.echecs, erreurs: b.erreurs }
+      },
+    })
+    if (ok) setCoches(new Set())
+  }, [coches, fileVisible, programmer])
 
   // ── Rendu ──────────────────────────────────────────────────────────────────
   const d = ouvert.donnees
@@ -249,7 +287,7 @@ export default function Adjoint() {
           {vueFile ? (
             <div className="flex-1 overflow-y-auto">
               {file.erreur && <Erreur onReessayer={chargerFile}>{file.erreur}</Erreur>}
-              {file.chargement && !file.dossiers.length ? <Chargement /> : !file.erreur && <File dossiers={fileVisible} selection={selection} onChoisir={choisir} />}
+              {file.chargement && !file.dossiers.length ? <Chargement /> : !file.erreur && <File dossiers={fileVisible} selection={selection} onChoisir={choisir} coches={coches} onCocher={setCoches} onDeciderSelection={deciderSelection} />}
             </div>
           ) : (
             <ListeTraites section={section} sousSection={sous} selection={selection} onChoisir={choisir} version={version} />
@@ -319,7 +357,7 @@ export default function Adjoint() {
 
         {contenu}
       </div>
-      <Toast toasts={toasts} onFermer={(cle) => majToast(cle, null)} />
+      <Bandeau actions={actions} erreurs={erreurs} onFermerErreur={(cle) => setErreurs(l => l.filter(x => x.cle !== cle))} />
     </Layout>
   )
 }

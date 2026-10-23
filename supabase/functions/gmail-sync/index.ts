@@ -8,8 +8,9 @@
 // Vault (gmail_sync_secret_ok, clé service seulement). Sans lui : 401, rien n'est lu.
 // Réponse : des compteurs seulement, jamais de contenu.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { gmailApi, GmailIndisponible } from '../_shared/gmail.ts'
+import { gmailApi, GmailIndisponible, classerFil } from '../_shared/gmail.ts'
 import { ligneInbox, changementsHistorique, liaisons } from '../_shared/gmailSync.js'
+import { idsGmail, libellePlusFrequent, LIBELLES_TEMPORAIRES } from '../_shared/gmailFil.js'
 
 declare const Deno: {
   env: { get(key: string): string | undefined }
@@ -27,6 +28,8 @@ Deno.serve(async (req) => {
   const { data: autorise, error: errAuth } = jeton ? await admin.rpc('gmail_sync_secret_ok', { jeton }) : { data: false, error: null }
   if (errAuth) console.error('gmail-sync secret', errAuth.message)
   if (autorise !== true) return json({ error: 'Non autorisé' }, 401)
+  const corps = await req.json().catch(() => ({}))
+  if (corps?.op === 'reparerLibellesTemporaires') return reparerLibellesTemporaires()
   const { data: etat } = await admin.from('gmail_sync_etat').select('*').eq('id', 1).maybeSingle()
   if (etat?.derniere_sync && Date.now() - Date.parse(etat.derniere_sync) < INTERVALLE_MIN_MS) return json({ ok: true, saute: true })
   const noter = (maj: J) => admin.from('gmail_sync_etat').upsert({ id: 1, derniere_sync: new Date().toISOString(), ...maj })
@@ -113,3 +116,35 @@ Deno.serve(async (req) => {
     return json({ ok: false, erreur: (e as Error).message }, 500)
   }
 })
+
+// Réparation ponctuelle (appel manuel avec le secret, body { op: 'reparerLibellesTemporaires' }) :
+// fils classés par le Hub avec Label_137 (« Léo en cours », temporaire). On retire
+// Label_137 et on pose le libellé le plus fréquent de la catégorie. Compteurs seulement.
+async function reparerLibellesTemporaires() {
+  const clinique = createClient(Deno.env.get('CLINIQUE_SUPABASE_URL')!, Deno.env.get('CLINIQUE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } })
+  const { data: lignes, error } = await clinique.from('leo_service_interactions')
+    .select('id,category,gmail_thread_id,gmail_message_id,payload')
+    .in('payload->hub_gmail->>label', LIBELLES_TEMPORAIRES).limit(100)
+  if (error) return json({ ok: false, erreur: error.message }, 500)
+  const parCategorie = new Map<string, string | null>()
+  const resultats: J[] = []
+  for (const row of lignes ?? []) {
+    if (!parCategorie.has(row.category)) {
+      const { data } = await clinique.from('leo_service_interactions').select('label:payload->>label_final')
+        .eq('category', row.category).like('payload->>label_final', 'Label\\_%').order('created_at', { ascending: false }).limit(300)
+      parCategorie.set(row.category, libellePlusFrequent((data ?? []).map((r: J) => r.label)))
+    }
+    const label = parCategorie.get(row.category) ?? null
+    const avant = row.payload?.hub_gmail ?? {}
+    try {
+      const ids = idsGmail(row)
+      const fil = await classerFil({ ...ids, threadId: avant.thread_id || ids.threadId }, label)
+      const hubGmail = { ...avant, label, thread_id: fil, repare_le: new Date().toISOString(), label_avant: avant.label }
+      await clinique.from('leo_service_interactions').update({ payload: { ...row.payload, hub_gmail: hubGmail } }).eq('id', row.id)
+      resultats.push({ id: row.id, fil, label })
+    } catch (e) {
+      resultats.push({ id: row.id, erreur: (e as Error).message })
+    }
+  }
+  return json({ ok: true, repares: resultats })
+}

@@ -8,6 +8,7 @@ import FichePersonne from './FichePersonne'
 import FilGmail, { FilConversation } from './FilGmail'
 import { EtatSources, LigneHistorique } from './Historique'
 import CourrielNonTraite from './CourrielNonTraite'
+import Bandeau from './Bandeau'
 import { actionPrincipale, resumeDossier } from '../../../supabase/functions/_shared/adjoint.js'
 
 const NOW = new Date('2026-10-23T16:00:00Z').getTime()
@@ -173,5 +174,37 @@ describe('File et fiche', () => {
     const html = renderToStaticMarkup(<CourrielNonTraite onOuvrirDossier={rien} m={{ gmail_message_id: 'm1', gmail_thread_id: 't1', expediteur: 'a@x.ca', sujet: 'Question', recu_le: ilYa(1) }} />)
     expect(html).toContain('Pas encore traité par Léo')
     for (const b of ['Écrire une réponse', 'Demander à Léo de rédiger', 'Rejeter', 'Déjà traité à la main']) expect(html).toContain(b)
+  })
+})
+
+describe('Ménage rapide', () => {
+  const file = [
+    { id: 'inbox:m1', inbox: true, nom: 'Nouveau', sujet: 's', etiquettes: [], badgeAction: 'Nouveau courriel', decision: 'pending' },
+    resumeDossier(courriel({ id: 'a' }), null, NOW),
+    resumeDossier(courriel({ id: 'b' }), null, NOW),
+  ]
+  it('rejeter et déjà traité sans fenêtre de confirmation', () => {
+    const html = rendre(courriel({ payload: { subject: 'Reçus' } }))
+    expect(html).toContain('>Rejeter<')
+    expect(html).not.toContain('Confirmer le rejet')
+    expect(html).toContain('6 secondes pour annuler')
+  })
+  it('file : une case par dossier de Léo, « Tout sélectionner », boutons groupés quand on coche', () => {
+    const vide = renderToStaticMarkup(<File dossiers={file} selection="a" onChoisir={rien} coches={new Set()} onCocher={rien} onDeciderSelection={rien} />)
+    expect(vide).toContain('Tout sélectionner')
+    expect(vide.match(/type="checkbox"/g)).toHaveLength(3) // tout + 2 dossiers, pas le courriel non traité
+    expect(vide).not.toContain('Rejeter la sélection')
+    const coche = renderToStaticMarkup(<File dossiers={file} selection="a" onChoisir={rien} coches={new Set(['a', 'b'])} onCocher={rien} onDeciderSelection={rien} />)
+    expect(coche).toContain('2 sélectionnés')
+    expect(coche).toContain('Rejeter la sélection')
+    expect(coche).toContain('Déjà traité (sélection)')
+  })
+  it('bandeau : un seul, compte et « Annuler la dernière » ; erreurs en rouge ; rien quand tout est parti', () => {
+    const html = renderToStaticMarkup(<Bandeau actions={[{ cle: '1', annulable: true, annuler: rien }, { cle: '2', annulable: true, annuler: rien }, { cle: '3', annulable: false }]} erreurs={[{ cle: 'e', texte: 'Rejeté : échec.' }]} onFermerErreur={rien} />)
+    expect(html).toContain('3 actions en cours')
+    expect(html).toContain('Annuler la dernière')
+    expect(html).toContain('bg-[#b42318]')
+    expect(html).toContain('bottom-4 left-64')
+    expect(renderToStaticMarkup(<Bandeau actions={[]} erreurs={[]} onFermerErreur={rien} />)).toBe('')
   })
 })

@@ -174,11 +174,21 @@ export function documentIframe(html) {
 
 // ── Classement sur Rejeter et Déjà traité ───────────────────────────────────
 export const DECISIONS_CLASSEES = ['rejected', 'traite_manuellement']
-const estLabelId = (v) => typeof v === 'string' && /^Label_\d+$/.test(v)
+// Libellés temporaires de Léo, jamais un classement final : Label_137 = « Léo en cours »
+export const LIBELLES_TEMPORAIRES = ['Label_137']
+export const estLibelleFinal = (v) => typeof v === 'string' && /^Label_\d+$/.test(v) && !LIBELLES_TEMPORAIRES.includes(v)
 // Libellé de la catégorie : payload.label_final, sinon le plus fréquent pour la catégorie
 export const libelleDeClassement = (row, labelCategorie = null) =>
-  (estLabelId(row?.payload?.label_final) ? row.payload.label_final : null) ?? (estLabelId(labelCategorie) ? labelCategorie : null)
-// Corps de threads.modify : libellé ajouté, sorti de la boîte de réception
-export const modificationClassement = (label) => ({ addLabelIds: label ? [label] : [], removeLabelIds: ['INBOX'] })
+  (estLibelleFinal(row?.payload?.label_final) ? row.payload.label_final : null) ?? (estLibelleFinal(labelCategorie) ? labelCategorie : null)
+// Corps de threads.modify : libellé ajouté, sorti de la boîte de réception, « Léo en cours » retiré
+export const modificationClassement = (label) => ({ addLabelIds: label ? [label] : [], removeLabelIds: ['INBOX', ...LIBELLES_TEMPORAIRES] })
+// Libellé le plus fréquent parmi les label_final d'une catégorie, temporaires exclus
+export function libellePlusFrequent(labels) {
+  const n = new Map()
+  for (const l of labels ?? []) if (estLibelleFinal(l)) n.set(l, (n.get(l) ?? 0) + 1)
+  return [...n.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+}
+// Fil classé par le Hub avec un libellé temporaire (bogue du 23 oct.) : à reclasser
+export const classeAvecTemporaire = (row) => LIBELLES_TEMPORAIRES.includes(row?.payload?.hub_gmail?.label)
 // Réessayer : seulement sur un dossier fermé dans le Hub dont le classement a échoué
 export const classementAReessayer = (row) => DECISIONS_CLASSEES.includes(row?.decision) && !!row?.payload?.hub_gmail?.erreur

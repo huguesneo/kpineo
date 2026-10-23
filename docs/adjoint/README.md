@@ -55,8 +55,11 @@ S'il manque encore quelque chose, l'action est refusée avant Make, avec la list
 
 - Après la décision dans Supabase, `leo-adjoint` classe le fil dans Gmail : libellé de la catégorie (`payload.label_final` s'il est un id `Label_…`, sinon le plus fréquent pour la catégorie), et retrait de INBOX sur tout le fil (`threads.modify`).
 - Résultat dans `payload.hub_gmail` : `{ classe_le, label, thread_id, par }`, ou `{ erreur, le, label, par }`.
-- Si Gmail échoue, la décision passe quand même. Le dossier affiche « Non archivé dans Gmail » avec « Réessayer » (op `reclasser`, seulement sur un dossier rejeté ou traité à la main dont le classement a échoué). Le toast le signale aussi.
-- « Annuler » dans le toast annule tout : rien n'est appelé avant la fin des 6 secondes.
+- Si Gmail échoue, la décision passe quand même. Le dossier affiche « Non archivé dans Gmail » avec « Réessayer » (op `reclasser`, seulement sur un dossier rejeté ou traité à la main dont le classement a échoué). Une erreur rouge le signale aussi.
+- Jamais `Label_137` (« Léo en cours », libellé temporaire de Léo) : s'il est dans `label_final`, on prend le libellé le plus fréquent de la catégorie (hors `Label_137`), et le classement retire aussi `Label_137` du fil. Même règle pour l'envoi par Make (`complementsMake`). Bogue du 23 oct. : 3 fils classés avec `Label_137`, réparés le jour même (`gmail-sync`, body `{ "op": "reparerLibellesTemporaires" }`, appel avec le secret ; trace dans `payload.hub_gmail.repare_le` et `label_avant`).
+- Pas de fenêtre de confirmation : Rejeter et Déjà traité partent après 6 secondes, annulables.
+- Un seul bandeau en bas à gauche (à droite de la barre latérale) : « 3 actions en cours · Annuler la dernière ». Il disparaît quand tout est parti. Pas de message de succès ; les erreurs restent en rouge au-dessus jusqu'à ce qu'on les ferme.
+- Sélection multiple dans la file (cases à cocher, « Tout sélectionner », sauf les courriels pas encore traités par Léo) : « Rejeter la sélection » et « Déjà traité (sélection) », une seule action groupée (op `deciderLot`, 50 dossiers au plus), annulable 6 s. Chaque dossier est vérifié et rapporte son résultat ; ceux qui échouent reviennent dans la file avec une erreur rouge.
 - Au 23 oct. : les 78 dossiers en attente ont un id Gmail et un libellé (35 le leur, 43 celui de leur catégorie).
 - Pour Léo : un dossier fermé dans le Hub a `payload.hub_decided_by` et `decision` à `rejected` ou `traite_manuellement` ; le classement Gmail est dans `payload.hub_gmail`.
 

@@ -26,7 +26,7 @@ import {
 import {
   requeteAnthropic, texteReponse, nettoyerBrouillon, avertissementsBrouillon, ajouterJournalRedaction,
 } from '../_shared/adjointRedaction.js'
-import { idsGmail, libelleDeClassement, classementAReessayer, messageDuFil } from '../_shared/gmailFil.js'
+import { idsGmail, libelleDeClassement, classementAReessayer, messageDuFil, libellePlusFrequent, LIBELLES_TEMPORAIRES } from '../_shared/gmailFil.js'
 import { filDuDossier, classerFil, filsDeLaPersonne, gmailApi, GmailIndisponible } from '../_shared/gmail.ts'
 import { estInterne } from '../_shared/gmailSync.js'
 import { elementsGmail, elementsGhl, elementsApp } from '../_shared/historique.js'
@@ -48,6 +48,7 @@ const corsHeaders = {
 const TABLE = 'leo_service_interactions'
 const COLONNES = 'id,channel,client_id,contact_email,contact_phone,category,incoming_message,proposed_reply,decision,final_reply,decided_at,created_at,suggested_action,executed_at,etape,recu_quickbooks,total_qbo,gmail_message_id,gmail_thread_id,slack_channel_id,slack_message_ts,payload'
 const PAGE = 50
+const LOT_MAX = 50
 
 class Refus extends Error {
   constructor(message: string, public status = 409, public extra: J = {}) { super(message) }
@@ -230,13 +231,16 @@ Deno.serve(async (req) => {
     }
 
     // Libellé Gmail le plus utilisé pour cette catégorie (Make en a besoin pour classer)
-    async function libelleDeCategorie(categorie: string | null) {
-      if (!categorie) return null
+    const libellesParCategorie = new Map<string, Promise<string | null>>()
+    function libelleDeCategorie(categorie: string | null) {
+      if (!categorie) return Promise.resolve(null)
+      if (!libellesParCategorie.has(categorie)) libellesParCategorie.set(categorie, lireLibelleDeCategorie(categorie))
+      return libellesParCategorie.get(categorie)!
+    }
+    async function lireLibelleDeCategorie(categorie: string) {
       const { data } = await db.from(TABLE).select('label:payload->>label_final').eq('category', categorie)
-        .like('payload->>label_final', 'Label\\_%').order('created_at', { ascending: false }).limit(300)
-      const n = new Map<string, number>()
-      for (const r of data ?? []) if (estLibelleGmail(r.label)) n.set(r.label, (n.get(r.label) ?? 0) + 1)
-      return [...n.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+        .like('payload->>label_final', 'Label\\_%').not('payload->>label_final', 'in', `(${LIBELLES_TEMPORAIRES.join(',')})`).order('created_at', { ascending: false }).limit(300)
+      return libellePlusFrequent((data ?? []).map((r: J) => r.label))
     }
 
     // Rejeter / Déjà traité : classe aussi dans Gmail. Un échec ne bloque pas la décision,
@@ -256,6 +260,20 @@ Deno.serve(async (req) => {
       }
       await completerPayload(row.id, { hub_gmail: hubGmail }).catch(() => {})
       return hubGmail
+    }
+
+    // Rejeter / Déjà traité : décision vérifiée en base, puis Gmail et Slack (un échec de
+    // ces deux-là ne défait pas la décision, il est noté dans le payload)
+    async function fermerDossier(row: J, action: string, raisonBrute: unknown) {
+      const quand = new Date(now).toISOString()
+      const raison = String(raisonBrute ?? '').trim() || null
+      const decision = action === 'rejeter' ? 'rejected' : 'traite_manuellement'
+      const ajout = action === 'rejeter' ? { hub_rejet: { raison, par: moi.courriel, le: quand } } : { hub_traite_main: { note: raison, par: moi.courriel, le: quand } }
+      const ligne = await ecrireSiEnAttente(row.id, { decision, decided_at: quand, payload: { ...(row.payload ?? {}), hub_decided_by: moi.courriel, hub_decided_at: quand, ...ajout } })
+      // L'un après l'autre : les deux complètent le payload
+      const gmail = await classerDansGmail(row)
+      await majSlack(row, action === 'rejeter' ? 'Rejeté' : 'Déjà traité à la main', quand)
+      return { ligne, gmail }
     }
 
     // ── Opérations ───────────────────────────────────────────────────────────
@@ -531,6 +549,31 @@ Deno.serve(async (req) => {
       })
     }
 
+    // Sélection multiple dans la file : une seule action groupée. Chaque dossier est vérifié
+    // et rapporte son propre résultat ; un échec n'arrête pas les autres.
+    if (op === 'deciderLot') {
+      const action = String(body.action ?? '')
+      if (action !== 'rejeter' && action !== 'deja_traite') throw new Refus('Action groupée inconnue.', 400)
+      const ids = [...new Set((Array.isArray(body.ids) ? body.ids : []).map(String))].filter(Boolean)
+      if (!ids.length) throw new Refus('Aucun dossier sélectionné.', 400)
+      if (ids.length > LOT_MAX) throw new Refus(`${LOT_MAX} dossiers au plus par action groupée.`, 400)
+      const resultats: J[] = []
+      for (let i = 0; i < ids.length; i += 4) {
+        resultats.push(...await Promise.all(ids.slice(i, i + 4).map(async (id) => {
+          try {
+            const row = await lireLigne(id)
+            const refus = refusDecision(row, now)
+            if (refus) return { id, ok: false, erreur: refus }
+            const { ligne, gmail } = await fermerDossier(row, action, body.raison)
+            return { id, ok: true, decision: ligne.decision, gmailErreur: gmail?.erreur ?? null }
+          } catch (e) {
+            return { id, ok: false, erreur: (e as Error).message }
+          }
+        })))
+      }
+      return json({ ok: true, resultats })
+    }
+
     if (op === 'decider') {
       const id = String(body.id ?? '')
       const action = String(body.action ?? '')
@@ -541,13 +584,7 @@ Deno.serve(async (req) => {
       const signature = { hub_decided_by: moi.courriel, hub_decided_at: quand }
 
       if (action === 'rejeter' || action === 'deja_traite') {
-        const raison = String(body.raison ?? '').trim() || null
-        const decision = action === 'rejeter' ? 'rejected' : 'traite_manuellement'
-        const ajout = action === 'rejeter' ? { hub_rejet: { raison, par: moi.courriel, le: quand } } : { hub_traite_main: { note: raison, par: moi.courriel, le: quand } }
-        const ligne = await ecrireSiEnAttente(id, { decision, decided_at: quand, payload: { ...(row.payload ?? {}), ...signature, ...ajout } })
-        // L'un après l'autre : les deux complètent le payload
-        const gmail = await classerDansGmail(row)
-        await majSlack(row, action === 'rejeter' ? 'Rejeté' : 'Déjà traité à la main', quand)
+        const { ligne, gmail } = await fermerDossier(row, action, body.raison)
         return json({ ok: true, id: ligne.id, decision: ligne.decision, message: action === 'rejeter' ? 'Dossier rejeté' : 'Marqué comme déjà traité', gmail })
       }
 

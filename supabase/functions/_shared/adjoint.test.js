@@ -156,6 +156,10 @@ describe('appel Make', () => {
     const texte = corpsFormulaireMake({ actionId: 'creer_recu_commande', valeur: '8142', courriel: 'info@neoperformance.ca', responseUrl: 'https://x' })
     for (const autre of ['envoyer_reponse_courriel', 'valider_creneaux', '_reponse_app']) expect(decodeURIComponent(texte)).not.toContain(autre)
   })
+  it('remplace Label_137 (« Léo en cours ») par le libellé de la catégorie', () => {
+    const row = courriel({ payload: { subject: 's', html: 'h', label_final: 'Label_137', to: ['a@b.c'] } })
+    expect(complementsMake(row, 'envoyer_reponse_courriel', { labelCategorie: 'Label_43' }).label_final).toBe('Label_43')
+  })
   it('complète gmail_message_id, label_final et to', () => {
     const row = courriel({ payload: { subject: 's', html: 'h', label_final: 'autre' }, contact_email: 'Julie@Example.com' })
     expect(complementsMake(row, 'envoyer_reponse_courriel', { labelCategorie: 'Label_43' }))

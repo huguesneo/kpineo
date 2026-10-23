@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   decoderBase64Url, lireAdresse, lireAdresses, partiesDuMessage, nettoyerHtml, separerCitation, messageDuFil,
   filEnConversation, idsGmail, texteEnHtml, tailleLisible, documentIframe, extraitTexte,
-  libelleDeClassement, modificationClassement, classementAReessayer,
+  libelleDeClassement, modificationClassement, estLibelleFinal, libellePlusFrequent, classeAvecTemporaire, classementAReessayer,
 } from './gmailFil.js'
 
 const b64 = (t) => Buffer.from(t, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
@@ -132,9 +132,19 @@ describe('classement sur Rejeter et Déjà traité', () => {
     expect(libelleDeClassement({ payload: { label_final: 'CLIENTS/Reçus' } }, 'Label_99')).toBe('Label_99')
     expect(libelleDeClassement({ payload: {} }, null)).toBe(null)
   })
+  it('n’utilise jamais Label_137 (« Léo en cours », temporaire)', () => {
+    expect(libelleDeClassement({ payload: { label_final: 'Label_137' } }, 'Label_25')).toBe('Label_25')
+    expect(libelleDeClassement({ payload: { label_final: 'Label_137' } }, 'Label_137')).toBe(null)
+    expect(estLibelleFinal('Label_137')).toBe(false)
+    expect(estLibelleFinal('Label_25')).toBe(true)
+    expect(libellePlusFrequent(['Label_137', 'Label_137', 'Label_137', 'Label_35', 'Label_35', 'Label_139', 'FINANCE'])).toBe('Label_35')
+    expect(libellePlusFrequent(['Label_137'])).toBe(null)
+    expect(classeAvecTemporaire({ payload: { hub_gmail: { label: 'Label_137' } } })).toBe(true)
+    expect(classeAvecTemporaire({ payload: { hub_gmail: { label: 'Label_35' } } })).toBe(false)
+  })
   it('ajoute le libellé et retire INBOX', () => {
-    expect(modificationClassement('Label_12')).toEqual({ addLabelIds: ['Label_12'], removeLabelIds: ['INBOX'] })
-    expect(modificationClassement(null)).toEqual({ addLabelIds: [], removeLabelIds: ['INBOX'] })
+    expect(modificationClassement('Label_12')).toEqual({ addLabelIds: ['Label_12'], removeLabelIds: ['INBOX', 'Label_137'] })
+    expect(modificationClassement(null)).toEqual({ addLabelIds: [], removeLabelIds: ['INBOX', 'Label_137'] })
   })
   it('Réessayer seulement après un échec sur un dossier fermé dans le Hub', () => {
     expect(classementAReessayer({ decision: 'rejected', payload: { hub_gmail: { erreur: 'Gmail 500' } } })).toBe(true)

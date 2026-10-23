@@ -218,7 +218,8 @@ export const corpsFormulaireMake = (args) => new URLSearchParams({ payload: JSON
 // colonne pour 54 dossiers sur 61), label_final (id de libellé Gmail « Label_… »,
 // sinon l'étape Gmail de Make plante après l'envoi), to (adresse).
 // labelCategorie : le libellé le plus utilisé pour cette catégorie (lu par l'edge function).
-export const estLibelleGmail = (v) => typeof v === 'string' && /^Label_\d+$/.test(v)
+// Label_137 (« Léo en cours ») est temporaire : jamais un libellé final
+export const estLibelleGmail = (v) => typeof v === 'string' && /^Label_\d+$/.test(v) && v !== 'Label_137'
 export function complementsMake(row, actionId, { labelCategorie = null } = {}) {
   const p = row.payload ?? {}
   const patch = {}

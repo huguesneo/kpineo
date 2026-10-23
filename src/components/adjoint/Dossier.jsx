@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   CANAUX, DECISIONS, ACTIONS_MAKE, destinataires, estEscalade, formatArgent, formatDateHeure, htmlVersTexte, sujetReponse,
   courrielDuDossier, NON_RENSEIGNE,
@@ -170,17 +170,24 @@ export default function Dossier({ d, fiche, onDecider, occupe, onRecharger, mode
   const [consigne, setConsigne] = useState('')
   const [demandeLeo, setDemandeLeo] = useState(false)
   const [redaction, setRedaction] = useState({ enCours: false, erreur: null })
-  const [confirmer, setConfirmer] = useState(null) // 'rejeter' | 'deja_traite'
-  const [raison, setRaison] = useState('')
 
+  const fermeDOffice = useRef(null)
   useEffect(() => {
     setEdition(false); setRelu(false); setTexteLeo(htmlLeo); setEcrire(false); setTexteLibre(''); setRedigeParLeo(false)
     setAvertissements([]); setConsigne(''); setDemandeLeo(false); setRedaction({ enCours: false, erreur: null })
-    setConfirmer(null); setRaison('')
     // Ouvert depuis un courriel pas encore traité par Léo : directement dans le bon mode
     if (modeInitial === 'ecrire' || modeInitial === 'rediger') { setEcrire(true); setDemandeLeo(modeInitial === 'rediger') }
-    if (modeInitial === 'rejeter' || modeInitial === 'deja_traite') setConfirmer(modeInitial)
+    // Rejeter / Déjà traité cliqué sur le courriel : part tout de suite (6 s pour annuler)
+    if ((modeInitial === 'rejeter' || modeInitial === 'deja_traite') && enAttente && fermeDOffice.current !== d.id) {
+      fermeDOffice.current = d.id
+      fermer(modeInitial)
+    }
   }, [d.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sans confirmation : les 6 secondes d'annulation suffisent
+  function fermer(action) {
+    onDecider({ action }, { toast: action === 'rejeter' ? `Rejeté : ${d.resume?.nom ?? ''}` : `Déjà traité : ${d.resume?.nom ?? ''}` })
+  }
 
   const modifie = texteLeo.trim() !== htmlLeo.trim()
   const destinataire = courrielDuDossier(d)
@@ -374,42 +381,20 @@ export default function Dossier({ d, fiche, onDecider, occupe, onRecharger, mode
 
       {enAttente && (
         <div className="px-7 py-4 border-t border-[#eef0f3] flex flex-col gap-3">
-          {confirmer ? (
-            <div className="flex flex-wrap gap-2.5 items-center">
-              <input
-                type="text"
-                value={raison}
-                onChange={e => setRaison(e.target.value)}
-                placeholder={confirmer === 'rejeter' ? 'Raison du rejet (facultatif)' : 'Note (facultatif), ex. : reçu fait dans QuickBooks'}
-                className="flex-[1_1_240px] min-w-0 rounded-[9px] border border-[#d5d9e0] px-3 py-2.5 text-sm outline-none focus:border-[#00bbb1]"
-              />
-              <Bouton
-                variante={confirmer === 'rejeter' ? 'danger' : 'principal'}
-                disabled={occupe}
-                onClick={() => onDecider({ action: confirmer, raison }, { toast: confirmer === 'rejeter' ? 'Dossier rejeté' : 'Marqué comme déjà traité' })}
-              >
-                {confirmer === 'rejeter' ? 'Confirmer le rejet' : 'Confirmer : déjà traité'}
-              </Bouton>
-              <Bouton variante="discret" onClick={() => setConfirmer(null)}>Retour</Bouton>
-            </div>
-          ) : (
-            <div className="flex flex-wrap gap-2.5 items-center">
-              {(action || ecrire) && <Bouton variante="principal" onClick={envoyerPrincipal} disabled={principalDesactive}>{libellePrincipal}</Bouton>}
-              {p.html && !ecrire && action && (
-                <Bouton onClick={() => (edition ? setEdition(false) : ouvrirEdition())}>{edition ? 'Terminer' : 'Modifier'}</Bouton>
-              )}
-              {peutEcrire && !ecrire && <Bouton onClick={() => ouvrirEcrire(false)}>Écrire une réponse</Bouton>}
-              {peutEcrire && !(ecrire && demandeLeo) && <Bouton onClick={() => ouvrirEcrire(true)}>Demander à Léo de rédiger</Bouton>}
-              {ecrire && <Bouton variante="discret" onClick={() => { setEcrire(false); setDemandeLeo(false) }}>Annuler la réponse</Bouton>}
-              <Bouton variante="danger" onClick={() => setConfirmer('rejeter')}>Rejeter</Bouton>
-              <Bouton variante="discret" onClick={() => setConfirmer('deja_traite')}>Déjà traité à la main</Bouton>
-            </div>
-          )}
+          <div className="flex flex-wrap gap-2.5 items-center">
+            {(action || ecrire) && <Bouton variante="principal" onClick={envoyerPrincipal} disabled={principalDesactive}>{libellePrincipal}</Bouton>}
+            {p.html && !ecrire && action && (
+              <Bouton onClick={() => (edition ? setEdition(false) : ouvrirEdition())}>{edition ? 'Terminer' : 'Modifier'}</Bouton>
+            )}
+            {peutEcrire && !ecrire && <Bouton onClick={() => ouvrirEcrire(false)}>Écrire une réponse</Bouton>}
+            {peutEcrire && !(ecrire && demandeLeo) && <Bouton onClick={() => ouvrirEcrire(true)}>Demander à Léo de rédiger</Bouton>}
+            {ecrire && <Bouton variante="discret" onClick={() => { setEcrire(false); setDemandeLeo(false) }}>Annuler la réponse</Bouton>}
+            <Bouton variante="danger" disabled={occupe} onClick={() => fermer('rejeter')}>Rejeter</Bouton>
+            <Bouton variante="discret" disabled={occupe} onClick={() => fermer('deja_traite')}>Déjà traité à la main</Bouton>
+          </div>
           <p className="m-0 text-xs text-[#5b616e]">
-            {confirmer
-              ? `Rien n’est envoyé. ${d.aFilGmail ? 'Le courriel est classé dans Gmail avec le libellé de sa catégorie et sort de la boîte de réception. ' : ''}Le message Slack est mis à jour. Tu as 6 secondes pour annuler.`
-              : !ecrire && !action
-              ? 'Rejeter et « Déjà traité à la main » ferment le dossier sans rien envoyer. Le message Slack est mis à jour.'
+            {!ecrire && !action
+              ? `Rejeter et « Déjà traité à la main » ferment le dossier sans rien envoyer${d.aFilGmail ? ' et le classent dans Gmail' : ''}. 6 secondes pour annuler.`
               : !ecrire && action.actionId === ACTIONS_MAKE.creer_recu_commande
                 ? 'Exécuté par Make, comme le bouton Slack : client et reçu dans QuickBooks.'
                 : 'Exécuté par Make, comme le bouton Slack. Le message Slack est mis à jour.'}
