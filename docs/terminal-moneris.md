@@ -85,3 +85,7 @@ Le montant en cents détermine la réponse du simulateur (voir « Penny Value Si
 ### Paiement unique (`create_manual`)
 
 hugues@ et info@ seulement, comme le terminal en clinique. Prénom, nom, description libre et montant avant taxes (TPS et TVQ toujours ajoutées), un seul débit aujourd'hui, carte entrée par la personne connectée. La vente est marquée `manual = true` : aucun reçu QuickBooks (fait à la main), ne compte pas dans la carte 🎯 Vente de GHL ni dans les commissions. Courriel et code postal optionnels.
+
+### Filtre par date de la liste des ventes
+
+hugues@ et info@ seulement (`FiltreDates.jsx`). « Toutes dates », « Aujourd'hui » ou « Plage de dates » (du / au, bornes incluses). Date de la vente = `created_at` à l'heure de Montréal. Avec une date, la liste va chercher toutes les ventes de la période (jusqu'à 1000, au lieu des 200 dernières) et passe à l'onglet « Toutes ». Résumé : nombre de ventes et montant vendu (sans les annulées), plus le montant déjà encaissé sur ces ventes.

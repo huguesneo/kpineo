@@ -10,6 +10,7 @@ import AttributionVente from '../components/terminal/AttributionVente'
 import AnnulerVente from '../components/terminal/AnnulerVente'
 import ModifierDates from '../components/terminal/ModifierDates'
 import PaiementUnique from '../components/terminal/PaiementUnique'
+import FiltreDates, { SANS_DATE, plageDates, dansPlage, bornesRequete } from '../components/terminal/FiltreDates'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import {
@@ -549,6 +550,8 @@ export function TerminalPanel({ showHeader = true, prefill = null, seulementForm
   const [plans, setPlans] = useState([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('open')
+  const [filtreDates, setFiltreDates] = useState(SANS_DATE)
+  const plage = isSupervisor ? plageDates(filtreDates) : null
   const [cardPlan, setCardPlan] = useState(null)
   const [highlightId, setHighlightId] = useState(null)
   const [toast, setToast] = useState(null)
@@ -560,21 +563,28 @@ export function TerminalPanel({ showHeader = true, prefill = null, seulementForm
     setTimeout(() => setToast(null), 8000)
   }
 
+  // Avec une plage de dates, on va chercher les ventes de la période (pas seulement les 200 dernières)
+  const du = plage?.du, au = plage?.au
   const load = useCallback(async () => {
-    const { data, error } = await supabase
+    let q = supabase
       .from('payment_plans')
       .select('*, payment_installments(*)')
       .is('removed_at', null)
       .order('created_at', { ascending: false })
-      .limit(200)
+    if (du) {
+      const { debut, fin } = bornesRequete({ du, au })
+      q = q.gte('created_at', debut).lt('created_at', fin).limit(1000)
+    } else q = q.limit(200)
+    const { data, error } = await q
     if (error) showToast(error.message, true)
     setPlans(data ?? [])
     setLoading(false)
-  }, [])
+  }, [du, au])
 
   useEffect(() => { load() }, [load])
 
   const visible = plans.filter(p => {
+    if (!dansPlage(p, plage)) return false
     if (filter === 'open') return !['completed', 'canceled'].includes(p.status) && !p.payments_stopped_at
     if (filter === 'issues') {
       return p.status === 'card_failed' || p.subscription_status === 'ERROR'
@@ -623,7 +633,12 @@ export function TerminalPanel({ showHeader = true, prefill = null, seulementForm
               <Button key={k} size="sm" variant={filter === k ? 'primary' : 'secondary'} onClick={() => setFilter(k)}>{l}</Button>
             ))}
           </div>
-          {loading && <p className="text-sm text-[#6b7280]">Chargement...</p>}
+          {isSupervisor && <FiltreDates value={filtreDates} plans={visible} onChange={(f) => {
+            // Ventes d'une période : on montre aussi celles payées en entier
+            if (f.mode !== filtreDates.mode && f.mode !== 'all') setFilter('all')
+            setFiltreDates(f)
+          }} />}
+          {loading &&<p className="text-sm text-[#6b7280]">Chargement...</p>}
           {!loading && visible.length === 0 && <p className="text-sm text-[#6b7280]">Aucune vente.</p>}
           {visible.map(p => (
             <PlanRow key={p.id} plan={p} isManager={isManager} isSupervisor={isSupervisor} profileId={user?.id} highlight={p.id === highlightId}
