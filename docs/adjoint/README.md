@@ -93,6 +93,8 @@ S'il manque encore quelque chose, l'action est refusée avant Make, avec la list
 - « [Neo Performance]: Nouvelle commande #… » arrive de info@ vers info@ (libellés `SENT` et `INBOX`). Exception dans `doitIgnorer` : ce n'est pas un courriel interne, c'est une commande.
 - gmail-sync lit le corps complet : client et courriel (adresse de facturation) deviennent l'expéditeur de la ligne, `extrait` = « Commande n°… · client · Total … $ ».
 - Affiché dans Tout et Commandes (pas dans Courriels), badge « Pas encore traité par Léo », sans boutons de courriel : Léo fait le dossier de commande ; la liaison se fait par `gmail_message_id`.
+- Sur une commande pas encore traitée par Léo : « Rejeter » et « Déjà traité à la main ». `creerDepuisCourriel` crée la ligne `channel = 'commande'` (catégorie Commandes, `hub_origine = 'hub'`, numéro, client, total WooCommerce, sans `Line`), puis le dossier se ferme par le chemin habituel (6 s, classement Gmail sous le libellé le plus fréquent des Commandes). Si une ligne porte déjà ce numéro, on l'ouvre au lieu d'en créer une.
+- « Créer le reçu de vente » exige maintenant `payload.Line` non vide (lignes QuickBooks préparées par Léo), pour toute commande.
 - Rattrapage du 23 oct. (`history_id` remis à vide, reprise des 3 derniers jours) : commande #8116 entrée.
 
 ### Accès Gmail : étapes dans Google Cloud

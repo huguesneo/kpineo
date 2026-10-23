@@ -125,6 +125,10 @@ describe('action principale', () => {
     expect(actionPrincipale(commande({ etape: 'bloque_variante_produit' }))).toBe(null)
     expect(actionPrincipale(commande({ suggested_action: 'transferer_cloe' }))).toBe(null)
   })
+  it('pas de « Créer le reçu » tant que Léo n’a pas préparé les lignes QuickBooks', () => {
+    expect(actionPrincipale(commande({ payload: { commande: '8116', hub_origine: 'hub' } }))).toBe(null)
+    expect(actionPrincipale(commande({ payload: { commande: '8116', Line: [] } }))).toBe(null)
+  })
   it('courriel : réponse, accusé de réception pour escalade et transfert, rien sans html', () => {
     expect(actionPrincipale(courriel()).libelle).toBe('Envoyer la réponse')
     expect(valeurMake(courriel(), 'envoyer_reponse_courriel')).toBe('c1')

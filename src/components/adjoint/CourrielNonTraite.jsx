@@ -42,8 +42,13 @@ export default function CourrielNonTraite({ m, onOuvrirDossier, suiteDe = null }
         <FilDepuisHistorique threadId={m.gmail_thread_id} />
       </div>
       {commande ? (
-        <div className="px-7 py-4 border-t border-[#eef0f3]">
-          <p className="m-0 text-xs text-[#5b616e]">Avis de commande WooCommerce. Léo en fera le dossier de commande (reçu QuickBooks) à son prochain passage ; il quittera alors cette file.</p>
+        <div className="px-7 py-4 border-t border-[#eef0f3] flex flex-col gap-3">
+          {etat.erreur && <p className="m-0 text-sm text-[#b42318]">{etat.erreur}</p>}
+          <div className="flex flex-wrap gap-2.5 items-center">
+            <Bouton variante="danger" disabled={occupe} onClick={() => agir('rejeter')}>Rejeter</Bouton>
+            <Bouton variante="discret" disabled={occupe} onClick={() => agir('deja_traite')}>Déjà traité à la main</Bouton>
+          </div>
+          <p className="m-0 text-xs text-[#5b616e]">Avis de commande WooCommerce. « Créer le reçu » viendra quand Léo aura préparé les lignes QuickBooks. Rejeter ou Déjà traité crée le dossier de la commande et le ferme (6 secondes pour annuler).</p>
         </div>
       ) : (
         <div className="px-7 py-4 border-t border-[#eef0f3] flex flex-col gap-3">

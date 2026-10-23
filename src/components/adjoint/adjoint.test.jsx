@@ -187,6 +187,15 @@ describe('File et fiche', () => {
     expect(html).toContain('Pas encore traité par Léo')
     expect(html).toContain('Total 181,70 $')
     expect(html).not.toContain('Écrire une réponse')
+    expect(html).not.toContain('Créer le reçu de vente')
+    expect(html).toContain('>Rejeter<')
+    expect(html).toContain('Déjà traité à la main')
+  })
+  it('commande créée dans le Hub sans lignes QuickBooks : Rejeter et Déjà traité, pas de « Créer le reçu »', () => {
+    const html = rendre(commande({ payload: { commande: '8116', client_nom: 'Cassandra Monzon', total_woocommerce: 181.7, hub_origine: 'hub' } }))
+    expect(html).not.toContain('Créer le reçu de vente')
+    expect(html).toContain('>Rejeter<')
+    expect(html).toContain('Déjà traité à la main')
   })
 })
 

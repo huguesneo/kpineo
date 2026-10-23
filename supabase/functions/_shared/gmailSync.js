@@ -36,6 +36,31 @@ export function lireAvisCommande(sujet, html) {
   return { numero, client, total: total ? `${total} $` : null, courriel }
 }
 
+// Avis de commande pas encore traité par Léo → ligne leo_service_interactions créée dans
+// le Hub (Rejeter / Déjà traité). Sans lignes QuickBooks : pas de « Créer le reçu ».
+export function ligneCommandeHub({ messageId, threadId = null, sujet, html, clientId = null, par = null, quand = null }) {
+  const c = lireAvisCommande(sujet, html)
+  if (!c.numero) return null
+  const total = c.total ? Number(c.total.replace(/[^\d,.]/g, '').replace(/\s/g, '').replace(',', '.')) : null
+  return {
+    channel: 'commande',
+    category: 'Commandes',
+    decision: 'pending',
+    suggested_action: 'commande',
+    contact_email: c.courriel,
+    client_id: clientId,
+    gmail_message_id: messageId,
+    gmail_thread_id: threadId,
+    incoming_message: `Nouvelle commande WooCommerce #${c.numero}${c.client ? `, ${c.client}` : ''}${c.total ? `, ${c.total}` : ''} (pas encore préparée par Léo)`,
+    payload: {
+      commande: c.numero, client_nom: c.client, client_courriel: c.courriel,
+      ...(Number.isFinite(total) ? { total_woocommerce: total } : {}),
+      gmail_message_id: messageId, gmail_subject: sujet,
+      hub_origine: 'hub', hub_cree_par: par, hub_cree_le: quand,
+    },
+  }
+}
+
 // Courriel à ignorer : hors boîte de réception, interne (sauf avis de commande), ou bruit
 export function doitIgnorer({ de, sujet = '', labelIds = [], tableLibelles = {} }) {
   if (!labelIds.includes('INBOX')) return true

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { doitIgnorer, ligneInbox, changementsHistorique, liaisons, courrielsNonTraites, elementFileInbox, etatLie, suiteDe, BADGE_NOUVELLE_REPONSE, estAvisCommande, lireAvisCommande } from './gmailSync.js'
+import { doitIgnorer, ligneInbox, changementsHistorique, liaisons, courrielsNonTraites, elementFileInbox, etatLie, suiteDe, BADGE_NOUVELLE_REPONSE, estAvisCommande, lireAvisCommande, ligneCommandeHub } from './gmailSync.js'
 
 const meta = (o = {}) => ({
   id: 'm1', threadId: 't1', internalDate: String(Date.parse('2026-10-23T14:00:00Z')), labelIds: ['INBOX', 'UNREAD'], snippet: 'Bonjour, j&#39;ai une question',
@@ -126,5 +126,21 @@ describe('avis de commande WooCommerce (de info@)', () => {
   })
   it('sans le corps, on garde au moins le numéro', () => {
     expect(lireAvisCommande('[Neo Performance]: Nouvelle commande #8116', '')).toEqual({ numero: '8116', client: null, total: null, courriel: null })
+  })
+})
+
+describe('commande créée dans le Hub depuis l’avis', () => {
+  it('ligne commande, hub_origine = hub, sans lignes QuickBooks', () => {
+    const l = ligneCommandeHub({ messageId: '1a169cbace3263c2', threadId: '1a169cbace3263c2', sujet: '[Neo Performance]: Nouvelle commande #8116', html: HTML_8116, clientId: 'c9', par: 'hugues@neoperformance.ca', quand: '2026-10-23T21:00:00Z' })
+    expect(l).toMatchObject({
+      channel: 'commande', category: 'Commandes', decision: 'pending', suggested_action: 'commande',
+      contact_email: 'monzon.cassy@gmail.com', client_id: 'c9', gmail_message_id: '1a169cbace3263c2', gmail_thread_id: '1a169cbace3263c2',
+      payload: { commande: '8116', client_nom: 'Cassandra Monzon', client_courriel: 'monzon.cassy@gmail.com', total_woocommerce: 181.7, gmail_message_id: '1a169cbace3263c2', hub_origine: 'hub', hub_cree_par: 'hugues@neoperformance.ca' },
+    })
+    expect(l.payload.Line).toBeUndefined()
+    expect(l.incoming_message).toContain('#8116')
+  })
+  it('sans numéro : rien à créer', () => {
+    expect(ligneCommandeHub({ messageId: 'x', sujet: '[Neo Performance]: Nouvelle commande', html: '' })).toBe(null)
   })
 })

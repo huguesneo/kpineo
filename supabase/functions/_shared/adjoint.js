@@ -180,6 +180,8 @@ export function actionPrincipale(row) {
   const p = row.payload ?? {}
   if (row.channel === 'commande') {
     if (row.suggested_action !== 'commande' || blocageCommande(row) || !numeroCommande(row)) return null
+    // Lignes QuickBooks préparées par Léo : sans elles, Make n'aurait rien à mettre dans le reçu
+    if (!Array.isArray(p.Line) || p.Line.length === 0) return null
     return { actionId: ACTIONS_MAKE.creer_recu_commande, libelle: 'Créer le reçu de vente', badge: 'Reçu QuickBooks', toast: 'Reçu de vente demandé à QuickBooks' }
   }
   if (row.channel === 'agenda') {

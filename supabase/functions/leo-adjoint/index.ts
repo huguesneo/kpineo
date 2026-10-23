@@ -28,7 +28,7 @@ import {
 } from '../_shared/adjointRedaction.js'
 import { idsGmail, libelleDeClassement, classementAReessayer, messageDuFil, libellePlusFrequent, LIBELLES_TEMPORAIRES } from '../_shared/gmailFil.js'
 import { filDuDossier, classerFil, filsDeLaPersonne, gmailApi, GmailIndisponible } from '../_shared/gmail.ts'
-import { estInterne, suiteDe } from '../_shared/gmailSync.js'
+import { estInterne, suiteDe, estAvisCommande, ligneCommandeHub } from '../_shared/gmailSync.js'
 import { elementsGmail, elementsGhl, elementsApp } from '../_shared/historique.js'
 import { ghl, locationId, contactIdByEmail } from '../_shared/ghl.ts'
 
@@ -443,10 +443,24 @@ Deno.serve(async (req) => {
         .update({ leo_interaction_id: id, etat: 'traite_dans_hub', maj_le: new Date().toISOString() }).eq('gmail_message_id', messageId)
       if (deja?.[0]) { await lier(deja[0].id); return json({ id: deja[0].id, existait: true }) }
       let m: J
+      let brute: J
       try {
-        m = messageDuFil(await gmailApi(`/messages/${messageId}?format=full`))
+        brute = await gmailApi(`/messages/${messageId}?format=full`)
+        m = messageDuFil(brute)
       } catch (e) {
         throw new Refus(`Courriel introuvable dans Gmail (${(e as Error).message}).`, 502)
+      }
+      // Avis de commande WooCommerce (de info@) : ligne commande, sans lignes QuickBooks
+      if (estAvisCommande(m.sujet, m.de?.courriel)) {
+        const avis = ligneCommandeHub({ messageId, threadId: brute.threadId ?? null, sujet: m.sujet, html: m.html, par: moi.courriel, quand: new Date().toISOString() })
+        if (!avis) throw new Refus('Numéro de commande introuvable dans l’avis : rien à créer.', 409)
+        const { data: memeNumero } = await db.from(TABLE).select('id').eq('channel', 'commande').eq('payload->>commande', avis.payload.commande).limit(1)
+        if (memeNumero?.[0]) { await lier(memeNumero[0].id); return json({ id: memeNumero[0].id, existait: true }) }
+        if (avis.contact_email) avis.client_id = (await fichePersonne({ courriel: avis.contact_email })).clientId ?? null
+        const { data: cree, error } = await db.from(TABLE).insert(avis).select('id').single()
+        if (error) throw error
+        await lier(cree.id)
+        return json({ id: cree.id, existait: false })
       }
       const courriel = normaliserCourriel(m.de?.courriel)
       if (!courriel || estInterne(courriel)) throw new Refus('Courriel interne ou sans expéditeur : rien à créer.', 409)
