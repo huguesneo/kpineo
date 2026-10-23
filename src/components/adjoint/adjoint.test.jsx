@@ -182,6 +182,12 @@ describe('File et fiche', () => {
     expect(html).toContain('Voir le dossier précédent (fermé)')
     expect(html).toContain('lié au précédent')
   })
+  it('avis de commande pas encore traité : numéro, client, total, sans les boutons de courriel', () => {
+    const html = renderToStaticMarkup(<CourrielNonTraite onOuvrirDossier={rien} m={{ gmail_message_id: '1a169cbace3263c2', gmail_thread_id: '1a169cbace3263c2', expediteur: 'monzon.cassy@gmail.com', expediteur_nom: 'Cassandra Monzon', sujet: '[Neo Performance]: Nouvelle commande #8116', extrait: 'Commande n°8116 · Cassandra Monzon · Total 181,70 $', recu_le: ilYa(3) }} />)
+    expect(html).toContain('Pas encore traité par Léo')
+    expect(html).toContain('Total 181,70 $')
+    expect(html).not.toContain('Écrire une réponse')
+  })
 })
 
 describe('Ménage rapide', () => {

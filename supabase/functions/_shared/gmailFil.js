@@ -104,6 +104,7 @@ export function extraitTexte(html, longueur = 140) {
     .replace(/<(style|script)\b[\s\S]*?<\/\1\s*>/gi, ' ')
     .replace(/<br\s*\/?>|<\/(p|div|li|tr|h\d)>/gi, ' ')
     .replace(/<[^>]+>/g, '')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n))).replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16)))
     .replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')
     .replace(/\s+/g, ' ').trim()
   return t.length > longueur ? `${t.slice(0, longueur - 1).trimEnd()}…` : t

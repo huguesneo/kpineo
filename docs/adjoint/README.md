@@ -88,6 +88,13 @@ S'il manque encore quelque chose, l'action est refusée avant Make, avec la list
 - Un dossier créé dans le Hub pour un message n'absorbe pas les autres messages du fil.
 - Bogue du 23 oct. : « Re: test » (1a16a7e69730dca3) avait été relié au dossier 69b4b4be fermé 28 s plus tôt ; remis à « nouveau ».
 
+### Avis de commande WooCommerce
+
+- « [Neo Performance]: Nouvelle commande #… » arrive de info@ vers info@ (libellés `SENT` et `INBOX`). Exception dans `doitIgnorer` : ce n'est pas un courriel interne, c'est une commande.
+- gmail-sync lit le corps complet : client et courriel (adresse de facturation) deviennent l'expéditeur de la ligne, `extrait` = « Commande n°… · client · Total … $ ».
+- Affiché dans Tout et Commandes (pas dans Courriels), badge « Pas encore traité par Léo », sans boutons de courriel : Léo fait le dossier de commande ; la liaison se fait par `gmail_message_id`.
+- Rattrapage du 23 oct. (`history_id` remis à vide, reprise des 3 derniers jours) : commande #8116 entrée.
+
 ### Accès Gmail : étapes dans Google Cloud
 
 À faire une fois, connecté avec un compte administrateur de neoperformance.ca.

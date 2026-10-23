@@ -9,8 +9,8 @@
 // Réponse : des compteurs seulement, jamais de contenu.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { gmailApi, GmailIndisponible, classerFil } from '../_shared/gmail.ts'
-import { ligneInbox, changementsHistorique, liaisons } from '../_shared/gmailSync.js'
-import { idsGmail, libellePlusFrequent, LIBELLES_TEMPORAIRES } from '../_shared/gmailFil.js'
+import { ligneInbox, changementsHistorique, liaisons, estAvisCommande } from '../_shared/gmailSync.js'
+import { idsGmail, libellePlusFrequent, LIBELLES_TEMPORAIRES, entete, lireAdresse, messageDuFil } from '../_shared/gmailFil.js'
 
 declare const Deno: {
   env: { get(key: string): string | undefined }
@@ -79,7 +79,13 @@ Deno.serve(async (req) => {
 
     // Nouveaux courriels
     const metas = (await Promise.all(ids.slice(0, 200).map(lire))).filter(Boolean)
-    const lignes = metas.map(m => ligneInbox(m, table)).filter(Boolean)
+    // Avis de commande (de info@) : corps lu en entier pour le client et le total
+    const corpsCommande = async (m: J) => {
+      const h = m?.payload?.headers ?? []
+      if (!estAvisCommande(entete(h, 'Subject'), lireAdresse(entete(h, 'From')).courriel)) return null
+      try { return messageDuFil(await gmailApi(`/messages/${m.id}?format=full`)).html } catch { return null }
+    }
+    const lignes = (await Promise.all(metas.map(async m => ligneInbox(m, table, await corpsCommande(m))))).filter(Boolean)
     if (lignes.length) {
       const { error } = await admin.from('inbox_messages').upsert(lignes.map(l => ({ ...l, maj_le: new Date().toISOString() })), { onConflict: 'gmail_message_id', ignoreDuplicates: true })
       if (error) throw error

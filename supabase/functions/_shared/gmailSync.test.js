@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { doitIgnorer, ligneInbox, changementsHistorique, liaisons, courrielsNonTraites, elementFileInbox, etatLie, suiteDe, BADGE_NOUVELLE_REPONSE } from './gmailSync.js'
+import { doitIgnorer, ligneInbox, changementsHistorique, liaisons, courrielsNonTraites, elementFileInbox, etatLie, suiteDe, BADGE_NOUVELLE_REPONSE, estAvisCommande, lireAvisCommande } from './gmailSync.js'
 
 const meta = (o = {}) => ({
   id: 'm1', threadId: 't1', internalDate: String(Date.parse('2026-10-23T14:00:00Z')), labelIds: ['INBOX', 'UNREAD'], snippet: 'Bonjour, j&#39;ai une question',
@@ -91,5 +91,40 @@ describe('liaison sans doublon', () => {
   it('badge « Nouvelle réponse » sur la ligne de la file', () => {
     const e = elementFileInbox({ ...reponse, expediteur: 'a@x.ca', sujet: 'Re: test' }, '1 min', '69b4b4be')
     expect(e).toMatchObject({ suiteDe: '69b4b4be', badgeAction: BADGE_NOUVELLE_REPONSE, etiquettes: [{ label: 'Fil déjà traité' }] })
+  })
+})
+
+// Avis WooCommerce du 23 oct. (#8116), envoyé par info@ à info@ : libellés SENT et INBOX
+const HTML_8116 = '<h1>Nouvelle commande: n°8116</h1><p>Vous avez reçu la commande suivante de Cassandra Monzon :</p>'
+  + '<h2><a href="#">[Commande n°8116]</a> (octobre 23, 2026)</h2><table><tr><td>Evo Lab - Gluco Support</td><td>1</td><td>62,99&nbsp;<span>&#36;</span></td></tr>'
+  + '<tr><th>Sous-total:</th><td>172,24&nbsp;&#36;</td></tr><tr><th>TPS:</th><td>7,90&nbsp;&#36;</td></tr><tr><th>Total:</th><td>181,70&nbsp;&#36;</td></tr></table>'
+  + '<h2>Adresse de facturation</h2><address>Cassandra Monzon<br>12006 Av Savard<br>(418) 573-6043<br>monzon.cassy@gmail.com</address>'
+const AVIS_8116 = {
+  id: '1a169cbace3263c2', threadId: '1a169cbace3263c2', internalDate: '1792776318000', labelIds: ['STARRED', 'SENT', 'INBOX'],
+  snippet: 'Nouvelle commande: n°8116 Vous avez reçu la commande suivante de Cassandra Monzon',
+  payload: { headers: [{ name: 'From', value: 'Neo Performance <info@neoperformance.ca>' }, { name: 'Subject', value: '[Neo Performance]: Nouvelle commande #8116' }] },
+}
+
+describe('avis de commande WooCommerce (de info@)', () => {
+  it('reconnu par l’expéditeur et le sujet, jamais ignoré comme interne ou envoyé', () => {
+    expect(estAvisCommande('[Neo Performance]: Nouvelle commande #8116', 'info@neoperformance.ca')).toBe(true)
+    expect(estAvisCommande('Re: [Neo Performance]: Nouvelle commande #8116', 'info@neoperformance.ca')).toBe(false)
+    expect(estAvisCommande('[Neo Performance]: Nouvelle commande #8116', 'pirate@x.ca')).toBe(false)
+    expect(doitIgnorer({ de: 'info@neoperformance.ca', sujet: '[Neo Performance]: Nouvelle commande #8116', labelIds: ['SENT', 'INBOX'] })).toBe(false)
+    expect(doitIgnorer({ de: 'info@neoperformance.ca', sujet: '[Neo Performance]: Nouvelle commande #8116', labelIds: ['SENT'] })).toBe(true)
+    expect(doitIgnorer({ de: 'info@neoperformance.ca', sujet: 'Note interne', labelIds: ['INBOX'] })).toBe(true)
+  })
+  it('numéro, client, total et courriel lus dans le courriel', () => {
+    expect(lireAvisCommande('[Neo Performance]: Nouvelle commande #8116', HTML_8116))
+      .toEqual({ numero: '8116', client: 'Cassandra Monzon', total: '181,70 $', courriel: 'monzon.cassy@gmail.com' })
+  })
+  it('ligne de la file : section Commandes, badge « Pas encore traité par Léo »', () => {
+    const l = ligneInbox(AVIS_8116, {}, HTML_8116)
+    expect(l).toMatchObject({ gmail_message_id: '1a169cbace3263c2', expediteur: 'monzon.cassy@gmail.com', expediteur_nom: 'Cassandra Monzon', sujet: '[Neo Performance]: Nouvelle commande #8116' })
+    const e = elementFileInbox({ ...l, etat: 'nouveau' }, '3 h')
+    expect(e).toMatchObject({ channel: 'commande', nom: 'Cassandra Monzon', sujet: 'Commande #8116 · 181,70 $', etiquettes: [{ label: 'Pas encore traité par Léo' }] })
+  })
+  it('sans le corps, on garde au moins le numéro', () => {
+    expect(lireAvisCommande('[Neo Performance]: Nouvelle commande #8116', '')).toEqual({ numero: '8116', client: null, total: null, courriel: null })
   })
 })

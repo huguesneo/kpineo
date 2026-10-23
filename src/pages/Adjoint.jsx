@@ -38,6 +38,7 @@ function Compteur({ valeur, label, alerte }) {
   )
 }
 
+const SECTIONS_INBOX = ['tout', 'courriel', 'commande']
 const colonneCls = 'bg-white border border-[#e6e8ec] rounded-xl flex flex-col overflow-hidden lg:h-[calc(100vh-300px)] lg:min-h-[620px]'
 
 export default function Adjoint() {
@@ -70,7 +71,7 @@ export default function Adjoint() {
   const vueFile = sous === 'a_traiter' && section !== 'reseaux_sociaux'
   // Courriels arrivés dans info@ que Léo n'a pas encore traités (temps réel), en tête de
   // la file Tout et Courriels, jamais en double avec un dossier de Léo
-  const inbox = useInboxNonTraites(vueFile && (section === 'tout' || section === 'courriel'), () => setVersion(v => v + 1))
+  const inbox = useInboxNonTraites(vueFile && SECTIONS_INBOX.includes(section), () => setVersion(v => v + 1))
   const nonTraites = useMemo(() => courrielsNonTraites(inbox.messages, file.dossiers), [inbox.messages, file.dossiers])
   // Nouvelle réponse dans un fil déjà traité : badge « Nouvelle réponse » (op suites)
   const [suites, setSuites] = useState({})
@@ -84,7 +85,11 @@ export default function Adjoint() {
     return () => { actif = false }
   }, [cleSuites]) // eslint-disable-line react-hooks/exhaustive-deps
   const fileVisible = useMemo(() => [
-    ...(section === 'tout' || section === 'courriel' ? nonTraites.map(m => elementFileInbox(m, delaiAttente({ created_at: m.recu_le }), suites[m.gmail_message_id] ?? null)) : []),
+    // Courriels en Tout et Courriels, avis de commande en Tout et Commandes
+    ...(SECTIONS_INBOX.includes(section)
+      ? nonTraites.map(m => elementFileInbox(m, delaiAttente({ created_at: m.recu_le }), suites[m.gmail_message_id] ?? null))
+        .filter(e => section === 'tout' || e.channel === section)
+      : []),
     ...file.dossiers.filter(d => !masques.has(d.id)),
   ], [file.dossiers, masques, nonTraites, section, suites])
   const courrielOuvert = selection?.startsWith(PREFIXE_INBOX)

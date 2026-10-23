@@ -1,7 +1,7 @@
 // Adjoint, temps réel : la boîte de réception de info@ copiée dans inbox_messages
 // (neo-admin) par gmail-sync, puis reliée aux dossiers de Léo. Logique pure, partagée
 // par gmail-sync, leo-adjoint et le front (file sans doublon).
-import { entete, extraitTexte, lireAdresse } from './gmailFil.js'
+import { entete, extraitTexte, lireAdresse, ADRESSE_INFO } from './gmailFil.js'
 
 export const ETATS_INBOX = ['nouveau', 'traite_par_leo', 'traite_dans_hub']
 export const BADGE_NON_TRAITE = 'Pas encore traité par Léo'
@@ -17,29 +17,59 @@ export const estInterne = (courriel) => String(courriel ?? '').toLowerCase().end
 // labelIds Gmail → noms (table id → nom lue une fois par gmail-sync)
 export const nomsDesLibelles = (labelIds, table = {}) => (labelIds ?? []).map(id => table[id] ?? id)
 
-// Courriel à ignorer : interne, hors boîte de réception, ou bruit
-export function doitIgnorer({ de, labelIds = [], tableLibelles = {} }) {
+// Avis WooCommerce « [Neo Performance]: Nouvelle commande #… » : envoyés par info@ à
+// info@ (libellés SENT et INBOX), ce sont des commandes, pas des courriels internes.
+export const PREFIXE_AVIS_COMMANDE = '[Neo Performance]: Nouvelle commande'
+export const estAvisCommande = (sujet, de) =>
+  String(de ?? '').toLowerCase() === ADRESSE_INFO && String(sujet ?? '').trim().startsWith(PREFIXE_AVIS_COMMANDE)
+// Ligne d'inbox_messages déjà copiée (l'expéditeur y est le client)
+export const estLigneCommande = (m) => String(m?.sujet ?? '').trim().startsWith(PREFIXE_AVIS_COMMANDE)
+
+// Numéro (sujet), client, total et courriel (corps HTML de l'avis)
+export function lireAvisCommande(sujet, html) {
+  const t = extraitTexte(html ?? '', 100000)
+  const numero = String(sujet ?? '').match(/#\s*(\d+)/)?.[1] ?? t.match(/n°\s*(\d+)/)?.[1] ?? null
+  const client = t.match(/commande suivante de\s+(.+?)\s*:/)?.[1]?.trim() || null
+  const total = t.match(/(?<![-\w])Total\s*:\s*([\d\s.,]+?)\s*\$/)?.[1]?.replace(/\s+/g, ' ').trim()
+  const facturation = t.split(/Adresse de facturation/i)[1] ?? ''
+  const courriel = facturation.match(/[\w.+-]+@[\w-]+(\.[\w-]+)+/)?.[0]?.toLowerCase() ?? null
+  return { numero, client, total: total ? `${total} $` : null, courriel }
+}
+
+// Courriel à ignorer : hors boîte de réception, interne (sauf avis de commande), ou bruit
+export function doitIgnorer({ de, sujet = '', labelIds = [], tableLibelles = {} }) {
   if (!labelIds.includes('INBOX')) return true
+  if (estAvisCommande(sujet, de)) return false
   if (estInterne(de)) return true
   if (labelIds.some(l => SYSTEME_BRUIT.includes(l))) return true
   return nomsDesLibelles(labelIds, tableLibelles).some(n => LIBELLES_BRUIT.test(String(n).trim()))
 }
 
-// Message Gmail (format metadata) → ligne inbox_messages, ou null s'il est à ignorer
-export function ligneInbox(m, tableLibelles = {}) {
+// Message Gmail (format metadata) → ligne inbox_messages, ou null s'il est à ignorer.
+// html : corps de l'avis de commande (lu à part par gmail-sync), pour client et total.
+export function ligneInbox(m, tableLibelles = {}, html = null) {
   const h = m?.payload?.headers ?? []
   const de = lireAdresse(entete(h, 'From'))
-  if (!m?.id || doitIgnorer({ de: de.courriel, labelIds: m.labelIds ?? [], tableLibelles })) return null
-  return {
+  const sujet = entete(h, 'Subject') || '(sans objet)'
+  if (!m?.id || doitIgnorer({ de: de.courriel, sujet, labelIds: m.labelIds ?? [], tableLibelles })) return null
+  const ligne = {
     gmail_message_id: m.id,
     gmail_thread_id: m.threadId,
     expediteur: de.courriel,
     expediteur_nom: de.nom,
-    sujet: entete(h, 'Subject') || '(sans objet)',
+    sujet,
     extrait: extraitTexte(m.snippet ?? '', 200),
     recu_le: new Date(Number(m.internalDate)).toISOString(),
     libelles: m.labelIds ?? [],
   }
+  if (estAvisCommande(sujet, de.courriel)) {
+    // Le client devient l'expéditeur : la ligne et la fiche montrent la bonne personne
+    const c = lireAvisCommande(sujet, html)
+    if (c.courriel) ligne.expediteur = c.courriel
+    if (c.client) ligne.expediteur_nom = c.client
+    ligne.extrait = [`Commande n°${c.numero ?? '?'}`, c.client, c.total ? `Total ${c.total}` : null].filter(Boolean).join(' · ')
+  }
+  return ligne
 }
 
 // Réponse de users.history.list → ids des messages arrivés dans INBOX, et libellés retirés
@@ -116,6 +146,25 @@ export function courrielsNonTraites(inbox, dossiersLeo) {
 
 // Courriel non traité → ligne de la file (même forme que resumeDossier)
 export function elementFileInbox(m, delai, suite = null) {
+  if (estLigneCommande(m)) {
+    const numero = String(m.sujet).match(/#\s*(\d+)/)?.[1]
+    const total = String(m.extrait ?? '').match(/Total ([\d\s.,]+ \$)/)?.[1]
+    return {
+      id: `${PREFIXE_INBOX}${m.gmail_message_id}`,
+      inbox: true,
+      channel: 'commande',
+      nom: m.expediteur_nom || m.expediteur,
+      courriel: m.expediteur,
+      sujet: [`Commande #${numero ?? '?'}`, total].filter(Boolean).join(' · '),
+      created_at: m.recu_le,
+      decision: 'pending',
+      attente: delai ?? null,
+      retard: false,
+      badgeAction: 'Nouvelle commande',
+      etiquettes: [{ label: BADGE_NON_TRAITE, ton: 'info' }],
+      apercu: m.extrait,
+    }
+  }
   return {
     id: `${PREFIXE_INBOX}${m.gmail_message_id}`,
     inbox: true,
