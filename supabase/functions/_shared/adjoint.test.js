@@ -5,6 +5,7 @@ import {
   trierFile, rangUrgence, delaiAttente, etiquettesDossier, courrielDuDossier, nomDuDossier, sujetDuDossier, sujetReponse,
   statutPersonne, semaineProgramme, analyserRecherche, motifTelephone, payloadPourEcran, dossierPourEcran, resumeDossier,
   texteVersHtml, htmlVersTexte, remplacerCorpsHtml, messageSlack, corpsSlackTraite, debutJourMontreal, jourMontreal, boutonJamaisPose, formatArgent,
+  estPerime,
 } from './adjoint.js'
 
 const NOW = new Date('2026-10-23T16:00:00Z').getTime()
@@ -306,5 +307,20 @@ describe('dates à Montréal', () => {
     expect(debutJourMontreal(new Date('2026-10-23T16:00:00Z'))).toBe('2026-10-23T04:00:00.000Z')
     expect(debutJourMontreal(new Date('2026-12-15T16:00:00Z'))).toBe('2026-12-15T05:00:00.000Z')
     expect(jourMontreal(new Date('2026-10-24T02:00:00Z'))).toBe('2026-10-23')
+  })
+})
+
+describe('périmé', () => {
+  const now = new Date('2026-10-23T16:00:00Z').getTime()
+  const il = (j) => new Date(now - j * 86400000).toISOString()
+  it('en attente depuis plus de 7 jours seulement', () => {
+    expect(estPerime({ decision: 'pending', created_at: il(7.1) }, now)).toBe(true)
+    expect(estPerime({ decision: 'pending', created_at: il(6.9) }, now)).toBe(false)
+    expect(estPerime({ decision: 'approved_as_is', created_at: il(30) }, now)).toBe(false)
+  })
+  it('badge « Périmé, à relire » dans le résumé', () => {
+    const r = resumeDossier({ id: 'x', channel: 'courriel', decision: 'pending', created_at: il(9), payload: {} }, null, now)
+    expect(r.perime).toBe(true)
+    expect(r.etiquettes.map(e => e.label)).toContain('Périmé, à relire')
   })
 })

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   decoderBase64Url, lireAdresse, lireAdresses, partiesDuMessage, nettoyerHtml, separerCitation, messageDuFil,
-  filEnConversation, idsGmail, texteEnHtml, tailleLisible, documentIframe,
+  filEnConversation, idsGmail, texteEnHtml, tailleLisible, documentIframe, extraitTexte,
 } from './gmailFil.js'
 
 const b64 = (t) => Buffer.from(t, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
@@ -81,13 +81,18 @@ describe('fil en conversation', () => {
       msg({ id: '3', de: 'NEO Performance <info@neoperformance.ca>', date: '2026-10-22T09:00:00Z', html: '<p>brouillon</p>', labels: ['DRAFT'] }),
     ],
   }
-  it('ordre chronologique, sens, sans brouillons', () => {
+  it('plus récent en haut, sens, sans brouillons', () => {
     const fil = filEnConversation(thread)
-    expect(fil.map(m => m.id)).toEqual(['1', '2'])
-    expect(fil[0]).toMatchObject({ sens: 'recu', de: { nom: 'Julie Roy', courriel: 'julie@x.ca' }, date: '2026-10-20T09:00:00.000Z' })
-    expect(fil[0].piecesJointes.map(p => p.nom)).toEqual(['assurance.pdf'])
-    expect(fil[0].html).toBe('Mes reçus svp')
-    expect(fil[1].sens).toBe('envoye')
+    expect(fil.map(m => m.id)).toEqual(['2', '1'])
+    expect(fil[0].sens).toBe('envoye')
+    expect(fil[1]).toMatchObject({ sens: 'recu', de: { nom: 'Julie Roy', courriel: 'julie@x.ca' }, date: '2026-10-20T09:00:00.000Z' })
+    expect(fil[1].piecesJointes.map(p => p.nom)).toEqual(['assurance.pdf'])
+    expect(fil[1].html).toBe('Mes reçus svp')
+    expect(fil[1].extrait).toBe('Mes reçus svp')
+  })
+  it('extrait : texte sans balises ni entités, coupé', () => {
+    expect(extraitTexte('<p>Bonjour&nbsp;Julie</p><p>Voici &lt;tes&gt; reçus</p>')).toBe('Bonjour Julie Voici <tes> reçus')
+    expect(extraitTexte('a'.repeat(200), 10)).toBe('aaaaaaaaa…')
   })
   it('message envoyé reconnu par le libellé SENT même depuis un alias', () => {
     expect(messageDuFil(msg({ id: 'x', de: 'cloe@neoperformance.ca', date: '2026-10-20', texte: 'x', labels: ['SENT'] })).sens).toBe('envoye')

@@ -133,6 +133,7 @@ export default function Dossier({ d, fiche, onDecider, occupe }) {
 
   // Courriel proposé par Léo (modifiable) et réponse écrite par Cloé
   const [edition, setEdition] = useState(false)
+  const [relu, setRelu] = useState(false) // dossier périmé : édition ouverte au moins une fois
   const [texteLeo, setTexteLeo] = useState(htmlLeo)
   const [ecrire, setEcrire] = useState(false)
   const [texteLibre, setTexteLibre] = useState('')
@@ -145,7 +146,7 @@ export default function Dossier({ d, fiche, onDecider, occupe }) {
   const [raison, setRaison] = useState('')
 
   useEffect(() => {
-    setEdition(false); setTexteLeo(htmlLeo); setEcrire(false); setTexteLibre(''); setRedigeParLeo(false)
+    setEdition(false); setRelu(false); setTexteLeo(htmlLeo); setEcrire(false); setTexteLibre(''); setRedigeParLeo(false)
     setAvertissements([]); setConsigne(''); setDemandeLeo(false); setRedaction({ enCours: false, erreur: null })
     setConfirmer(null); setRaison('')
   }, [d.id]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -177,7 +178,17 @@ export default function Dossier({ d, fiche, onDecider, occupe }) {
     setDemandeLeo(avecLeo)
   }
 
+  // Périmé : le brouillon de Léo ne part pas tel quel, le bouton ouvre d'abord l'édition
+  const aRelire = enAttente && d.resume?.perime && !!p.html && !!action && !ecrire && !relu
+
+  function ouvrirEdition() {
+    setEdition(true)
+    setRelu(true)
+    setTimeout(() => document.getElementById('reponse-leo')?.focus(), 0)
+  }
+
   function envoyerPrincipal() {
+    if (aRelire) return ouvrirEdition()
     if (ecrire) {
       onDecider({ action: 'repondre', texte: texteLibre }, { toast: `Réponse à ${d.resume?.nom ?? destinataire}` })
     } else {
@@ -186,7 +197,7 @@ export default function Dossier({ d, fiche, onDecider, occupe }) {
   }
 
   const peutEcrire = enAttente && !!destinataire
-  const libellePrincipal = ecrire ? 'Envoyer ma réponse' : action?.libelle
+  const libellePrincipal = ecrire ? 'Envoyer ma réponse' : aRelire ? 'Relire et modifier' : action?.libelle
   const principalDesactive = occupe || (ecrire ? !texteLibre.trim() : !action) || !!d.refus
 
   return (
@@ -205,6 +216,13 @@ export default function Dossier({ d, fiche, onDecider, occupe }) {
         </div>
 
         {d.aFilGmail ? <FilGmail dossier={d} /> : <Message texte={d.incoming_message} />}
+
+        {enAttente && d.resume?.perime && (
+          <div className="rounded-[10px] border border-[#fedf89] bg-[#fffaeb] px-4 py-3 text-sm text-[#7a2e0e]">
+            <strong className="block text-[#9a4d00]">Périmé, à relire : en attente depuis {d.resume.attente}</strong>
+            La situation a pu changer depuis que Léo a préparé ce dossier.{p.html ? ' Le bouton principal ouvre d’abord le courriel pour que tu le relises.' : ''}
+          </div>
+        )}
 
         {d.resume?.blocage && (
           <div className="rounded-[10px] border-2 border-[#fda29b] bg-[#fef3f2] px-4 py-3 text-sm text-[#7a271a]">
@@ -345,7 +363,7 @@ export default function Dossier({ d, fiche, onDecider, occupe }) {
             <div className="flex flex-wrap gap-2.5 items-center">
               {(action || ecrire) && <Bouton variante="principal" onClick={envoyerPrincipal} disabled={principalDesactive}>{libellePrincipal}</Bouton>}
               {p.html && !ecrire && action && (
-                <Bouton onClick={() => setEdition(e => !e)}>{edition ? 'Terminer' : 'Modifier'}</Bouton>
+                <Bouton onClick={() => (edition ? setEdition(false) : ouvrirEdition())}>{edition ? 'Terminer' : 'Modifier'}</Bouton>
               )}
               {peutEcrire && !ecrire && <Bouton onClick={() => ouvrirEcrire(false)}>Écrire une réponse</Bouton>}
               {peutEcrire && !(ecrire && demandeLeo) && <Bouton onClick={() => ouvrirEcrire(true)}>Demander à Léo de rédiger</Bouton>}

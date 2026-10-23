@@ -98,6 +98,17 @@ export function separerCitation(html) {
   return { principal, citation: s.slice(i) }
 }
 
+// Début du texte d'un message, pour sa ligne repliée
+export function extraitTexte(html, longueur = 140) {
+  const t = String(html ?? '')
+    .replace(/<(style|script)\b[\s\S]*?<\/\1\s*>/gi, ' ')
+    .replace(/<br\s*\/?>|<\/(p|div|li|tr|h\d)>/gi, ' ')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')
+    .replace(/\s+/g, ' ').trim()
+  return t.length > longueur ? `${t.slice(0, longueur - 1).trimEnd()}…` : t
+}
+
 // ── Message et fil ──────────────────────────────────────────────────────────
 // Un message de l'API Gmail (format full) → message affichable
 export function messageDuFil(m, { adresseInfo = ADRESSE_INFO } = {}) {
@@ -116,18 +127,20 @@ export function messageDuFil(m, { adresseInfo = ADRESSE_INFO } = {}) {
     date: m?.internalDate ? new Date(Number(m.internalDate)).toISOString() : (entete(h, 'Date') ? new Date(entete(h, 'Date')).toISOString() : null),
     sens: de.courriel === adresseInfo.toLowerCase() || libelles.includes('SENT') ? 'envoye' : 'recu',
     html: principal,
+    extrait: extraitTexte(principal),
     citation,
     piecesJointes,
     brouillon: libelles.includes('DRAFT'),
   }
 }
 
-// Fil Gmail (format full) → messages en ordre chronologique, sans les brouillons
+// Fil Gmail (format full) → messages du plus récent au plus ancien (comme Gmail),
+// sans les brouillons
 export function filEnConversation(thread, options) {
   return (thread?.messages ?? [])
     .map(m => messageDuFil(m, options))
     .filter(m => !m.brouillon)
-    .sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')))
+    .sort((a, b) => String(b.date ?? '').localeCompare(String(a.date ?? '')))
 }
 
 // Ids Gmail d'un dossier : fil (colonne ou payload), sinon message

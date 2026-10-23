@@ -39,9 +39,15 @@ S'il manque encore quelque chose, l'action est refusée avant Make, avec la list
 - Le bloc gris est remplacé par le vrai fil Gmail de info@ : op `fil` de `leo-adjoint` (chargée à part, après le dossier). Fil par `gmail_thread_id`, sinon retrouvé par `gmail_message_id`.
 - Tout le code Gmail est dans `supabase/functions/_shared/gmail.ts` (jeton, appels API) et `_shared/gmailFil.js` (logique pure, testée : décodage MIME, nettoyage HTML, citations, sens des messages). Aucun jeton Google dans le front.
 - Nettoyage : scripts, styles, iframes, formulaires, gestionnaires `on…`, liens `javascript:`, images de suivi (1×1, cachées, services connus) et images `cid:` retirés. Le corps est affiché dans un iframe `sandbox` sans scripts, avec une politique `script-src 'none'` en plus.
-- Messages de info@ à droite (fond teal), ceux de la personne à gauche ; citations « Le … a écrit : » repliées ; pièces jointes listées par nom et taille (pas encore téléchargeables).
+- Du plus récent au plus ancien, comme Gmail : le plus récent ouvert, les plus anciens repliés sur une ligne (expéditeur, date, début du texte), dépliables au clic. Messages de info@ à droite (fond teal), ceux de la personne à gauche ; citations « Le … a écrit : » repliées ; pièces jointes listées par nom et taille (pas encore téléchargeables).
 - Le résumé de Léo reste en petit sous « Résumé de Léo ». Si Gmail ne répond pas ou si l'accès n'est pas configuré : « Courriel original indisponible » avec la raison, le dossier reste utilisable.
 - Dossier sans id Gmail (SMS, etc.) : l'ancien bloc reste.
+
+## Dossiers périmés (étape 2, partie 3)
+
+- `estPerime` (`_shared/adjoint.js`) : dossier `pending` créé il y a plus de 7 jours. Badge « Périmé, à relire » dans la file et le dossier, et un encadré avec le délai.
+- Sur un dossier périmé avec un brouillon de Léo (`payload.html`), le bouton principal devient « Relire et modifier » : il ouvre l'édition. Le bouton d'envoi revient ensuite. Les reçus de commande (pas de brouillon) gardent leur bouton.
+- Le contrôle est dans l'écran seulement : `leo-adjoint` accepte toujours l'envoi.
 
 ### Accès Gmail : étapes dans Google Cloud
 

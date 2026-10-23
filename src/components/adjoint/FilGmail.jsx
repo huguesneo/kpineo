@@ -4,7 +4,8 @@ import { documentIframe, tailleLisible } from '../../../supabase/functions/_shar
 import { appelAdjoint } from '../../lib/adjoint/api'
 import { Icone } from './ui'
 
-// Le vrai fil Gmail de info@ dans un dossier : messages de la personne à gauche,
+// Le vrai fil Gmail de info@ dans un dossier, comme dans Gmail : le plus récent en haut
+// et ouvert, les plus anciens repliés sur une ligne. Messages de la personne à gauche,
 // ceux de info@ à droite, citations repliées. Le corps (déjà nettoyé par leo-adjoint)
 // est affiché dans un iframe sandbox sans scripts. Si Gmail ne répond pas, le résumé
 // de Léo reste et le dossier n'est pas bloqué.
@@ -49,18 +50,31 @@ function CorpsCourriel({ html }) {
   )
 }
 
-function Bulle({ m }) {
+function Bulle({ m, ouvertAuDepart }) {
+  const [ouvert, setOuvert] = useState(ouvertAuDepart)
   const [citation, setCitation] = useState(false)
   const envoye = m.sens === 'envoye'
   const qui = envoye ? `info@ ${m.de?.nom ? `(${m.de.nom})` : ''}`.trim() : (m.de?.nom || m.de?.courriel || 'Expéditeur inconnu')
   return (
     <div className={`flex ${envoye ? 'justify-end' : 'justify-start'}`}>
+      {!ouvert ? (
+        <button
+          type="button"
+          onClick={() => setOuvert(true)}
+          className={`w-[88%] text-left rounded-[12px] px-4 py-2 text-xs text-[#5b616e] flex gap-1.5 min-w-0 hover:brightness-[0.97] ${envoye ? 'bg-[#e3f6f4]' : 'bg-[#f7f8fa]'}`}
+        >
+          <strong className="text-[#16181d] shrink-0">{qui}</strong>
+          <span className="shrink-0">· {formatDateHeure(m.date)}</span>
+          {m.piecesJointes?.length > 0 && <Icone nom="trombone" taille={12} className="shrink-0 self-center" />}
+          <span className="truncate">· {m.extrait || 'Message vide'}</span>
+        </button>
+      ) : (
       <div className={`w-[88%] rounded-[12px] px-4 py-3 flex flex-col gap-2 ${envoye ? 'bg-[#e3f6f4] rounded-br-[4px]' : 'bg-[#f7f8fa] rounded-bl-[4px]'}`}>
-        <p className="m-0 text-xs text-[#5b616e] flex flex-wrap gap-x-1.5">
+        <button type="button" onClick={() => setOuvert(false)} title="Replier" className="m-0 p-0 text-left text-xs text-[#5b616e] flex flex-wrap gap-x-1.5">
           <strong className="text-[#16181d]">{qui}</strong>
           {!envoye && m.de?.nom && <span>{m.de.courriel}</span>}
           <span>· {formatDateHeure(m.date)}</span>
-        </p>
+        </button>
         <CorpsCourriel html={citation && m.citation ? m.html + m.citation : m.html} />
         {m.citation && (
           <button type="button" onClick={() => setCitation(c => !c)} className="self-start text-xs font-semibold text-[#00665f] hover:underline">
@@ -79,6 +93,7 @@ function Bulle({ m }) {
           </ul>
         )}
       </div>
+      )}
     </div>
   )
 }
@@ -86,7 +101,7 @@ function Bulle({ m }) {
 export function FilConversation({ messages }) {
   return (
     <div className="flex flex-col gap-3">
-      {messages.map(m => <Bulle key={m.id} m={m} />)}
+      {messages.map((m, i) => <Bulle key={m.id} m={m} ouvertAuDepart={i === 0} />)}
     </div>
   )
 }

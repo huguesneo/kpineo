@@ -278,6 +278,9 @@ export function estArgent(row) {
 }
 export const heuresAttente = (row, now = Date.now()) => Math.max(0, (now - new Date(row.created_at).getTime()) / 3600000)
 export const enRetard = (row, now = Date.now()) => heuresAttente(row, now) > 24
+// Périmé : en attente depuis plus de 7 jours, le brouillon de Léo est à relire
+export const JOURS_PERIME = 7
+export const estPerime = (row, now = Date.now()) => row?.decision === 'pending' && heuresAttente(row, now) > JOURS_PERIME * 24
 export function delaiAttente(row, now = Date.now()) {
   const h = heuresAttente(row, now)
   if (h < 1) return `${Math.max(1, Math.round(h * 60))} min`
@@ -293,8 +296,9 @@ export function trierFile(rows, now = Date.now()) {
   return [...(rows ?? [])].sort((a, b) => rangUrgence(a, now) - rangUrgence(b, now)
     || new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
 }
-export function etiquettesDossier(row) {
+export function etiquettesDossier(row, now = Date.now()) {
   const t = []
+  if (estPerime(row, now)) t.push({ label: 'Périmé, à relire', ton: 'alerte' })
   if (estEscalade(row)) t.push({ label: 'Escaladé à Hugues', ton: 'danger' })
   if (estArgent(row)) t.push({ label: 'Argent', ton: 'danger' })
   if (estPlainte(row)) t.push({ label: 'Plainte', ton: 'danger' })
@@ -418,7 +422,8 @@ export function resumeDossier(row, client = null, now = Date.now()) {
     attente: row.decision === 'pending' ? delaiAttente(row, now) : null,
     retard: row.decision === 'pending' && enRetard(row, now),
     badgeAction: action?.badge ?? (row.decision === 'pending' ? 'À traiter à la main' : null),
-    etiquettes: row.decision === 'pending' ? etiquettesDossier(row) : [],
+    etiquettes: row.decision === 'pending' ? etiquettesDossier(row, now) : [],
+    perime: estPerime(row, now),
     numeroCommande: row.channel === 'commande' ? numeroCommande(row) : null,
     statutRecu: row.channel === 'commande' ? statutRecu(row) : null,
     recuQuickbooks: row.channel === 'commande' ? recuQuickbooks(row) : null,

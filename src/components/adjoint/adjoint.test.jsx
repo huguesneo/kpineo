@@ -115,16 +115,18 @@ describe('File et fiche', () => {
     expect(html).toContain('Reçus pour mon assurance')
     expect(html).toContain('Ouvrir le dossier complet')
   })
-  it('fil Gmail : personne à gauche, info@ à droite, citation repliée, pièces jointes', () => {
+  it('fil Gmail : le plus récent ouvert en haut, les anciens repliés sur une ligne, gauche/droite', () => {
     const html = renderToStaticMarkup(<FilConversation messages={[
-      { id: '1', sens: 'recu', de: { nom: 'Julie Roy', courriel: 'julie@x.ca' }, date: ilYa(30), html: '<p>Mes reçus</p>', citation: null, piecesJointes: [{ nom: 'assurance.pdf', taille: 52000 }] },
-      { id: '2', sens: 'envoye', de: { nom: null, courriel: 'info@neoperformance.ca' }, date: ilYa(2), html: '<p>Voilà</p>', citation: 'Le … a écrit :', piecesJointes: [] },
+      { id: '2', sens: 'recu', de: { nom: 'Julie Roy', courriel: 'julie@x.ca' }, date: ilYa(2), html: '<p>Merci</p>', extrait: 'Merci', citation: 'Le … a écrit :', piecesJointes: [{ nom: 'assurance.pdf', taille: 52000 }] },
+      { id: '1', sens: 'envoye', de: { nom: null, courriel: 'info@neoperformance.ca' }, date: ilYa(30), html: '<p>Voilà tes reçus</p>', extrait: 'Voilà tes reçus', citation: null, piecesJointes: [] },
     ]} />)
     expect(html.indexOf('justify-start')).toBeLessThan(html.indexOf('justify-end'))
     expect(html).toContain('Julie Roy')
     expect(html).toContain('assurance.pdf')
     expect(html).toContain('51 Ko')
     expect(html).toContain('Afficher la citation')
+    expect(html.match(/<iframe/g)).toHaveLength(1)
+    expect(html).toContain('· Voilà tes reçus')
     expect(html).toContain('sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"')
     expect(html).not.toContain('allow-scripts')
   })
@@ -133,5 +135,11 @@ describe('File et fiche', () => {
     expect(html).toContain('Résumé de Léo')
     expect(html).toContain('Veut ses reçus.')
     expect(html).toContain('Chargement du courriel')
+  })
+  it('périmé : bannière, et le bouton principal ouvre d’abord l’édition', () => {
+    const html = rendre(courriel({ created_at: ilYa(24 * 8) }))
+    expect(html).toContain('Périmé, à relire')
+    expect(html).toContain('Relire et modifier')
+    expect(rendre(courriel())).not.toContain('Relire et modifier')
   })
 })
