@@ -171,3 +171,14 @@ export function documentIframe(html) {
     + 'blockquote{margin:.4em 0 .4em .3em;padding-left:.8em;border-left:2px solid #d0d5dd;color:#5b616e}</style>'
     + `</head><body>${html ?? ''}</body></html>`
 }
+
+// ── Classement sur Rejeter et Déjà traité ───────────────────────────────────
+export const DECISIONS_CLASSEES = ['rejected', 'traite_manuellement']
+const estLabelId = (v) => typeof v === 'string' && /^Label_\d+$/.test(v)
+// Libellé de la catégorie : payload.label_final, sinon le plus fréquent pour la catégorie
+export const libelleDeClassement = (row, labelCategorie = null) =>
+  (estLabelId(row?.payload?.label_final) ? row.payload.label_final : null) ?? (estLabelId(labelCategorie) ? labelCategorie : null)
+// Corps de threads.modify : libellé ajouté, sorti de la boîte de réception
+export const modificationClassement = (label) => ({ addLabelIds: label ? [label] : [], removeLabelIds: ['INBOX'] })
+// Réessayer : seulement sur un dossier fermé dans le Hub dont le classement a échoué
+export const classementAReessayer = (row) => DECISIONS_CLASSEES.includes(row?.decision) && !!row?.payload?.hub_gmail?.erreur

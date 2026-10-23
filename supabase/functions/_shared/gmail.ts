@@ -3,7 +3,7 @@
 // d'envoi : l'envoi reste dans Make). Secrets : GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET,
 // GMAIL_INFO_REFRESH_TOKEN (obtenu avec scripts/gmail-oauth.mjs). Aucun jeton Google
 // ne sort de la fonction.
-import { filEnConversation } from './gmailFil.js'
+import { filEnConversation, modificationClassement } from './gmailFil.js'
 
 declare const Deno: { env: { get(key: string): string | undefined } }
 
@@ -49,19 +49,36 @@ export async function jetonGmail(): Promise<string> {
   return cache.jeton
 }
 
-export async function gmailGet(chemin: string): Promise<J> {
-  const r = await avecDelai(`${API}${chemin}`, { headers: { Authorization: `Bearer ${await jetonGmail()}` } })
+export async function gmailApi(chemin: string, corps?: J): Promise<J> {
+  const r = await avecDelai(`${API}${chemin}`, {
+    method: corps ? 'POST' : 'GET',
+    headers: { Authorization: `Bearer ${await jetonGmail()}`, ...(corps ? { 'Content-Type': 'application/json' } : {}) },
+    ...(corps ? { body: JSON.stringify(corps) } : {}),
+  })
   if (r.status === 404) throw new GmailIndisponible('courriel introuvable dans Gmail')
   const j = await r.json().catch(() => ({}))
   if (!r.ok) throw new GmailIndisponible(j?.error?.message ?? `Gmail ${r.status}`)
   return j
 }
 
-// Fil d'un dossier : par l'id du fil, sinon retrouvé par l'id du message
-export async function filDuDossier({ threadId, messageId }: { threadId: string | null; messageId: string | null }) {
+type Ids = { threadId: string | null; messageId: string | null }
+async function idDuFil({ threadId, messageId }: Ids) {
   let fil = threadId
-  if (!fil && messageId) fil = (await gmailGet(`/messages/${encodeURIComponent(messageId)}?format=minimal`)).threadId
+  if (!fil && messageId) fil = (await gmailApi(`/messages/${encodeURIComponent(messageId)}?format=minimal`)).threadId
   if (!fil) throw new GmailIndisponible('aucun id Gmail sur ce dossier')
-  const thread = await gmailGet(`/threads/${encodeURIComponent(fil)}?format=full`)
+  return fil as string
+}
+
+// Classe le fil : libellé de la catégorie ajouté, sorti de INBOX (tous ses messages)
+export async function classerFil(ids: Ids, label: string | null) {
+  const fil = await idDuFil(ids)
+  await gmailApi(`/threads/${encodeURIComponent(fil)}/modify`, modificationClassement(label))
+  return fil
+}
+
+// Fil d'un dossier : par l'id du fil, sinon retrouvé par l'id du message
+export async function filDuDossier(ids: Ids) {
+  const fil = await idDuFil(ids)
+  const thread = await gmailApi(`/threads/${encodeURIComponent(fil)}?format=full`)
   return { threadId: fil, messages: filEnConversation(thread) }
 }

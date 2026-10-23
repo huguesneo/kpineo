@@ -10,7 +10,7 @@
 // response_url = leo-adjoint-ack, qui confirme dans la ligne (hub_execution, hub_ack).
 //
 // Une seule fonction, champ « op » : liste, dossier, fil, recherche, personne, commandes,
-// compteurs, decider, rediger. « fil » lit le vrai fil Gmail de info@ (_shared/gmail.ts).
+// compteurs, decider, reclasser, rediger. « fil » lit le vrai fil Gmail de info@ (_shared/gmail.ts).
 // Accès : Hugues et Cloé (peutUtiliserAdjoint).
 // Déploiement : avec vérification JWT (par défaut).
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
@@ -24,8 +24,8 @@ import {
 import {
   requeteAnthropic, texteReponse, nettoyerBrouillon, avertissementsBrouillon, ajouterJournalRedaction,
 } from '../_shared/adjointRedaction.js'
-import { idsGmail } from '../_shared/gmailFil.js'
-import { filDuDossier, GmailIndisponible } from '../_shared/gmail.ts'
+import { idsGmail, libelleDeClassement, classementAReessayer } from '../_shared/gmailFil.js'
+import { filDuDossier, classerFil, GmailIndisponible } from '../_shared/gmail.ts'
 
 declare const Deno: {
   env: { get(key: string): string | undefined }
@@ -225,6 +225,25 @@ Deno.serve(async (req) => {
       return [...n.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
     }
 
+    // Rejeter / Déjà traité : classe aussi dans Gmail. Un échec ne bloque pas la décision,
+    // il est noté dans payload.hub_gmail.erreur (bouton « Réessayer » dans le dossier).
+    async function classerDansGmail(row: J) {
+      const ids = idsGmail(row)
+      if (!ids.threadId && !ids.messageId) return null
+      const label = libelleDeClassement(row, await libelleDeCategorie(row.category).catch(() => null))
+      const le = new Date().toISOString()
+      let hubGmail: J
+      try {
+        const fil = await classerFil(ids, label)
+        hubGmail = { classe_le: le, label, thread_id: fil, par: moi.courriel }
+      } catch (e) {
+        if (!(e instanceof GmailIndisponible)) console.error('leo-adjoint classement', e)
+        hubGmail = { erreur: (e as Error).message, le, label, par: moi.courriel }
+      }
+      await completerPayload(row.id, { hub_gmail: hubGmail }).catch(() => {})
+      return hubGmail
+    }
+
     // ── Opérations ───────────────────────────────────────────────────────────
     const op = body.op
 
@@ -409,8 +428,10 @@ Deno.serve(async (req) => {
         const decision = action === 'rejeter' ? 'rejected' : 'traite_manuellement'
         const ajout = action === 'rejeter' ? { hub_rejet: { raison, par: moi.courriel, le: quand } } : { hub_traite_main: { note: raison, par: moi.courriel, le: quand } }
         await ecrireSiEnAttente(id, { decision, decided_at: quand, payload: { ...(row.payload ?? {}), ...signature, ...ajout } })
+        // L'un après l'autre : les deux complètent le payload
+        const gmail = await classerDansGmail(row)
         await majSlack(row, action === 'rejeter' ? 'Rejeté' : 'Déjà traité à la main', quand)
-        return json({ ok: true, message: action === 'rejeter' ? 'Dossier rejeté' : 'Marqué comme déjà traité' })
+        return json({ ok: true, message: action === 'rejeter' ? 'Dossier rejeté' : 'Marqué comme déjà traité', gmail })
       }
 
       if (action !== 'executer' && action !== 'repondre') throw new Refus('Action inconnue.', 400)
@@ -481,6 +502,15 @@ Deno.serve(async (req) => {
       }
       await majSlack(row, actionId === ACTIONS_MAKE.creer_recu_commande ? 'Reçu de vente demandé' : modifie ? 'Envoyé (modifié)' : 'Envoyé', quand)
       return json({ ok: true, message: 'Action transmise à Make', enAttenteDeMake: true })
+    }
+
+    if (op === 'reclasser') {
+      const row = await lireLigne(String(body.id ?? ''))
+      if (!row) throw new Refus('Dossier introuvable.', 404)
+      if (!classementAReessayer(row)) throw new Refus('Rien à reclasser : ce dossier est déjà archivé dans Gmail, ou n’a pas été fermé dans le Hub.', 409)
+      const gmail = await classerDansGmail(row)
+      if (gmail?.erreur) throw new Refus(`Toujours pas archivé dans Gmail (${gmail.erreur}).`, 502)
+      return json({ ok: true, gmail })
     }
 
     if (op === 'rediger') {

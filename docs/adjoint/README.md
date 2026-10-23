@@ -32,7 +32,7 @@ S'il manque encore quelque chose, l'action est refusée avant Make, avec la list
 
 ### Journal dans le payload
 
-`hub_decided_by`, `hub_decided_at`, `hub_execution`, `hub_ack`, `hub_rejet`, `hub_traite_main`, `hub_redaction` (consigne et brouillon de Léo), `hub_html_leo` (le html de Léo avant modification), `hub_make_erreur`, `hub_slack_erreur`.
+`hub_decided_by`, `hub_decided_at`, `hub_execution`, `hub_ack`, `hub_rejet`, `hub_traite_main`, `hub_redaction` (consigne et brouillon de Léo), `hub_html_leo` (le html de Léo avant modification), `hub_make_erreur`, `hub_slack_erreur`, `hub_gmail` (classement Gmail sur Rejeter et Déjà traité).
 
 ## Le fil Gmail dans le dossier (étape 2, partie 2)
 
@@ -48,6 +48,15 @@ S'il manque encore quelque chose, l'action est refusée avant Make, avec la list
 - `estPerime` (`_shared/adjoint.js`) : dossier `pending` créé il y a plus de 7 jours. Badge « Périmé, à relire » dans la file et le dossier, et un encadré avec le délai.
 - Sur un dossier périmé avec un brouillon de Léo (`payload.html`), le bouton principal devient « Relire et modifier » : il ouvre l'édition. Le bouton d'envoi revient ensuite. Les reçus de commande (pas de brouillon) gardent leur bouton.
 - Le contrôle est dans l'écran seulement : `leo-adjoint` accepte toujours l'envoi.
+
+## Rejeter et Déjà traité classent dans Gmail (étape 2, partie 4)
+
+- Après la décision dans Supabase, `leo-adjoint` classe le fil dans Gmail : libellé de la catégorie (`payload.label_final` s'il est un id `Label_…`, sinon le plus fréquent pour la catégorie), et retrait de INBOX sur tout le fil (`threads.modify`).
+- Résultat dans `payload.hub_gmail` : `{ classe_le, label, thread_id, par }`, ou `{ erreur, le, label, par }`.
+- Si Gmail échoue, la décision passe quand même. Le dossier affiche « Non archivé dans Gmail » avec « Réessayer » (op `reclasser`, seulement sur un dossier rejeté ou traité à la main dont le classement a échoué). Le toast le signale aussi.
+- « Annuler » dans le toast annule tout : rien n'est appelé avant la fin des 6 secondes.
+- Au 23 oct. : les 78 dossiers en attente ont un id Gmail et un libellé (35 le leur, 43 celui de leur catégorie).
+- Pour Léo : un dossier fermé dans le Hub a `payload.hub_decided_by` et `decision` à `rejected` ou `traite_manuellement` ; le classement Gmail est dans `payload.hub_gmail`.
 
 ### Accès Gmail : étapes dans Google Cloud
 

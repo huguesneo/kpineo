@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   decoderBase64Url, lireAdresse, lireAdresses, partiesDuMessage, nettoyerHtml, separerCitation, messageDuFil,
   filEnConversation, idsGmail, texteEnHtml, tailleLisible, documentIframe, extraitTexte,
+  libelleDeClassement, modificationClassement, classementAReessayer,
 } from './gmailFil.js'
 
 const b64 = (t) => Buffer.from(t, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
@@ -122,5 +123,22 @@ describe('document de l’iframe', () => {
     expect(doc).toContain("script-src 'none'")
     expect(doc).toContain('<base target="_blank">')
     expect(doc).toContain('<body><p>Salut</p></body>')
+  })
+})
+
+describe('classement sur Rejeter et Déjà traité', () => {
+  it('libellé : label_final du dossier, sinon celui de la catégorie, jamais un nom', () => {
+    expect(libelleDeClassement({ payload: { label_final: 'Label_12' } }, 'Label_99')).toBe('Label_12')
+    expect(libelleDeClassement({ payload: { label_final: 'CLIENTS/Reçus' } }, 'Label_99')).toBe('Label_99')
+    expect(libelleDeClassement({ payload: {} }, null)).toBe(null)
+  })
+  it('ajoute le libellé et retire INBOX', () => {
+    expect(modificationClassement('Label_12')).toEqual({ addLabelIds: ['Label_12'], removeLabelIds: ['INBOX'] })
+    expect(modificationClassement(null)).toEqual({ addLabelIds: [], removeLabelIds: ['INBOX'] })
+  })
+  it('Réessayer seulement après un échec sur un dossier fermé dans le Hub', () => {
+    expect(classementAReessayer({ decision: 'rejected', payload: { hub_gmail: { erreur: 'Gmail 500' } } })).toBe(true)
+    expect(classementAReessayer({ decision: 'traite_manuellement', payload: { hub_gmail: { classe_le: 'x' } } })).toBe(false)
+    expect(classementAReessayer({ decision: 'pending', payload: { hub_gmail: { erreur: 'x' } } })).toBe(false)
   })
 })

@@ -112,7 +112,8 @@ export default function Adjoint() {
     const annuler = envoi.current.programmer({
       executer: () => appelAdjoint('decider', { id, ...args }),
       surSucces: (r) => {
-        setToast(t => (t?.cle === cle ? { cle, texte: r?.enAttenteDeMake ? `${texte} : transmis à Make` : texte } : t))
+        const nonArchive = r?.gmail?.erreur ? { ton: 'erreur', texte: `${texte}, mais non archivé dans Gmail : ouvre le dossier pour réessayer` } : null
+        setToast(t => (t?.cle === cle ? (nonArchive ? { cle, ...nonArchive } : { cle, texte: r?.enAttenteDeMake ? `${texte} : transmis à Make` : texte }) : t))
         signalerMaj()
         setVersion(v => v + 1)
         setMasques(m => { const n = new Set(m); n.delete(id); return n })
@@ -153,7 +154,7 @@ export default function Adjoint() {
       <section aria-label="Dossier" className={`${colonneCls} flex-[999_1_420px] min-w-0`}>
         {ouvert.chargement && !d && <Chargement />}
         {ouvert.erreur && <Erreur onReessayer={() => setRechargeDossier(n => n + 1)}>{ouvert.erreur}</Erreur>}
-        {d && <Dossier d={d.dossier} fiche={d.fiche} onDecider={decider} occupe={ouvert.chargement} />}
+        {d && <Dossier d={d.dossier} fiche={d.fiche} onDecider={decider} occupe={ouvert.chargement} onRecharger={() => { setRechargeDossier(n => n + 1); setVersion(v => v + 1) }} />}
         {!selection && !ouvert.chargement && (
           <div className="flex-1 flex items-center justify-center p-10 text-center">
             <p className="m-0 text-[15px] text-[#5b616e]">{vueFile ? "File vide. Léo n'a rien d'autre à te soumettre." : 'Choisis un dossier dans la liste.'}</p>

@@ -92,6 +92,34 @@ function ApercuAgenda({ p }) {
 }
 
 // Ce que Make a répondu (accusé) et l'état de l'envoi
+// Rejeter / Déjà traité : classement dans Gmail (libellé de la catégorie, sorti de INBOX)
+function SuiviGmail({ d, onRecharger }) {
+  const g = d.payload?.hub_gmail
+  const [essai, setEssai] = useState({ enCours: false, erreur: null })
+  useEffect(() => { setEssai({ enCours: false, erreur: null }) }, [d.id])
+  if (!g) return null
+  if (!g.erreur) return <p className="m-0 text-[13px] text-[#5b616e]">Archivé dans Gmail le {formatDateHeure(g.classe_le)}{g.label ? '' : ', sans libellé de catégorie'}.</p>
+  async function reessayer() {
+    setEssai({ enCours: true, erreur: null })
+    try {
+      await appelAdjoint('reclasser', { id: d.id })
+      setEssai({ enCours: false, erreur: null })
+      onRecharger?.()
+    } catch (e) {
+      setEssai({ enCours: false, erreur: e.message })
+    }
+  }
+  return (
+    <div className="rounded-[10px] border-2 border-[#fda29b] bg-[#fef3f2] px-4 py-3 text-sm text-[#7a271a] flex flex-wrap items-center gap-3">
+      <div className="flex-1 min-w-[200px]">
+        <strong className="block text-[#b42318]">Non archivé dans Gmail</strong>
+        La décision est enregistrée, mais le courriel est encore dans la boîte de réception ({essai.erreur ?? g.erreur}).
+      </div>
+      <Bouton onClick={reessayer} disabled={essai.enCours}>{essai.enCours ? 'Classement…' : 'Réessayer'}</Bouton>
+    </div>
+  )
+}
+
 function SuiviMake({ p }) {
   const ex = p.hub_execution
   const acks = Array.isArray(p.hub_ack) ? p.hub_ack : []
@@ -125,7 +153,7 @@ function Message({ texte }) {
 const zoneCls = 'w-full resize-y rounded-[10px] px-4 py-3.5 text-sm leading-relaxed text-[#16181d] border outline-none focus:border-[#00bbb1] focus:ring-[3px] focus:ring-[#00bbb1]/20'
 
 // d : dossier complet (op dossier) ; onDecider({ action, texteModifie?, texte?, raison? }, { toast })
-export default function Dossier({ d, fiche, onDecider, occupe }) {
+export default function Dossier({ d, fiche, onDecider, occupe, onRecharger }) {
   const p = d.payload ?? {}
   const action = d.action
   const enAttente = d.decision === 'pending'
@@ -214,6 +242,8 @@ export default function Dossier({ d, fiche, onDecider, occupe }) {
             {enAttente && d.resume?.etiquettes?.map(e => <Pastille key={e.label} ton={e.ton}>{e.label}</Pastille>)}
           </div>
         </div>
+
+        {!enAttente && <SuiviGmail d={d} onRecharger={onRecharger} />}
 
         {d.aFilGmail ? <FilGmail dossier={d} /> : <Message texte={d.incoming_message} />}
 
@@ -373,7 +403,9 @@ export default function Dossier({ d, fiche, onDecider, occupe }) {
             </div>
           )}
           <p className="m-0 text-xs text-[#5b616e]">
-            {!ecrire && !action
+            {confirmer
+              ? `Rien n’est envoyé. ${d.aFilGmail ? 'Le courriel est classé dans Gmail avec le libellé de sa catégorie et sort de la boîte de réception. ' : ''}Le message Slack est mis à jour. Tu as 6 secondes pour annuler.`
+              : !ecrire && !action
               ? 'Rejeter et « Déjà traité à la main » ferment le dossier sans rien envoyer. Le message Slack est mis à jour.'
               : !ecrire && action.actionId === ACTIONS_MAKE.creer_recu_commande
                 ? 'Exécuté par Make, comme le bouton Slack : client et reçu dans QuickBooks.'
