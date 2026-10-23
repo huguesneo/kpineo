@@ -25,7 +25,7 @@ export function EtatSources({ etats }) {
   )
 }
 
-function FilDepuisHistorique({ threadId }) {
+export function FilDepuisHistorique({ threadId }) {
   const [etat, setEtat] = useState({ chargement: true, messages: [], raison: null })
   useEffect(() => {
     let actif = true

@@ -430,6 +430,7 @@ export function resumeDossier(row, client = null, now = Date.now()) {
     total: row.channel === 'commande' ? (row.payload?.total_woocommerce ?? row.total_qbo ?? null) : null,
     blocage: blocageCommande(row),
     apercu: String(row.incoming_message ?? '').replace(/\s+/g, ' ').slice(0, 140),
+    gmail: row.gmail_message_id ?? null,
   }
 }
 

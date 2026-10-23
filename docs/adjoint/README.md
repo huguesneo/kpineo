@@ -67,6 +67,15 @@ S'il manque encore quelque chose, l'action est refusée avant Make, avec la list
   - **App NEO** : `client_chats` (projet Clinique), un résumé par jour : nombre de messages, sujets (Léo, plan, équipe), début du dernier message. Pas le contenu complet.
   - **Dossiers Léo** : comme avant, clic = le dossier.
 
+## Temps réel : courriels pas encore traités par Léo (étape 2, partie 6)
+
+- Migration `supabase/migrations/20261023b_inbox_messages.sql` (neo-admin) : tables `inbox_messages` et `gmail_sync_etat`, lecture réservée à hugues@ et info@ (RLS), Realtime, et le cron `gmail-sync` chaque minute. **À appliquer seulement après accord.**
+- Edge function `gmail-sync` (sans vérification JWT, comme `setting-cycle`) : lit `users.history` depuis le dernier `historyId` (premier passage ou historyId périmé : INBOX des 3 derniers jours), copie les nouveaux courriels, met à jour les libellés (un courriel archivé ailleurs sort de la file), puis relie chaque courriel « nouveau » à un dossier Léo : même `gmail_message_id`, sinon même fil si le dossier est postérieur (`_shared/gmailSync.js`, `liaisons`).
+- Ignorés : expéditeurs `@neoperformance.ca`, hors INBOX, spam, promotions, libellés Blocked, Promotion et wordpress.
+- File : en tête de Tout et Courriels, badge « Pas encore traité par Léo », jamais en double avec un dossier de Léo (`courrielsNonTraites`). Mise à jour sans recharger (Realtime sur `inbox_messages`).
+- Boutons : « Écrire une réponse », « Demander à Léo de rédiger », « Rejeter », « Déjà traité à la main ». Chacun crée d'abord la ligne dans `leo_service_interactions` (op `creerDepuisCourriel` : channel `courriel`, `decision = 'pending'`, `gmail_message_id`, `gmail_thread_id`, `contact_email`, `payload.to/subject`, `payload.hub_origine = 'hub'`, catégorie « Client actif/Général » pour un client actif, sinon « autre »), puis ouvre le dossier dans ce mode : même chemin Make et classement Gmail que d'habitude.
+- **Pour les skills de Léo** : avant de créer une ligne pour un courriel, vérifier qu'aucune ligne de `leo_service_interactions` n'a déjà ce `gmail_message_id`. Si elle existe avec `payload.hub_origine = 'hub'` (ou une décision prise dans le Hub, `payload.hub_decided_by`), le courriel est déjà traité dans le Hub : ne rien créer.
+
 ### Accès Gmail : étapes dans Google Cloud
 
 À faire une fois, connecté avec un compte administrateur de neoperformance.ca.
@@ -104,6 +113,7 @@ supabase secrets set --project-ref cbqwrmyctsfdqmenczhm GMAIL_CLIENT_ID=<…> GM
 ```bash
 supabase functions deploy leo-adjoint --project-ref cbqwrmyctsfdqmenczhm
 supabase functions deploy leo-adjoint-ack --project-ref cbqwrmyctsfdqmenczhm --no-verify-jwt
+supabase functions deploy gmail-sync --project-ref cbqwrmyctsfdqmenczhm --no-verify-jwt
 ```
 
 ## Migration (projet Clinique)

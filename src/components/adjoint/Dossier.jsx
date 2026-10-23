@@ -153,7 +153,7 @@ function Message({ texte }) {
 const zoneCls = 'w-full resize-y rounded-[10px] px-4 py-3.5 text-sm leading-relaxed text-[#16181d] border outline-none focus:border-[#00bbb1] focus:ring-[3px] focus:ring-[#00bbb1]/20'
 
 // d : dossier complet (op dossier) ; onDecider({ action, texteModifie?, texte?, raison? }, { toast })
-export default function Dossier({ d, fiche, onDecider, occupe, onRecharger }) {
+export default function Dossier({ d, fiche, onDecider, occupe, onRecharger, modeInitial }) {
   const p = d.payload ?? {}
   const action = d.action
   const enAttente = d.decision === 'pending'
@@ -177,6 +177,9 @@ export default function Dossier({ d, fiche, onDecider, occupe, onRecharger }) {
     setEdition(false); setRelu(false); setTexteLeo(htmlLeo); setEcrire(false); setTexteLibre(''); setRedigeParLeo(false)
     setAvertissements([]); setConsigne(''); setDemandeLeo(false); setRedaction({ enCours: false, erreur: null })
     setConfirmer(null); setRaison('')
+    // Ouvert depuis un courriel pas encore traité par Léo : directement dans le bon mode
+    if (modeInitial === 'ecrire' || modeInitial === 'rediger') { setEcrire(true); setDemandeLeo(modeInitial === 'rediger') }
+    if (modeInitial === 'rejeter' || modeInitial === 'deja_traite') setConfirmer(modeInitial)
   }, [d.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const modifie = texteLeo.trim() !== htmlLeo.trim()

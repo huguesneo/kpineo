@@ -7,6 +7,7 @@ import File from './File'
 import FichePersonne from './FichePersonne'
 import FilGmail, { FilConversation } from './FilGmail'
 import { EtatSources, LigneHistorique } from './Historique'
+import CourrielNonTraite from './CourrielNonTraite'
 import { actionPrincipale, resumeDossier } from '../../../supabase/functions/_shared/adjoint.js'
 
 const NOW = new Date('2026-10-23T16:00:00Z').getTime()
@@ -167,5 +168,10 @@ describe('File et fiche', () => {
     expect(etats).toContain('Gmail : 2')
     expect(etats).toContain('GHL indisponible')
     expect(etats).toContain('App : chargement')
+  })
+  it('courriel pas encore traité par Léo : badge et les quatre boutons', () => {
+    const html = renderToStaticMarkup(<CourrielNonTraite onOuvrirDossier={rien} m={{ gmail_message_id: 'm1', gmail_thread_id: 't1', expediteur: 'a@x.ca', sujet: 'Question', recu_le: ilYa(1) }} />)
+    expect(html).toContain('Pas encore traité par Léo')
+    for (const b of ['Écrire une réponse', 'Demander à Léo de rédiger', 'Rejeter', 'Déjà traité à la main']) expect(html).toContain(b)
   })
 })

@@ -14,6 +14,10 @@ import { SECTIONS, sousSectionsDe } from '../../supabase/functions/_shared/adjoi
 import { appelAdjoint, signalerMaj } from '../lib/adjoint/api'
 import { creerEnvoiDiffere } from '../lib/adjoint/envoiDiffere'
 import { useAdjointCompteurs } from '../hooks/useAdjointCompteurs'
+import { useInboxNonTraites } from '../hooks/useInboxNonTraites'
+import CourrielNonTraite from '../components/adjoint/CourrielNonTraite'
+import { courrielsNonTraites, elementFileInbox, PREFIXE_INBOX } from '../../supabase/functions/_shared/gmailSync.js'
+import { delaiAttente } from '../../supabase/functions/_shared/adjoint.js'
 
 // Page Adjoint : ce que Léo soumet (file d'approbation), ce qui est déjà traité,
 // ce qu'il fait seul, l'historique des commandes et la recherche par personne.
@@ -41,6 +45,7 @@ export default function Adjoint() {
   const sousSections = sousSectionsDe(section)
   const sous = params.get('v') ?? (section === 'autonome' ? 'aujourdhui' : 'a_traiter')
   const selection = params.get('id')
+  const modeInitial = params.get('m')
   const personne = params.get('email') || params.get('client') ? { email: params.get('email'), client_id: params.get('client') } : null
 
   const { compteurs } = useAdjointCompteurs(true)
@@ -55,13 +60,23 @@ export default function Adjoint() {
       return n
     }, { replace: remplacer })
   }, [setParams])
-  const choisir = useCallback((id, remplacer = false) => naviguer({ id }, remplacer), [naviguer])
+  const choisir = useCallback((id, remplacer = false) => naviguer({ id, m: null }, remplacer), [naviguer])
 
   // ── File à traiter ─────────────────────────────────────────────────────────
   const [file, setFile] = useState({ dossiers: [], chargement: true, erreur: null })
   const [masques, setMasques] = useState(() => new Set())
-  const fileVisible = useMemo(() => file.dossiers.filter(d => !masques.has(d.id)), [file.dossiers, masques])
   const vueFile = sous === 'a_traiter' && section !== 'reseaux_sociaux'
+  // Courriels arrivés dans info@ que Léo n'a pas encore traités (temps réel), en tête de
+  // la file Tout et Courriels, jamais en double avec un dossier de Léo
+  const inbox = useInboxNonTraites(vueFile && (section === 'tout' || section === 'courriel'), () => setVersion(v => v + 1))
+  const nonTraites = useMemo(() => courrielsNonTraites(inbox.messages, file.dossiers), [inbox.messages, file.dossiers])
+  const fileVisible = useMemo(() => [
+    ...(section === 'tout' || section === 'courriel' ? nonTraites.map(m => elementFileInbox(m, delaiAttente({ created_at: m.recu_le }))) : []),
+    ...file.dossiers.filter(d => !masques.has(d.id)),
+  ], [file.dossiers, masques, nonTraites, section])
+  const courrielOuvert = selection?.startsWith(PREFIXE_INBOX)
+    ? nonTraites.find(m => `${PREFIXE_INBOX}${m.gmail_message_id}` === selection) ?? null
+    : null
 
   const chargerFile = useCallback(async () => {
     setFile(f => ({ ...f, chargement: true, erreur: null }))
@@ -83,6 +98,7 @@ export default function Adjoint() {
   const [ouvert, setOuvert] = useState({ id: null, donnees: null, chargement: false, erreur: null })
   const [rechargeDossier, setRechargeDossier] = useState(0)
   useEffect(() => {
+    if (selection?.startsWith(PREFIXE_INBOX)) { setOuvert({ id: null, donnees: null, chargement: false, erreur: null }); return undefined }
     if (!selection) { setOuvert({ id: null, donnees: null, chargement: false, erreur: null }); return undefined }
     let actif = true
     setOuvert(o => ({ ...o, id: selection, chargement: true, erreur: null }))
@@ -154,7 +170,18 @@ export default function Adjoint() {
       <section aria-label="Dossier" className={`${colonneCls} flex-[999_1_420px] min-w-0`}>
         {ouvert.chargement && !d && <Chargement />}
         {ouvert.erreur && <Erreur onReessayer={() => setRechargeDossier(n => n + 1)}>{ouvert.erreur}</Erreur>}
-        {d && <Dossier d={d.dossier} fiche={d.fiche} onDecider={decider} occupe={ouvert.chargement} onRecharger={() => { setRechargeDossier(n => n + 1); setVersion(v => v + 1) }} />}
+        {courrielOuvert && (
+          <CourrielNonTraite
+            m={courrielOuvert}
+            onOuvrirDossier={(id, mode) => { naviguer({ id, m: mode }); setVersion(v => v + 1) }}
+          />
+        )}
+        {selection?.startsWith(PREFIXE_INBOX) && !courrielOuvert && (
+          <div className="flex-1 flex items-center justify-center p-10 text-center">
+            <p className="m-0 text-[15px] text-[#5b616e]">Ce courriel n’est plus dans la file : Léo ou quelqu’un d’autre l’a traité.</p>
+          </div>
+        )}
+        {d && !selection?.startsWith(PREFIXE_INBOX) && <Dossier modeInitial={modeInitial} d={d.dossier} fiche={d.fiche} onDecider={decider} occupe={ouvert.chargement} onRecharger={() => { setRechargeDossier(n => n + 1); setVersion(v => v + 1) }} />}
         {!selection && !ouvert.chargement && (
           <div className="flex-1 flex items-center justify-center p-10 text-center">
             <p className="m-0 text-[15px] text-[#5b616e]">{vueFile ? "File vide. Léo n'a rien d'autre à te soumettre." : 'Choisis un dossier dans la liste.'}</p>

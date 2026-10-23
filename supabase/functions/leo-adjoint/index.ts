@@ -11,7 +11,8 @@
 //
 // Une seule fonction, champ « op » : liste, dossier, fil, recherche, personne, commandes,
 // compteurs, decider, reclasser, rediger, historique (une source à la fois : gmail, ghl,
-// app), filGmail (un fil par son id, depuis l'historique). « fil » lit le vrai fil Gmail de info@ (_shared/gmail.ts).
+// app), filGmail (un fil par son id, depuis l'historique), creerDepuisCourriel (ligne Léo
+// pour un courriel que Léo n'a pas encore traité, avant d'y répondre ou de le fermer). « fil » lit le vrai fil Gmail de info@ (_shared/gmail.ts).
 // Accès : Hugues et Cloé (peutUtiliserAdjoint).
 // Déploiement : avec vérification JWT (par défaut).
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
@@ -25,8 +26,9 @@ import {
 import {
   requeteAnthropic, texteReponse, nettoyerBrouillon, avertissementsBrouillon, ajouterJournalRedaction,
 } from '../_shared/adjointRedaction.js'
-import { idsGmail, libelleDeClassement, classementAReessayer } from '../_shared/gmailFil.js'
-import { filDuDossier, classerFil, filsDeLaPersonne, GmailIndisponible } from '../_shared/gmail.ts'
+import { idsGmail, libelleDeClassement, classementAReessayer, messageDuFil } from '../_shared/gmailFil.js'
+import { filDuDossier, classerFil, filsDeLaPersonne, gmailApi, GmailIndisponible } from '../_shared/gmail.ts'
+import { estInterne } from '../_shared/gmailSync.js'
 import { elementsGmail, elementsGhl, elementsApp } from '../_shared/historique.js'
 import { ghl, locationId, contactIdByEmail } from '../_shared/ghl.ts'
 
@@ -377,6 +379,49 @@ Deno.serve(async (req) => {
       } catch (e) {
         return json({ indisponible: true, raison: (e as Error).message })
       }
+    }
+
+    // Courriel « Pas encore traité par Léo » : crée sa ligne dans leo_service_interactions
+    // (même chemin ensuite : Make pour répondre, classement Gmail pour fermer). Idempotent :
+    // si une ligne existe déjà pour ce gmail_message_id, on la renvoie. Léo doit faire de
+    // même avant de créer la sienne (champ gmail_message_id, payload.hub_origine = 'hub').
+    if (op === 'creerDepuisCourriel') {
+      const messageId = String(body.gmail_message_id ?? '')
+      if (!/^[0-9a-f]{6,24}$/i.test(messageId)) throw new Refus('Courriel invalide.', 400)
+      const { data: deja } = await db.from(TABLE).select('id').eq('gmail_message_id', messageId).order('created_at', { ascending: true }).limit(1)
+      const lier = (id: string) => admin.from('inbox_messages')
+        .update({ leo_interaction_id: id, etat: 'traite_dans_hub', maj_le: new Date().toISOString() }).eq('gmail_message_id', messageId)
+      if (deja?.[0]) { await lier(deja[0].id); return json({ id: deja[0].id, existait: true }) }
+      let m: J
+      try {
+        m = messageDuFil(await gmailApi(`/messages/${messageId}?format=full`))
+      } catch (e) {
+        throw new Refus(`Courriel introuvable dans Gmail (${(e as Error).message}).`, 502)
+      }
+      const courriel = normaliserCourriel(m.de?.courriel)
+      if (!courriel || estInterne(courriel)) throw new Refus('Courriel interne ou sans expéditeur : rien à créer.', 409)
+      const fiche = await fichePersonne({ courriel })
+      const quand = new Date().toISOString()
+      const corps = htmlVersTexte(m.html).trim()
+      const { data: cree, error } = await db.from(TABLE).insert({
+        channel: 'courriel',
+        category: fiche.clientId && fiche.statut === 'client_actif' ? 'Client actif/Général' : 'autre',
+        decision: 'pending',
+        suggested_action: 'repondre',
+        contact_email: courriel,
+        client_id: fiche.clientId,
+        gmail_message_id: messageId,
+        gmail_thread_id: (await gmailApi(`/messages/${messageId}?format=minimal`).catch(() => ({})))?.threadId ?? null,
+        incoming_message: `Courriel reçu, pas encore lu par Léo : ${corps.slice(0, 1500) || m.extrait || '(vide)'}`,
+        payload: {
+          to: [courriel], subject: sujetReponse(m.sujet), gmail_subject: m.sujet, gmail_message_id: messageId,
+          client_courriel: courriel, client_nom: m.de?.nom ?? null,
+          hub_origine: 'hub', hub_cree_par: moi.courriel, hub_cree_le: quand,
+        },
+      }).select('id').single()
+      if (error) throw error
+      await lier(cree.id)
+      return json({ id: cree.id, existait: false })
     }
 
     if (op === 'personne') {
