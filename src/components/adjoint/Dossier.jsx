@@ -5,6 +5,7 @@ import {
 } from '../../../supabase/functions/_shared/adjoint.js'
 import { appelAdjoint } from '../../lib/adjoint/api'
 import { Bouton, Icone, Pastille } from './ui'
+import FilGmail from './FilGmail'
 
 const TON_DECISION = { succes: 'succes', danger: 'danger', info: 'info', neutre: 'neutre' }
 
@@ -203,7 +204,7 @@ export default function Dossier({ d, fiche, onDecider, occupe }) {
           </div>
         </div>
 
-        <Message texte={d.incoming_message} />
+        {d.aFilGmail ? <FilGmail dossier={d} /> : <Message texte={d.incoming_message} />}
 
         {d.resume?.blocage && (
           <div className="rounded-[10px] border-2 border-[#fda29b] bg-[#fef3f2] px-4 py-3 text-sm text-[#7a271a]">

@@ -34,10 +34,43 @@ S'il manque encore quelque chose, l'action est refusée avant Make, avec la list
 
 `hub_decided_by`, `hub_decided_at`, `hub_execution`, `hub_ack`, `hub_rejet`, `hub_traite_main`, `hub_redaction` (consigne et brouillon de Léo), `hub_html_leo` (le html de Léo avant modification), `hub_make_erreur`, `hub_slack_erreur`.
 
+## Le fil Gmail dans le dossier (étape 2, partie 2)
+
+- Le bloc gris est remplacé par le vrai fil Gmail de info@ : op `fil` de `leo-adjoint` (chargée à part, après le dossier). Fil par `gmail_thread_id`, sinon retrouvé par `gmail_message_id`.
+- Tout le code Gmail est dans `supabase/functions/_shared/gmail.ts` (jeton, appels API) et `_shared/gmailFil.js` (logique pure, testée : décodage MIME, nettoyage HTML, citations, sens des messages). Aucun jeton Google dans le front.
+- Nettoyage : scripts, styles, iframes, formulaires, gestionnaires `on…`, liens `javascript:`, images de suivi (1×1, cachées, services connus) et images `cid:` retirés. Le corps est affiché dans un iframe `sandbox` sans scripts, avec une politique `script-src 'none'` en plus.
+- Messages de info@ à droite (fond teal), ceux de la personne à gauche ; citations « Le … a écrit : » repliées ; pièces jointes listées par nom et taille (pas encore téléchargeables).
+- Le résumé de Léo reste en petit sous « Résumé de Léo ». Si Gmail ne répond pas ou si l'accès n'est pas configuré : « Courriel original indisponible » avec la raison, le dossier reste utilisable.
+- Dossier sans id Gmail (SMS, etc.) : l'ancien bloc reste.
+
+### Accès Gmail : étapes dans Google Cloud
+
+À faire une fois, connecté avec un compte administrateur de neoperformance.ca.
+
+1. Va sur https://console.cloud.google.com, en haut à gauche clique sur le sélecteur de projet, puis « Nouveau projet ». Nom : `NEO Hub Gmail`. Crée-le et sélectionne-le.
+2. Menu ☰ > « API et services » > « Bibliothèque ». Cherche « Gmail API », ouvre-la, clique « Activer ».
+3. Menu ☰ > « API et services » > « Écran de consentement OAuth » (ou « Google Auth Platform »). Clique « Commencer ».
+   - Nom de l'application : `NEO Hub` ; adresse d'assistance : info@neoperformance.ca.
+   - Type d'audience : **Interne** (seuls les comptes neoperformance.ca peuvent autoriser, et l'autorisation n'expire pas après 7 jours).
+   - Coordonnées : info@neoperformance.ca. Accepte et crée.
+4. Dans le même menu, « Accès aux données » (ou « Champs d'application ») > « Ajouter ou supprimer des champs d'application ». Coche `https://www.googleapis.com/auth/gmail.modify` (tu peux le coller dans « Ajouter manuellement »). Enregistre.
+5. « Clients » (ou « Identifiants » > « Créer des identifiants » > « ID client OAuth »). Type d'application : **Application de bureau**. Nom : `NEO Hub local`. Crée. Google affiche l'**ID client** et le **Code secret du client** : garde l'onglet ouvert.
+6. Dans un terminal, dans le dossier du projet :
+   ```bash
+   node scripts/gmail-oauth.mjs <ID client> <Code secret du client>
+   ```
+   Le navigateur s'ouvre : connecte-toi avec **info@neoperformance.ca** (pas ton adresse), clique « Autoriser ». Le terminal affiche une commande `supabase secrets set …` toute prête.
+7. Colle cette commande dans le terminal et lance-la. C'est tout : le fil s'affiche au prochain dossier ouvert, sans redéploiement.
+
+Si l'écran de l'étape 3 ne propose pas « Interne » (compte Gmail hors Workspace) : choisis « Externe », ajoute info@ comme utilisateur test, puis « Publier l'application » ; sinon le jeton expire au bout de 7 jours.
+
+Pour couper l'accès : https://myaccount.google.com/permissions avec info@, retirer « NEO Hub ».
+
 ## Secrets (projet neo-admin `cbqwrmyctsfdqmenczhm`)
 
 ```bash
 supabase secrets set --project-ref cbqwrmyctsfdqmenczhm CLINIQUE_SUPABASE_URL=https://caogpyephqaohnbydvuc.supabase.co CLINIQUE_SERVICE_ROLE_KEY=<clé service du projet Clinique> LEO_ACTIONS_WEBHOOK_URL=https://hook.us1.make.com/wgmhymrnkab5yrmxs8f8k3sp3tpy7j7e SLACK_BOT_TOKEN=<xoxb du bot qui poste les messages de Léo> ANTHROPIC_API_KEY=<clé API Anthropic>
+supabase secrets set --project-ref cbqwrmyctsfdqmenczhm GMAIL_CLIENT_ID=<…> GMAIL_CLIENT_SECRET=<…> GMAIL_INFO_REFRESH_TOKEN=<…>   # donné par scripts/gmail-oauth.mjs
 ```
 
 `SLACK_BOT_TOKEN` doit être le token du bot qui a posté les messages de Léo (celui de la connexion Make) : Slack ne laisse un bot modifier que ses propres messages. Portée requise : `chat:write`.

@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import Dossier from './Dossier'
 import File from './File'
 import FichePersonne from './FichePersonne'
+import FilGmail, { FilConversation } from './FilGmail'
 import { actionPrincipale, resumeDossier } from '../../../supabase/functions/_shared/adjoint.js'
 
 const NOW = new Date('2026-10-23T16:00:00Z').getTime()
@@ -113,5 +114,24 @@ describe('File et fiche', () => {
     expect(html).toContain('non renseigné')
     expect(html).toContain('Reçus pour mon assurance')
     expect(html).toContain('Ouvrir le dossier complet')
+  })
+  it('fil Gmail : personne à gauche, info@ à droite, citation repliée, pièces jointes', () => {
+    const html = renderToStaticMarkup(<FilConversation messages={[
+      { id: '1', sens: 'recu', de: { nom: 'Julie Roy', courriel: 'julie@x.ca' }, date: ilYa(30), html: '<p>Mes reçus</p>', citation: null, piecesJointes: [{ nom: 'assurance.pdf', taille: 52000 }] },
+      { id: '2', sens: 'envoye', de: { nom: null, courriel: 'info@neoperformance.ca' }, date: ilYa(2), html: '<p>Voilà</p>', citation: 'Le … a écrit :', piecesJointes: [] },
+    ]} />)
+    expect(html.indexOf('justify-start')).toBeLessThan(html.indexOf('justify-end'))
+    expect(html).toContain('Julie Roy')
+    expect(html).toContain('assurance.pdf')
+    expect(html).toContain('51 Ko')
+    expect(html).toContain('Afficher la citation')
+    expect(html).toContain('sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"')
+    expect(html).not.toContain('allow-scripts')
+  })
+  it('dossier avec courriel Gmail : résumé de Léo gardé en petit pendant le chargement', () => {
+    const html = renderToStaticMarkup(<FilGmail dossier={{ id: 'c1', incoming_message: 'Veut ses reçus.' }} />)
+    expect(html).toContain('Résumé de Léo')
+    expect(html).toContain('Veut ses reçus.')
+    expect(html).toContain('Chargement du courriel')
   })
 })

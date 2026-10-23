@@ -9,8 +9,9 @@
 // Make répond tout de suite, puis fait le travail et poste son accusé à
 // response_url = leo-adjoint-ack, qui confirme dans la ligne (hub_execution, hub_ack).
 //
-// Une seule fonction, champ « op » : liste, dossier, recherche, personne, commandes,
-// compteurs, decider, rediger. Accès : Hugues et Cloé (peutUtiliserAdjoint).
+// Une seule fonction, champ « op » : liste, dossier, fil, recherche, personne, commandes,
+// compteurs, decider, rediger. « fil » lit le vrai fil Gmail de info@ (_shared/gmail.ts).
+// Accès : Hugues et Cloé (peutUtiliserAdjoint).
 // Déploiement : avec vérification JWT (par défaut).
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import {
@@ -23,6 +24,8 @@ import {
 import {
   requeteAnthropic, texteReponse, nettoyerBrouillon, avertissementsBrouillon, ajouterJournalRedaction,
 } from '../_shared/adjointRedaction.js'
+import { idsGmail } from '../_shared/gmailFil.js'
+import { filDuDossier, GmailIndisponible } from '../_shared/gmail.ts'
 
 declare const Deno: {
   env: { get(key: string): string | undefined }
@@ -38,7 +41,7 @@ const corsHeaders = {
 }
 
 const TABLE = 'leo_service_interactions'
-const COLONNES = 'id,channel,client_id,contact_email,contact_phone,category,incoming_message,proposed_reply,decision,final_reply,decided_at,created_at,suggested_action,executed_at,etape,recu_quickbooks,total_qbo,gmail_message_id,slack_channel_id,slack_message_ts,payload'
+const COLONNES = 'id,channel,client_id,contact_email,contact_phone,category,incoming_message,proposed_reply,decision,final_reply,decided_at,created_at,suggested_action,executed_at,etape,recu_quickbooks,total_qbo,gmail_message_id,gmail_thread_id,slack_channel_id,slack_message_ts,payload'
 const PAGE = 50
 
 class Refus extends Error {
@@ -273,10 +276,25 @@ Deno.serve(async (req) => {
       const autres = await dossiersPersonne({ courriel, clientId: fiche.clientId ?? row.client_id }, 100)
       const action = actionPrincipale(row)
       return json({
-        dossier: { ...dossierPourEcran(row), resume: resumeDossier(row, null, now), action, refus: refusDecision(row, now) },
+        dossier: {
+          ...dossierPourEcran(row), resume: resumeDossier(row, null, now), action, refus: refusDecision(row, now),
+          aFilGmail: Object.values(idsGmail(row)).some(Boolean),
+        },
         fiche,
         ligneDuTemps: autres.map(r => resumeDossier(r, null, now)),
       })
+    }
+
+    // Le fil Gmail est chargé à part : s'il échoue, le dossier s'affiche quand même
+    if (op === 'fil') {
+      const row = await lireLigne(String(body.id ?? ''))
+      if (!row) return json({ error: 'Dossier introuvable.' }, 404)
+      try {
+        return json(await filDuDossier(idsGmail(row)))
+      } catch (e) {
+        if (!(e instanceof GmailIndisponible)) console.error('leo-adjoint fil', e)
+        return json({ indisponible: true, raison: (e as Error).message })
+      }
     }
 
     if (op === 'personne') {
