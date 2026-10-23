@@ -29,6 +29,7 @@ import MaPerformance from './pages/MaPerformance'
 import ReseauxSociaux from './pages/ReseauxSociaux'
 import Terminal from './pages/Terminal'
 import PayerLien from './pages/PayerLien'
+import Adjoint from './pages/Adjoint'
 import MontageAccueil from './features/social/montage/MontageAccueil'
 import MontageNouvelle from './features/social/montage/MontageNouvelle'
 import MontageConfiguration from './features/social/montage/MontageConfiguration'
@@ -36,6 +37,7 @@ import MontageEditeur from './features/social/montage/MontageEditeur'
 import MontageTemplates from './features/social/montage/MontageTemplates'
 import PageTimeline from './features/social/montage/timeline/PageTimeline'
 import { TERMINAL_ENABLED, canUseTerminal } from './lib/terminal/flag'
+import { ADJOINT_ENABLED, canUseAdjoint } from './lib/adjoint/flag'
 import { membrePorteOuverte } from './lib/v2/salesConfig'
 import { hasSocialAccess } from './lib/socialAccess'
 import { MONTAGE_VIDEO_ENABLED, TIMELINE_ENABLED, routeMontage, canConfigureMontageVideo } from './lib/montageVideoAccess'
@@ -138,6 +140,15 @@ function PorteOuverteRoute({ children }) {
   return children
 }
 
+// Adjoint (file d'approbation de Léo) : flag VITE_ADJOINT_HUB, Hugues et Cloé seulement
+function AdjointRoute({ children }) {
+  const { user, loading } = useAuth()
+  if (loading) return <LoadingScreen />
+  if (!user) return <Navigate to="/login" replace />
+  if (!canUseAdjoint(user.email)) return <Navigate to="/dashboard" replace />
+  return children
+}
+
 function PublicRoute({ children }) {
   const { user, loading } = useAuth()
   if (loading) return <LoadingScreen />
@@ -207,6 +218,7 @@ function AppRoutes() {
       {/* Terminal de paiement Moneris */}
       <Route path="/terminal"      element={<TerminalRoute><Terminal /></TerminalRoute>} />
       {TERMINAL_ENABLED && <Route path="/payer/:token" element={<PayerLien />} />}
+      {ADJOINT_ENABLED && <Route path="/adjoint" element={<AdjointRoute><Adjoint /></AdjointRoute>} />}
 
       <Route path="*"            element={<Navigate to="/dashboard" replace />} />
     </Routes>

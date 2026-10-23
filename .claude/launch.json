@@ -12,6 +12,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--", "--port", "5181"],
       "port": 5181
+    },
+    {
+      "name": "adjoint-hub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "5182"],
+      "port": 5182
     }
   ]
 }

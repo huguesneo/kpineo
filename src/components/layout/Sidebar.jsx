@@ -14,6 +14,8 @@ import { entreesReseauxSociaux } from '../../lib/montageVideoAccess'
 import { useMontageVideoAccess } from '../../hooks/useMontageVideoAccess'
 import { ESPACE_VENTE_V2 } from '../../lib/v2/featureFlag'
 import { useSettingTaches } from '../../hooks/v2/useSettingTaches'
+import { canUseAdjoint } from '../../lib/adjoint/flag'
+import { useAdjointCompteurs } from '../../hooks/useAdjointCompteurs'
 
 const NEO_LOGO = 'https://assets.cdn.filesafe.space/YG2spvWJqnD75L3V95UJ/media/6941c9327109a899ec69b43c.png'
 
@@ -112,6 +114,9 @@ export default function Sidebar() {
   const _end   = isAdminOrRespVente ? `${_now.getFullYear()}-${String(_now.getMonth() + 1).padStart(2, '0')}-${String(new Date(_now.getFullYear(), _now.getMonth() + 1, 0).getDate()).padStart(2, '0')}` : null
   const { sales: unassignedSales } = useUnassignedSales(_start, _end)
   const equipeVenteBadge = isAdminOrRespVente ? unassignedSales.length : 0
+  // Adjoint : badge = dossiers de Léo à traiter
+  const adjointVisible = canUseAdjoint(user?.email)
+  const { compteurs: adjointCompteurs } = useAdjointCompteurs(adjointVisible)
 
   return (
     <aside className="fixed left-0 top-0 h-screen w-60 bg-white border-r border-[#e5e7eb] flex flex-col z-40">
@@ -329,6 +334,19 @@ export default function Sidebar() {
             icon={
               <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+              </svg>
+            }
+          />
+        )}
+        {/* Adjoint : file d'approbation de Léo (Hugues et Cloé) */}
+        {adjointVisible && (
+          <NavItem
+            to="/adjoint"
+            label="Adjoint"
+            badge={adjointCompteurs?.aTraiter}
+            icon={
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
               </svg>
             }
           />
