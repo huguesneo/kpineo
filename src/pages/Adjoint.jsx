@@ -12,7 +12,7 @@ import Toast from '../components/adjoint/Toast'
 import { Carte, Chargement, Erreur, Icone, Puce, Vide } from '../components/adjoint/ui'
 import { SECTIONS, sousSectionsDe } from '../../supabase/functions/_shared/adjoint.js'
 import { appelAdjoint, signalerMaj } from '../lib/adjoint/api'
-import { creerEnvoiDiffere } from '../lib/adjoint/envoiDiffere'
+import { creerEnvoiDiffere, DELAI_ANNULATION_MS } from '../lib/adjoint/envoiDiffere'
 import { useAdjointCompteurs } from '../hooks/useAdjointCompteurs'
 import { useInboxNonTraites } from '../hooks/useInboxNonTraites'
 import CourrielNonTraite from '../components/adjoint/CourrielNonTraite'
@@ -50,7 +50,7 @@ export default function Adjoint() {
 
   const { compteurs } = useAdjointCompteurs(true)
   const [version, setVersion] = useState(0)
-  const [toast, setToast] = useState(null)
+  const [toasts, setToasts] = useState([])
   const envoi = useRef(creerEnvoiDiffere())
 
   const naviguer = useCallback((maj, remplacer = false) => {
@@ -109,12 +109,20 @@ export default function Adjoint() {
   }, [selection, rechargeDossier])
 
   // ── Décision : 6 secondes pour annuler, puis l'edge function ─────────────
+  // Une file d'actions : chacune part à la fin de SES 6 secondes, même si Cloé change de
+  // dossier ou en décide un autre. Quitter la page avec une action en attente : avertissement,
+  // puis envoi immédiat si elle quitte quand même.
   useEffect(() => {
     const e = envoi.current
     const avantDeQuitter = (ev) => { if (e.enAttente) { ev.preventDefault(); ev.returnValue = '' } }
+    const enQuittant = () => e.vider()
     window.addEventListener('beforeunload', avantDeQuitter)
-    return () => { window.removeEventListener('beforeunload', avantDeQuitter); e.vider() }
+    window.addEventListener('pagehide', enQuittant)
+    return () => { window.removeEventListener('beforeunload', avantDeQuitter); window.removeEventListener('pagehide', enQuittant); e.vider() }
   }, [])
+
+  const majToast = useCallback((cle, t) => setToasts(l => (t ? l.map(x => (x.cle === cle ? { ...t, cle } : x)) : l.filter(x => x.cle !== cle))), [])
+  const erreurToast = useCallback((texte) => setToasts(l => [...l, { cle: `${Date.now()}-${Math.random()}`, ton: 'erreur', texte }]), [])
 
   const decider = useCallback((args, { toast: texte }) => {
     const id = selection
@@ -122,46 +130,55 @@ export default function Adjoint() {
     const i = fileVisible.findIndex(d => d.id === id)
     const suivant = i >= 0 ? (fileVisible[i + 1] ?? fileVisible[i - 1] ?? null) : null
     const masquer = (oui) => setMasques(m => { const n = new Set(m); if (oui) n.add(id); else n.delete(id); return n })
+
+    const cle = `${Date.now()}-${id}`
+    let annuler
+    try {
+      annuler = envoi.current.programmer({
+        executer: async () => {
+          const r = await appelAdjoint('decider', { id, ...args })
+          // Jamais de succès silencieux : la fonction doit confirmer la ligne modifiée
+          if (!r?.ok) throw new Error(r?.error ?? 'Le hub n’a pas confirmé l’enregistrement. Le dossier n’a pas changé.')
+          return r
+        },
+        surSucces: (r) => {
+          majToast(cle, r?.gmail?.erreur
+            ? { ton: 'erreur', texte: `${texte}, mais non archivé dans Gmail : ouvre le dossier pour réessayer` }
+            : { texte: r?.enAttenteDeMake ? `${texte} : transmis à Make` : texte })
+          signalerMaj()
+          setVersion(v => v + 1)
+          setMasques(m => { const n = new Set(m); n.delete(id); return n })
+          if (i < 0) setRechargeDossier(n => n + 1)
+        },
+        surErreur: (e) => {
+          masquer(false)
+          majToast(cle, { ton: 'erreur', texte: `${texte} : échec. ${e.message}` })
+          setVersion(v => v + 1)
+          setRechargeDossier(n => n + 1)
+        },
+        surAnnulation: () => {
+          masquer(false)
+          majToast(cle, null)
+          choisir(id)
+        },
+      })
+    } catch (e) {
+      erreurToast(`${texte} : l’action n’a pas pu être programmée (${e.message}). Rien n’a été enregistré.`)
+      return
+    }
     if (i >= 0) { masquer(true); choisir(suivant?.id ?? null) }
+    setToasts(l => [...l, { cle, texte, onAnnuler: () => annuler(), debut: Date.now() }])
+  }, [selection, fileVisible, choisir, majToast, erreurToast])
 
-    const cle = Date.now()
-    const annuler = envoi.current.programmer({
-      executer: () => appelAdjoint('decider', { id, ...args }),
-      surSucces: (r) => {
-        const nonArchive = r?.gmail?.erreur ? { ton: 'erreur', texte: `${texte}, mais non archivé dans Gmail : ouvre le dossier pour réessayer` } : null
-        setToast(t => (t?.cle === cle ? (nonArchive ? { cle, ...nonArchive } : { cle, texte: r?.enAttenteDeMake ? `${texte} : transmis à Make` : texte }) : t))
-        signalerMaj()
-        setVersion(v => v + 1)
-        setMasques(m => { const n = new Set(m); n.delete(id); return n })
-        if (i < 0) setRechargeDossier(n => n + 1)
-      },
-      surErreur: (e) => {
-        masquer(false)
-        setToast({ cle: Date.now(), ton: 'erreur', texte: e.message })
-        setVersion(v => v + 1)
-        choisir(id)
-        setRechargeDossier(n => n + 1)
-      },
-      surAnnulation: () => {
-        masquer(false)
-        setToast(null)
-        choisir(id)
-      },
+  // Toasts : succès 4 s, erreur 10 s ; ceux en attente passent à « envoi en cours » après 6 s
+  useEffect(() => {
+    const minuteurs = toasts.map(t => {
+      if (t.onAnnuler) return setTimeout(() => majToast(t.cle, { texte: `${t.texte} : envoi en cours`, envoi: true }), Math.max(0, DELAI_ANNULATION_MS - (Date.now() - t.debut)))
+      if (t.envoi) return null
+      return setTimeout(() => majToast(t.cle, null), t.ton === 'erreur' ? 10000 : 4000)
     })
-    setToast({ cle, texte, onAnnuler: () => annuler() })
-  }, [selection, fileVisible, choisir])
-
-  useEffect(() => {
-    if (!toast || toast.onAnnuler) return undefined
-    const t = setTimeout(() => setToast(null), toast.ton === 'erreur' ? 10000 : 4000)
-    return () => clearTimeout(t)
-  }, [toast])
-  // Le toast « Annuler » disparaît à la fin du délai (le succès le remplace)
-  useEffect(() => {
-    if (!toast?.onAnnuler) return undefined
-    const t = setTimeout(() => setToast(x => (x?.cle === toast.cle && x.onAnnuler ? { cle: x.cle, texte: `${x.texte} : envoi en cours` } : x)), 6000)
-    return () => clearTimeout(t)
-  }, [toast])
+    return () => minuteurs.forEach(m => m && clearTimeout(m))
+  }, [toasts, majToast])
 
   // ── Rendu ──────────────────────────────────────────────────────────────────
   const d = ouvert.donnees
@@ -302,7 +319,7 @@ export default function Adjoint() {
 
         {contenu}
       </div>
-      <Toast toast={toast} onFermer={() => setToast(null)} />
+      <Toast toasts={toasts} onFermer={(cle) => majToast(cle, null)} />
     </Layout>
   )
 }

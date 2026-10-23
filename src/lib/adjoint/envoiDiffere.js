@@ -1,35 +1,41 @@
-// Envoi différé avec « Annuler » : l'action n'est exécutée qu'après le délai.
-// Annuler avant la fin empêche réellement l'appel. Une seule action en attente à
-// la fois : en programmer une autre exécute tout de suite la précédente (Cloé l'a
-// voulue et n'a pas annulé). vider() fait pareil en quittant la page.
+// Envoi différé avec « Annuler » : chaque action part à la fin de SES 6 secondes, même si
+// Cloé ouvre un autre dossier ou en décide un autre entre-temps (file d'actions, pas une
+// seule). Annuler avant la fin empêche réellement l'appel. vider() envoie tout de suite
+// ce qui reste (page quittée).
 export const DELAI_ANNULATION_MS = 6000
 
-export function creerEnvoiDiffere({ delai = DELAI_ANNULATION_MS, horloge = { setTimeout, clearTimeout } } = {}) {
-  let enAttente = null
+// Appels directs : window.setTimeout appelé comme méthode d'un autre objet lève
+// « Illegal invocation » dans le navigateur (bogue du 23 oct. : aucun rejet n'était parti).
+const MINUTERIES = {
+  setTimeout: (fn, ms) => globalThis.setTimeout(fn, ms),
+  clearTimeout: (t) => globalThis.clearTimeout(t),
+}
+
+export function creerEnvoiDiffere({ delai = DELAI_ANNULATION_MS, horloge = MINUTERIES } = {}) {
+  const enAttente = new Set()
 
   function lancer(e) {
+    if (!enAttente.delete(e)) return
     horloge.clearTimeout(e.minuteur)
-    if (enAttente === e) enAttente = null
-    return Promise.resolve().then(e.executer).then(e.surSucces, e.surErreur)
+    Promise.resolve().then(e.executer).then(e.surSucces, e.surErreur)
   }
 
   return {
     programmer({ executer, surSucces = () => {}, surErreur = () => {}, surAnnulation = () => {} }) {
-      if (enAttente) lancer(enAttente)
       const e = { executer, surSucces, surErreur, surAnnulation }
+      enAttente.add(e)
       e.minuteur = horloge.setTimeout(() => lancer(e), delai)
-      enAttente = e
       return () => {
-        if (enAttente !== e) return false
+        if (!enAttente.delete(e)) return false
         horloge.clearTimeout(e.minuteur)
-        enAttente = null
         e.surAnnulation()
         return true
       }
     },
     vider() {
-      if (enAttente) lancer(enAttente)
+      for (const e of [...enAttente]) lancer(e)
     },
-    get enAttente() { return !!enAttente },
+    get enAttente() { return enAttente.size > 0 },
+    get nombre() { return enAttente.size },
   }
 }

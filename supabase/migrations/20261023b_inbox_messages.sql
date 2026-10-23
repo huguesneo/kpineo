@@ -43,8 +43,26 @@ alter table public.gmail_sync_etat enable row level security;
 
 alter publication supabase_realtime add table public.inbox_messages;
 
--- Chaque minute. gmail-sync est déployée sans vérification JWT (comme setting-cycle) :
--- un appel ne fait que lire les changements de Gmail et ne renvoie rien de sensible.
+-- Secret de gmail-sync : généré ici par la base (jamais dans git), gardé dans Vault.
+-- Le cron l'envoie dans l'en-tête x-gmail-sync-secret ; gmail-sync le vérifie avec
+-- gmail_sync_secret_ok() (clé service seulement). Tout autre appel reçoit 401.
+select vault.create_secret(gen_random_uuid()::text || gen_random_uuid()::text, 'gmail_sync_secret', 'En-tête du cron gmail-sync')
+where not exists (select 1 from vault.secrets where name = 'gmail_sync_secret');
+
+create or replace function public.gmail_sync_secret_ok(jeton text)
+returns boolean
+language sql
+security definer
+set search_path = ''
+as $$
+  select coalesce(jeton, '') <> '' and exists (
+    select 1 from vault.decrypted_secrets where name = 'gmail_sync_secret' and decrypted_secret = jeton
+  );
+$$;
+revoke all on function public.gmail_sync_secret_ok(text) from public, anon, authenticated;
+grant execute on function public.gmail_sync_secret_ok(text) to service_role;
+
+-- Chaque minute, avec le secret lu dans Vault
 select cron.schedule(
   'gmail-sync',
   '* * * * *',
@@ -52,7 +70,10 @@ select cron.schedule(
     select net.http_post(
       url     := 'https://cbqwrmyctsfdqmenczhm.supabase.co/functions/v1/gmail-sync',
       body    := '{}'::jsonb,
-      headers := '{"Content-Type":"application/json"}'::jsonb
+      headers := jsonb_build_object(
+        'Content-Type', 'application/json',
+        'x-gmail-sync-secret', (select decrypted_secret from vault.decrypted_secrets where name = 'gmail_sync_secret')
+      )
     );
   $$
 );

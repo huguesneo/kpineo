@@ -4,6 +4,8 @@
 // historyId de Gmail. Premier passage (ou historyId périmé) : les courriels des 3
 // derniers jours encore dans INBOX.
 // Déploiement : supabase functions deploy gmail-sync --no-verify-jwt
+// Protégée par un secret : en-tête x-gmail-sync-secret, comparé au secret gardé dans
+// Vault (gmail_sync_secret_ok, clé service seulement). Sans lui : 401, rien n'est lu.
 // Réponse : des compteurs seulement, jamais de contenu.
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { gmailApi, GmailIndisponible } from '../_shared/gmail.ts'
@@ -19,8 +21,12 @@ type J = any
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
 const INTERVALLE_MIN_MS = 30_000
 
-Deno.serve(async () => {
+Deno.serve(async (req) => {
   const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
+  const jeton = req.headers.get('x-gmail-sync-secret') ?? ''
+  const { data: autorise, error: errAuth } = jeton ? await admin.rpc('gmail_sync_secret_ok', { jeton }) : { data: false, error: null }
+  if (errAuth) console.error('gmail-sync secret', errAuth.message)
+  if (autorise !== true) return json({ error: 'Non autorisé' }, 401)
   const { data: etat } = await admin.from('gmail_sync_etat').select('*').eq('id', 1).maybeSingle()
   if (etat?.derniere_sync && Date.now() - Date.parse(etat.derniere_sync) < INTERVALLE_MIN_MS) return json({ ok: true, saute: true })
   const noter = (maj: J) => admin.from('gmail_sync_etat').upsert({ id: 1, derniere_sync: new Date().toISOString(), ...maj })

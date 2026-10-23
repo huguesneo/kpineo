@@ -176,13 +176,22 @@ Deno.serve(async (req) => {
 
     // ── Écritures ────────────────────────────────────────────────────────────
     // Écrit seulement si la ligne est encore en attente : refuse sinon, avec l'état réel
+    // Écrit seulement si la ligne est encore en attente, puis vérifie ce que la base a
+    // vraiment enregistré : 0 ligne modifiée ou valeur différente = erreur, jamais un 200.
     async function ecrireSiEnAttente(id: string, patch: J) {
-      const { data, error } = await db.from(TABLE).update(patch).eq('id', id).eq('decision', 'pending').select('id')
+      const { data, error } = await db.from(TABLE).update(patch).eq('id', id).eq('decision', 'pending').select('id,decision,payload')
       if (error) throw error
       if (!data?.length) {
         const actuelle = await lireLigne(id)
         throw new Refus(refusDecision(actuelle, now) ?? 'Ce dossier vient de changer. Recharge la page.', 409, { dossier: actuelle ? resumeDossier(actuelle, null, now) : null })
       }
+      const ligne = data[0]
+      const attendu = patch.decision ?? 'pending'
+      const parAttendu = patch.payload?.hub_decided_by
+      if (ligne.decision !== attendu || (parAttendu && ligne.payload?.hub_decided_by !== parAttendu)) {
+        throw new Refus(`La base n’a pas enregistré la décision (lu : ${ligne.decision}). Rien n’a changé, réessaie.`, 500)
+      }
+      return ligne
     }
     // Ajoute des clés au payload en relisant la ligne juste avant (Make et l'accusé écrivent aussi)
     async function completerPayload(id: string, ajout: J) {
@@ -535,11 +544,11 @@ Deno.serve(async (req) => {
         const raison = String(body.raison ?? '').trim() || null
         const decision = action === 'rejeter' ? 'rejected' : 'traite_manuellement'
         const ajout = action === 'rejeter' ? { hub_rejet: { raison, par: moi.courriel, le: quand } } : { hub_traite_main: { note: raison, par: moi.courriel, le: quand } }
-        await ecrireSiEnAttente(id, { decision, decided_at: quand, payload: { ...(row.payload ?? {}), ...signature, ...ajout } })
+        const ligne = await ecrireSiEnAttente(id, { decision, decided_at: quand, payload: { ...(row.payload ?? {}), ...signature, ...ajout } })
         // L'un après l'autre : les deux complètent le payload
         const gmail = await classerDansGmail(row)
         await majSlack(row, action === 'rejeter' ? 'Rejeté' : 'Déjà traité à la main', quand)
-        return json({ ok: true, message: action === 'rejeter' ? 'Dossier rejeté' : 'Marqué comme déjà traité', gmail })
+        return json({ ok: true, id: ligne.id, decision: ligne.decision, message: action === 'rejeter' ? 'Dossier rejeté' : 'Marqué comme déjà traité', gmail })
       }
 
       if (action !== 'executer' && action !== 'repondre') throw new Refus('Action inconnue.', 400)
