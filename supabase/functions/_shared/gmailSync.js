@@ -5,6 +5,7 @@ import { entete, extraitTexte, lireAdresse } from './gmailFil.js'
 
 export const ETATS_INBOX = ['nouveau', 'traite_par_leo', 'traite_dans_hub']
 export const BADGE_NON_TRAITE = 'Pas encore traité par Léo'
+export const BADGE_NOUVELLE_REPONSE = 'Nouvelle réponse'
 // Bruit déjà filtré par Léo (noms de libellés) et libellés système à ignorer
 const LIBELLES_BRUIT = /^(blocked|promotions?|wordpress)$|\/(blocked|promotions?|wordpress)$/i
 const SYSTEME_BRUIT = ['SPAM', 'TRASH', 'DRAFT', 'SENT', 'CATEGORY_PROMOTIONS']
@@ -60,8 +61,23 @@ export function changementsHistorique(history) {
 export const etatLie = (leo) =>
   (leo?.payload?.hub_origine === 'hub' || leo?.payload?.hub_decided_by ? 'traite_dans_hub' : 'traite_par_leo')
 
-// Relie les courriels « nouveau » aux dossiers de Léo : même gmail_message_id, sinon même
-// fil quand le dossier est postérieur au courriel. Renvoie les mises à jour à écrire.
+// Moment où le dossier a été fermé (null s'il est encore en attente)
+const fermeLe = (d) => (!d?.decision || d.decision === 'pending' ? null
+  : Date.parse(d.decided_at ?? d.payload?.hub_decided_at ?? d.created_at))
+const messageDuDossier = (d) => d?.gmail_message_id || d?.payload?.gmail_message_id || null
+
+// Un dossier du fil peut-il absorber ce message ? Jamais s'il était déjà fermé quand le
+// message est arrivé (nouvelle réponse = nouveau travail, Léo ou Hub), ni s'il a été créé
+// dans le Hub pour un autre message du fil. Sinon : dossier postérieur au message.
+function absorbeParFil(d, recu, messageId) {
+  const ferme = fermeLe(d)
+  if (ferme != null && ferme < recu) return false
+  if (d.payload?.hub_origine === 'hub' && messageDuDossier(d) && messageDuDossier(d) !== messageId) return false
+  return Date.parse(d.created_at) >= recu - 60_000
+}
+
+// Relie les courriels « nouveau » aux dossiers de Léo : même gmail_message_id, sinon un
+// dossier du même fil qui peut l'absorber. Renvoie les mises à jour à écrire.
 export function liaisons(inbox, dossiersLeo) {
   const parMessage = new Map()
   const parFil = new Map()
@@ -74,10 +90,20 @@ export function liaisons(inbox, dossiersLeo) {
     if (m.leo_interaction_id) continue
     const recu = Date.parse(m.recu_le)
     const d = parMessage.get(m.gmail_message_id)
-      ?? (parFil.get(m.gmail_thread_id) ?? []).find(x => Date.parse(x.created_at) >= recu - 60_000)
+      ?? (parFil.get(m.gmail_thread_id) ?? []).find(x => absorbeParFil(x, recu, m.gmail_message_id))
     if (d) out.push({ gmail_message_id: m.gmail_message_id, leo_interaction_id: d.id, etat: etatLie(d) })
   }
   return out
+}
+
+// Nouvelle réponse dans un fil déjà traité : le dernier dossier du fil fermé avant
+// l'arrivée du message (null sinon). Il sert de « suite_de » ; on ne le rouvre jamais.
+export function suiteDe(m, dossiersLeo) {
+  const recu = Date.parse(m?.recu_le)
+  const fermes = (dossiersLeo ?? [])
+    .filter(d => d.gmail_thread_id === m?.gmail_thread_id && fermeLe(d) != null && fermeLe(d) < recu)
+    .sort((a, b) => fermeLe(b) - fermeLe(a))
+  return fermes[0]?.id ?? null
 }
 
 // File : courriels pas encore traités par Léo, sans doublon avec ses dossiers
@@ -89,7 +115,7 @@ export function courrielsNonTraites(inbox, dossiersLeo) {
 }
 
 // Courriel non traité → ligne de la file (même forme que resumeDossier)
-export function elementFileInbox(m, delai) {
+export function elementFileInbox(m, delai, suite = null) {
   return {
     id: `${PREFIXE_INBOX}${m.gmail_message_id}`,
     inbox: true,
@@ -101,8 +127,9 @@ export function elementFileInbox(m, delai) {
     decision: 'pending',
     attente: delai ?? null,
     retard: false,
-    badgeAction: 'Nouveau courriel',
-    etiquettes: [{ label: BADGE_NON_TRAITE, ton: 'info' }],
+    suiteDe: suite,
+    badgeAction: suite ? BADGE_NOUVELLE_REPONSE : 'Nouveau courriel',
+    etiquettes: [{ label: suite ? 'Fil déjà traité' : BADGE_NON_TRAITE, ton: 'info' }],
     apercu: m.extrait,
   }
 }

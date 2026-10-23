@@ -72,10 +72,21 @@ export default function Adjoint() {
   // la file Tout et Courriels, jamais en double avec un dossier de Léo
   const inbox = useInboxNonTraites(vueFile && (section === 'tout' || section === 'courriel'), () => setVersion(v => v + 1))
   const nonTraites = useMemo(() => courrielsNonTraites(inbox.messages, file.dossiers), [inbox.messages, file.dossiers])
+  // Nouvelle réponse dans un fil déjà traité : badge « Nouvelle réponse » (op suites)
+  const [suites, setSuites] = useState({})
+  const cleSuites = nonTraites.map(m => m.gmail_message_id).join(',')
+  useEffect(() => {
+    if (!cleSuites) return undefined
+    let actif = true
+    appelAdjoint('suites', { messages: nonTraites.map(m => ({ gmail_message_id: m.gmail_message_id, gmail_thread_id: m.gmail_thread_id, recu_le: m.recu_le })) })
+      .then(r => actif && setSuites(r.suites ?? {}))
+      .catch(() => {})
+    return () => { actif = false }
+  }, [cleSuites]) // eslint-disable-line react-hooks/exhaustive-deps
   const fileVisible = useMemo(() => [
-    ...(section === 'tout' || section === 'courriel' ? nonTraites.map(m => elementFileInbox(m, delaiAttente({ created_at: m.recu_le }))) : []),
+    ...(section === 'tout' || section === 'courriel' ? nonTraites.map(m => elementFileInbox(m, delaiAttente({ created_at: m.recu_le }), suites[m.gmail_message_id] ?? null)) : []),
     ...file.dossiers.filter(d => !masques.has(d.id)),
-  ], [file.dossiers, masques, nonTraites, section])
+  ], [file.dossiers, masques, nonTraites, section, suites])
   const courrielOuvert = selection?.startsWith(PREFIXE_INBOX)
     ? nonTraites.find(m => `${PREFIXE_INBOX}${m.gmail_message_id}` === selection) ?? null
     : null
@@ -228,6 +239,7 @@ export default function Adjoint() {
         {courrielOuvert && (
           <CourrielNonTraite
             m={courrielOuvert}
+            suiteDe={suites[courrielOuvert.gmail_message_id] ?? null}
             onOuvrirDossier={(id, mode) => { naviguer({ id, m: mode }); setVersion(v => v + 1) }}
           />
         )}

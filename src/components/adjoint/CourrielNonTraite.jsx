@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { formatDateHeure } from '../../../supabase/functions/_shared/adjoint.js'
-import { BADGE_NON_TRAITE } from '../../../supabase/functions/_shared/gmailSync.js'
+import { BADGE_NON_TRAITE, BADGE_NOUVELLE_REPONSE } from '../../../supabase/functions/_shared/gmailSync.js'
 import { appelAdjoint } from '../../lib/adjoint/api'
 import { FilDepuisHistorique } from './Historique'
 import { Bouton, Pastille } from './ui'
@@ -8,7 +8,9 @@ import { Bouton, Pastille } from './ui'
 // Courriel arrivé dans info@ que Léo n'a pas encore traité. Chaque bouton crée d'abord
 // la ligne du dossier (op creerDepuisCourriel), puis ouvre le dossier dans le bon mode :
 // le reste (Make, classement Gmail, 6 secondes pour annuler) est le chemin habituel.
-export default function CourrielNonTraite({ m, onOuvrirDossier }) {
+// suiteDe : nouvelle réponse dans un fil déjà traité ; le nouveau dossier y est lié, l'ancien
+// n'est jamais rouvert.
+export default function CourrielNonTraite({ m, onOuvrirDossier, suiteDe = null }) {
   const [etat, setEtat] = useState({ enCours: null, erreur: null })
   async function agir(mode) {
     setEtat({ enCours: mode, erreur: null })
@@ -26,7 +28,14 @@ export default function CourrielNonTraite({ m, onOuvrirDossier }) {
         <div className="flex flex-col gap-1.5">
           <p className="m-0 text-xs font-semibold text-[#5b616e]">Courriel · reçu {formatDateHeure(m.recu_le)} · {m.expediteur_nom ? `${m.expediteur_nom} <${m.expediteur}>` : m.expediteur}</p>
           <h2 className="m-0 text-xl font-extrabold break-words">{m.sujet}</h2>
-          <div className="flex flex-wrap gap-1.5"><Pastille ton="info">{BADGE_NON_TRAITE}</Pastille></div>
+          <div className="flex flex-wrap gap-1.5 items-center">
+            <Pastille ton="info">{suiteDe ? BADGE_NOUVELLE_REPONSE : BADGE_NON_TRAITE}</Pastille>
+            {suiteDe && (
+              <button type="button" onClick={() => onOuvrirDossier(suiteDe)} className="text-xs font-bold text-[#00857e] hover:underline">
+                Voir le dossier précédent (fermé)
+              </button>
+            )}
+          </div>
         </div>
         <FilDepuisHistorique threadId={m.gmail_thread_id} />
       </div>
@@ -38,7 +47,7 @@ export default function CourrielNonTraite({ m, onOuvrirDossier }) {
           <Bouton variante="danger" disabled={occupe} onClick={() => agir('rejeter')}>Rejeter</Bouton>
           <Bouton variante="discret" disabled={occupe} onClick={() => agir('deja_traite')}>Déjà traité à la main</Bouton>
         </div>
-        <p className="m-0 text-xs text-[#5b616e]">Chaque bouton crée le dossier de ce courriel, puis suit le chemin habituel. Léo verra qu’il est déjà traité.</p>
+        <p className="m-0 text-xs text-[#5b616e]">{suiteDe ? 'Nouvelle réponse dans un fil déjà traité : chaque bouton crée un nouveau dossier, lié au précédent, puis suit le chemin habituel.' : 'Chaque bouton crée le dossier de ce courriel, puis suit le chemin habituel. Léo verra qu’il est déjà traité.'}</p>
       </div>
     </>
   )

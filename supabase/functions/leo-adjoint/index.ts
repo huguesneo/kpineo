@@ -28,7 +28,7 @@ import {
 } from '../_shared/adjointRedaction.js'
 import { idsGmail, libelleDeClassement, classementAReessayer, messageDuFil, libellePlusFrequent, LIBELLES_TEMPORAIRES } from '../_shared/gmailFil.js'
 import { filDuDossier, classerFil, filsDeLaPersonne, gmailApi, GmailIndisponible } from '../_shared/gmail.ts'
-import { estInterne } from '../_shared/gmailSync.js'
+import { estInterne, suiteDe } from '../_shared/gmailSync.js'
 import { elementsGmail, elementsGhl, elementsApp } from '../_shared/historique.js'
 import { ghl, locationId, contactIdByEmail } from '../_shared/ghl.ts'
 
@@ -276,6 +276,15 @@ Deno.serve(async (req) => {
       return { ligne, gmail }
     }
 
+    // Dossiers des fils Gmail donnés (pour reconnaître une nouvelle réponse)
+    async function dossiersDesFils(fils: string[]) {
+      if (!fils.length) return []
+      const { data, error } = await db.from(TABLE).select('id,category,gmail_thread_id,created_at,decision,decided_at,payload->hub_decided_at')
+        .in('gmail_thread_id', fils).limit(500)
+      if (error) throw error
+      return (data ?? []).map((d: J) => ({ ...d, payload: { hub_decided_at: d.hub_decided_at } }))
+    }
+
     // ── Opérations ───────────────────────────────────────────────────────────
     const op = body.op
 
@@ -412,6 +421,20 @@ Deno.serve(async (req) => {
     // (même chemin ensuite : Make pour répondre, classement Gmail pour fermer). Idempotent :
     // si une ligne existe déjà pour ce gmail_message_id, on la renvoie. Léo doit faire de
     // même avant de créer la sienne (champ gmail_message_id, payload.hub_origine = 'hub').
+    // Courriels non traités : lesquels sont une nouvelle réponse dans un fil déjà traité
+    // (badge « Nouvelle réponse »). Entrée : [{ gmail_message_id, gmail_thread_id, recu_le }].
+    if (op === 'suites') {
+      const messages = (Array.isArray(body.messages) ? body.messages : []).slice(0, 100)
+        .filter((x: J) => /^[0-9a-f]{6,24}$/i.test(String(x?.gmail_thread_id ?? '')))
+      const anciens = await dossiersDesFils([...new Set(messages.map((x: J) => String(x.gmail_thread_id)))])
+      const suites: Record<string, string> = {}
+      for (const x of messages) {
+        const id = suiteDe({ gmail_thread_id: String(x.gmail_thread_id), recu_le: String(x.recu_le) }, anciens)
+        if (id) suites[String(x.gmail_message_id)] = id
+      }
+      return json({ suites })
+    }
+
     if (op === 'creerDepuisCourriel') {
       const messageId = String(body.gmail_message_id ?? '')
       if (!/^[0-9a-f]{6,24}$/i.test(messageId)) throw new Refus('Courriel invalide.', 400)
@@ -427,28 +450,35 @@ Deno.serve(async (req) => {
       }
       const courriel = normaliserCourriel(m.de?.courriel)
       if (!courriel || estInterne(courriel)) throw new Refus('Courriel interne ou sans expéditeur : rien à créer.', 409)
+      const threadId = (await gmailApi(`/messages/${messageId}?format=minimal`).catch(() => ({})))?.threadId ?? null
+      // Nouvelle réponse dans un fil déjà traité : nouvelle ligne, liée à l'ancien dossier
+      // (suite_de). L'ancienne ligne n'est jamais rouverte.
+      const anciens = threadId ? (await dossiersDesFils([threadId])) : []
+      const suite = suiteDe({ gmail_thread_id: threadId, recu_le: m.date ?? new Date().toISOString() }, anciens)
+      const ancien = suite ? anciens.find((x: J) => x.id === suite) : null
       const fiche = await fichePersonne({ courriel })
       const quand = new Date().toISOString()
       const corps = htmlVersTexte(m.html).trim()
       const { data: cree, error } = await db.from(TABLE).insert({
         channel: 'courriel',
-        category: fiche.clientId && fiche.statut === 'client_actif' ? 'Client actif/Général' : 'autre',
+        category: ancien?.category ?? (fiche.clientId && fiche.statut === 'client_actif' ? 'Client actif/Général' : 'autre'),
         decision: 'pending',
         suggested_action: 'repondre',
         contact_email: courriel,
         client_id: fiche.clientId,
         gmail_message_id: messageId,
-        gmail_thread_id: (await gmailApi(`/messages/${messageId}?format=minimal`).catch(() => ({})))?.threadId ?? null,
+        gmail_thread_id: threadId,
         incoming_message: `Courriel reçu, pas encore lu par Léo : ${corps.slice(0, 1500) || m.extrait || '(vide)'}`,
         payload: {
           to: [courriel], subject: sujetReponse(m.sujet), gmail_subject: m.sujet, gmail_message_id: messageId,
           client_courriel: courriel, client_nom: m.de?.nom ?? null,
           hub_origine: 'hub', hub_cree_par: moi.courriel, hub_cree_le: quand,
+          ...(suite ? { suite_de: suite } : {}),
         },
       }).select('id').single()
       if (error) throw error
       await lier(cree.id)
-      return json({ id: cree.id, existait: false })
+      return json({ id: cree.id, existait: false, suite_de: suite })
     }
 
     if (op === 'personne') {

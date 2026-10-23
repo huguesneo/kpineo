@@ -175,6 +175,13 @@ describe('File et fiche', () => {
     expect(html).toContain('Pas encore traité par Léo')
     for (const b of ['Écrire une réponse', 'Demander à Léo de rédiger', 'Rejeter', 'Déjà traité à la main']) expect(html).toContain(b)
   })
+  it('nouvelle réponse dans un fil déjà traité : badge, lien vers l’ancien dossier, fil visible', () => {
+    const html = renderToStaticMarkup(<CourrielNonTraite onOuvrirDossier={rien} suiteDe="69b4b4be" m={{ gmail_message_id: '1a16a7e69730dca3', gmail_thread_id: '1a16a77be180d9bc', expediteur: 'a@x.ca', sujet: 'Re: test', recu_le: ilYa(1) }} />)
+    expect(html).toContain('Nouvelle réponse')
+    expect(html).not.toContain('Pas encore traité par Léo')
+    expect(html).toContain('Voir le dossier précédent (fermé)')
+    expect(html).toContain('lié au précédent')
+  })
 })
 
 describe('Ménage rapide', () => {

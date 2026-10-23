@@ -81,6 +81,13 @@ S'il manque encore quelque chose, l'action est refusée avant Make, avec la list
 - Boutons : « Écrire une réponse », « Demander à Léo de rédiger », « Rejeter », « Déjà traité à la main ». Chacun crée d'abord la ligne dans `leo_service_interactions` (op `creerDepuisCourriel` : channel `courriel`, `decision = 'pending'`, `gmail_message_id`, `gmail_thread_id`, `contact_email`, `payload.to/subject`, `payload.hub_origine = 'hub'`, catégorie « Client actif/Général » pour un client actif, sinon « autre »), puis ouvre le dossier dans ce mode : même chemin Make et classement Gmail que d'habitude.
 - **Pour les skills de Léo** : avant de créer une ligne pour un courriel, vérifier qu'aucune ligne de `leo_service_interactions` n'a déjà ce `gmail_message_id`. Si elle existe avec `payload.hub_origine = 'hub'` (ou une décision prise dans le Hub, `payload.hub_decided_by`), le courriel est déjà traité dans le Hub : ne rien créer.
 
+### Nouvelle réponse dans un fil déjà traité
+
+- Un message entrant arrivé après la fermeture d'un dossier du même fil (Hub ou Léo) n'est jamais absorbé par ce dossier : il reste « nouveau » dans la file, badge « Nouvelle réponse », fil complet visible, lien vers le dossier précédent.
+- Une action dessus crée une nouvelle ligne (même fil, `hub_origine = 'hub'`, `payload.suite_de` = id de l'ancien dossier, même catégorie). L'ancienne ligne n'est jamais rouverte.
+- Un dossier créé dans le Hub pour un message n'absorbe pas les autres messages du fil.
+- Bogue du 23 oct. : « Re: test » (1a16a7e69730dca3) avait été relié au dossier 69b4b4be fermé 28 s plus tôt ; remis à « nouveau ».
+
 ### Accès Gmail : étapes dans Google Cloud
 
 À faire une fois, connecté avec un compte administrateur de neoperformance.ca.

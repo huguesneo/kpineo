@@ -98,7 +98,7 @@ Deno.serve(async (req) => {
       const clinique = createClient(Deno.env.get('CLINIQUE_SUPABASE_URL')!, Deno.env.get('CLINIQUE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false } })
       const msg = nouveaux.map(n => `"${n.gmail_message_id}"`).join(',')
       const fils = [...new Set(nouveaux.map(n => `"${n.gmail_thread_id}"`))].join(',')
-      const { data: leo, error } = await clinique.from('leo_service_interactions').select('id,gmail_message_id,gmail_thread_id,created_at,payload')
+      const { data: leo, error } = await clinique.from('leo_service_interactions').select('id,gmail_message_id,gmail_thread_id,created_at,decision,decided_at,payload')
         .or(`gmail_message_id.in.(${msg}),gmail_thread_id.in.(${fils})`).limit(1000)
       if (error) throw error
       for (const l of liaisons(nouveaux, leo ?? [])) {
