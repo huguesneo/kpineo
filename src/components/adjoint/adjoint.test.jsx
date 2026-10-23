@@ -6,6 +6,7 @@ import Dossier from './Dossier'
 import File from './File'
 import FichePersonne from './FichePersonne'
 import FilGmail, { FilConversation } from './FilGmail'
+import { EtatSources, LigneHistorique } from './Historique'
 import { actionPrincipale, resumeDossier } from '../../../supabase/functions/_shared/adjoint.js'
 
 const NOW = new Date('2026-10-23T16:00:00Z').getTime()
@@ -151,5 +152,20 @@ describe('File et fiche', () => {
     const ok = ferme({ classe_le: ilYa(1), label: 'Label_3' })
     expect(ok).toContain('Archivé dans Gmail le')
     expect(ok).not.toContain('Réessayer')
+  })
+  it('historique : sources mélangées par date, panne signalée sans cacher le reste', () => {
+    const html = renderToStaticMarkup(<LigneHistorique onOuvrirDossier={rien} elements={[
+      { cle: 'gmail:t', source: 'gmail', date: ilYa(2), titre: 'Reçus', extrait: 'Voilà', sens: 'envoye', nombre: 3, ref: { threadId: 't' } },
+      { cle: 'app:j', source: 'app', date: ilYa(30), titre: '2 messages dans l’app (Léo)', extrait: 'Merci', sens: 'recu', nombre: 2, ref: {} },
+      { cle: 'leo:d', source: 'leo', canal: 'courriel', decision: 'rejected', date: ilYa(50), titre: 'Dossier reçus', extrait: '', nombre: 1, ref: { id: 'd' } },
+    ]} />)
+    expect(html.indexOf('Courriel info@')).toBeLessThan(html.indexOf('App NEO'))
+    expect(html.indexOf('App NEO')).toBeLessThan(html.indexOf('Dossier Léo'))
+    expect(html).toContain('3 messages')
+    expect(html).toContain('Nous : ')
+    const etats = renderToStaticMarkup(<EtatSources etats={{ gmail: { elements: [1, 2] }, ghl: { raison: 'GHL ne répond pas' }, app: { chargement: true } }} />)
+    expect(etats).toContain('Gmail : 2')
+    expect(etats).toContain('GHL indisponible')
+    expect(etats).toContain('App : chargement')
   })
 })

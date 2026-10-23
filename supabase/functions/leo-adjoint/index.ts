@@ -10,7 +10,8 @@
 // response_url = leo-adjoint-ack, qui confirme dans la ligne (hub_execution, hub_ack).
 //
 // Une seule fonction, champ « op » : liste, dossier, fil, recherche, personne, commandes,
-// compteurs, decider, reclasser, rediger. « fil » lit le vrai fil Gmail de info@ (_shared/gmail.ts).
+// compteurs, decider, reclasser, rediger, historique (une source à la fois : gmail, ghl,
+// app), filGmail (un fil par son id, depuis l'historique). « fil » lit le vrai fil Gmail de info@ (_shared/gmail.ts).
 // Accès : Hugues et Cloé (peutUtiliserAdjoint).
 // Déploiement : avec vérification JWT (par défaut).
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
@@ -25,7 +26,9 @@ import {
   requeteAnthropic, texteReponse, nettoyerBrouillon, avertissementsBrouillon, ajouterJournalRedaction,
 } from '../_shared/adjointRedaction.js'
 import { idsGmail, libelleDeClassement, classementAReessayer } from '../_shared/gmailFil.js'
-import { filDuDossier, classerFil, GmailIndisponible } from '../_shared/gmail.ts'
+import { filDuDossier, classerFil, filsDeLaPersonne, GmailIndisponible } from '../_shared/gmail.ts'
+import { elementsGmail, elementsGhl, elementsApp } from '../_shared/historique.js'
+import { ghl, locationId, contactIdByEmail } from '../_shared/ghl.ts'
 
 declare const Deno: {
   env: { get(key: string): string | undefined }
@@ -312,6 +315,66 @@ Deno.serve(async (req) => {
         return json(await filDuDossier(idsGmail(row)))
       } catch (e) {
         if (!(e instanceof GmailIndisponible)) console.error('leo-adjoint fil', e)
+        return json({ indisponible: true, raison: (e as Error).message })
+      }
+    }
+
+    // Historique de la fiche Personne : une source par appel, pour qu'une panne n'en
+    // bloque pas une autre. Réponse { elements } ou { indisponible, raison }.
+    if (op === 'historique') {
+      const source = String(body.source ?? '')
+      const courriel = normaliserCourriel(body.email)
+      const telephone = String(body.telephone ?? '').trim() || null
+      const clientId = body.client_id ? String(body.client_id) : null
+      const indispo = (raison: string) => json({ indisponible: true, raison })
+
+      if (source === 'gmail') {
+        if (!courriel) return json({ elements: [] })
+        try {
+          return json({ elements: elementsGmail(await filsDeLaPersonne(courriel)) })
+        } catch (e) {
+          if (!(e instanceof GmailIndisponible)) console.error('leo-adjoint historique gmail', e)
+          return indispo((e as Error).message)
+        }
+      }
+
+      if (source === 'ghl') {
+        if (!Deno.env.get('GHL_API_KEY')) return indispo('clé GHL absente')
+        const loc = await locationId(admin)
+        if (!loc) return indispo('location GHL inconnue')
+        let contact: string | null = courriel ? await contactIdByEmail(admin, loc, courriel) : null
+        if (!contact && telephone) {
+          const r = await ghl(`/contacts/search/duplicate?locationId=${loc}&number=${encodeURIComponent(telephone)}`)
+          contact = r?.contact?.id ?? null
+        }
+        if (!contact) return json({ elements: [], note: 'Aucun contact GHL avec ce courriel ou ce téléphone.' })
+        const conv = await ghl(`/conversations/search?locationId=${loc}&contactId=${contact}&limit=10`)
+        if (!conv) return indispo('GHL ne répond pas')
+        const listes = await Promise.all((conv.conversations ?? []).slice(0, 10).map(async (c: J) => {
+          const r = await ghl(`/conversations/${c.id}/messages?limit=100`)
+          return (r?.messages?.messages ?? r?.messages ?? []).map((m: J) => ({ ...m, conversationId: m.conversationId ?? c.id }))
+        }))
+        return json({ elements: elementsGhl(listes.flat()) })
+      }
+
+      if (source === 'app') {
+        if (!clientId) return json({ elements: [], note: 'Pas de compte dans l’app NEO.' })
+        const { data, error } = await db.from('client_chats').select('created_at,from_side,topic,message')
+          .eq('client_id', clientId).order('created_at', { ascending: false }).limit(3000)
+        if (error) return indispo(error.message)
+        return json({ elements: elementsApp(data ?? []) })
+      }
+
+      return json({ error: `Source inconnue : ${source}` }, 400)
+    }
+
+    // Un fil Gmail par son id (clic dans l'historique de la fiche Personne)
+    if (op === 'filGmail') {
+      const threadId = String(body.threadId ?? '')
+      if (!/^[0-9a-f]{6,24}$/i.test(threadId)) return json({ error: 'Fil invalide.' }, 400)
+      try {
+        return json(await filDuDossier({ threadId, messageId: null }))
+      } catch (e) {
         return json({ indisponible: true, raison: (e as Error).message })
       }
     }

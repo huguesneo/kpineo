@@ -58,6 +58,15 @@ S'il manque encore quelque chose, l'action est refusée avant Make, avec la list
 - Au 23 oct. : les 78 dossiers en attente ont un id Gmail et un libellé (35 le leur, 43 celui de leur catégorie).
 - Pour Léo : un dossier fermé dans le Hub a `payload.hub_decided_by` et `decision` à `rejected` ou `traite_manuellement` ; le classement Gmail est dans `payload.hub_gmail`.
 
+## Historique complet sur la fiche Personne (étape 2, partie 5)
+
+- Une seule ligne du temps, du plus récent au plus ancien (`_shared/historique.js`, `fusionnerLigneDuTemps`), avec filtres par source.
+- Sources, chacune chargée à part par l'op `historique` de `leo-adjoint` (`source` = `gmail`, `ghl` ou `app`). Si l'une échoue, les autres s'affichent et une pastille dit « Gmail indisponible » (ou GHL, ou App).
+  - **Courriel info@** : fils Gmail où l'adresse est en from, to ou cc (25 plus récents, toutes dates). Clic = le fil complet (op `filGmail`).
+  - **SMS GHL** (résumés par jour) et **Courriel GHL** : conversations du contact (cherché par courriel, puis par téléphone), via `_shared/ghl.ts` et `GHL_API_KEY`.
+  - **App NEO** : `client_chats` (projet Clinique), un résumé par jour : nombre de messages, sujets (Léo, plan, équipe), début du dernier message. Pas le contenu complet.
+  - **Dossiers Léo** : comme avant, clic = le dossier.
+
 ### Accès Gmail : étapes dans Google Cloud
 
 À faire une fois, connecté avec un compte administrateur de neoperformance.ca.

@@ -4,6 +4,7 @@
 // GMAIL_INFO_REFRESH_TOKEN (obtenu avec scripts/gmail-oauth.mjs). Aucun jeton Google
 // ne sort de la fonction.
 import { filEnConversation, modificationClassement } from './gmailFil.js'
+import { requeteGmailPersonne } from './historique.js'
 
 declare const Deno: { env: { get(key: string): string | undefined } }
 
@@ -81,4 +82,13 @@ export async function filDuDossier(ids: Ids) {
   const fil = await idDuFil(ids)
   const thread = await gmailApi(`/threads/${encodeURIComponent(fil)}?format=full`)
   return { threadId: fil, messages: filEnConversation(thread) }
+}
+
+// Fils de info@ avec une personne (from, to ou cc), en-têtes seulement
+export async function filsDeLaPersonne(courriel: string, max = 25) {
+  const q = encodeURIComponent(requeteGmailPersonne(courriel))
+  const liste = await gmailApi(`/threads?q=${q}&maxResults=${max}`)
+  const ids: string[] = (liste.threads ?? []).map((t: J) => t.id)
+  return await Promise.all(ids.map(id =>
+    gmailApi(`/threads/${encodeURIComponent(id)}?format=metadata&metadataHeaders=From&metadataHeaders=Subject`)))
 }

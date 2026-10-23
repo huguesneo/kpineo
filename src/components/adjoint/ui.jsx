@@ -8,9 +8,9 @@ const TONS = {
   danger: 'bg-[#fef3f2] text-[#b42318]',
   info: 'bg-[#eef2ff] text-[#3538cd]',
 }
-export function Pastille({ ton = 'neutre', children, className = '' }) {
+export function Pastille({ ton = 'neutre', children, className = '', title }) {
   return (
-    <span className={`inline-flex items-center whitespace-nowrap text-[11px] font-bold px-2 py-0.5 rounded-full ${TONS[ton] ?? TONS.neutre} ${className}`}>
+    <span title={title} className={`inline-flex items-center whitespace-nowrap text-[11px] font-bold px-2 py-0.5 rounded-full ${TONS[ton] ?? TONS.neutre} ${className}`}>
       {children}
     </span>
   )
