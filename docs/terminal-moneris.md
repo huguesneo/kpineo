@@ -88,4 +88,4 @@ hugues@ et info@ seulement, comme le terminal en clinique. Prénom, nom, descrip
 
 ### Filtre par date de la liste des ventes
 
-hugues@ et info@ seulement (`FiltreDates.jsx`). « Toutes dates », « Aujourd'hui » ou « Plage de dates » (du / au, bornes incluses). Date de la vente = `created_at` à l'heure de Montréal. Avec une date, la liste va chercher toutes les ventes de la période (jusqu'à 1000, au lieu des 200 dernières) et passe à l'onglet « Toutes ». Résumé : nombre de ventes et montant vendu (sans les annulées), plus le montant déjà encaissé sur ces ventes.
+hugues@ et info@ seulement (`FiltreDates.jsx`). « Toutes dates », « Aujourd'hui » ou « Plage de dates » (du / au, bornes incluses). Date de la vente = `created_at` à l'heure de Montréal. Avec une date, la liste va chercher toutes les ventes de la période (jusqu'à 1000, au lieu des 200 dernières) et passe à l'onglet « Toutes ». Résumé : nombre de ventes et montant vendu (sans les annulées), plus le montant déjà encaissé sur ces ventes, toujours **avant taxes** (`avantTaxes`).

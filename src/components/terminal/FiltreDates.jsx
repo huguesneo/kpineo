@@ -1,6 +1,7 @@
 // Terminal : filtre des ventes par date (hugues@ et info@ seulement). Date de la vente = création, heure de Montréal.
 import Button from '../shared/Button'
 import { addDays, formatCents, todayMontreal } from '../../../supabase/functions/_shared/schedule.js'
+import { avantTaxes } from '../../../supabase/functions/_shared/venteValeur.js'
 
 export const SANS_DATE = { mode: 'all', du: '', au: '' }
 
@@ -23,13 +24,13 @@ export const bornesRequete = (plage) => ({ debut: `${addDays(plage.du, -1)}T00:0
 
 const inputCls = 'px-2 py-1.5 text-sm border border-[#e5e7eb] rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-[#00bbb1]'
 
-// plans : ventes affichées, pour le total de la période
+// plans : ventes affichées, pour le total de la période (montants avant taxes)
 export default function FiltreDates({ value, onChange, plans }) {
   const plage = plageDates(value)
   const actives = plans.filter(p => p.status !== 'canceled')
-  const vendu = actives.reduce((a, p) => a + p.total_amount_cents, 0)
-  const encaisse = plans.reduce((a, p) => a + (p.payment_installments ?? [])
-    .filter(i => i.status === 'paid').reduce((s, i) => s + i.amount_cents, 0), 0)
+  const vendu = actives.reduce((a, p) => a + avantTaxes(p.total_amount_cents), 0)
+  const encaisse = plans.reduce((a, p) => a + avantTaxes((p.payment_installments ?? [])
+    .filter(i => i.status === 'paid').reduce((s, i) => s + i.amount_cents, 0)), 0)
 
   return (
     <div className="space-y-2">
@@ -51,8 +52,8 @@ export default function FiltreDates({ value, onChange, plans }) {
         <p className="text-sm text-[#374151]">
           {actives.length} vente{actives.length > 1 ? 's' : ''}
           {plage.du === plage.au ? ` le ${plage.du}` : ` du ${plage.du} au ${plage.au}`}
-          {' '}· Vendu <span className="font-semibold">{formatCents(vendu)}</span>
-          {' '}· Déjà encaissé sur ces ventes <span className="font-semibold">{formatCents(encaisse)}</span>
+          {' '}· Avant taxes : vendu <span className="font-semibold">{formatCents(vendu)}</span>
+          {' '}· déjà encaissé sur ces ventes <span className="font-semibold">{formatCents(encaisse)}</span>
         </p>
       )}
     </div>
