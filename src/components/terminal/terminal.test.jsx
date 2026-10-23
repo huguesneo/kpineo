@@ -5,6 +5,7 @@ import AttributionVente from './AttributionVente'
 import AnnulerVente from './AnnulerVente'
 import ModifierDates from './ModifierDates'
 import PaiementUnique from './PaiementUnique'
+import FiltreDates, { SANS_DATE, plageDates, dateVente, dansPlage } from './FiltreDates'
 
 const lists = {
   closers: [{ id: 'cloe', label: 'Cloé' }, { id: 'maude', label: 'Maude' }],
@@ -94,5 +95,32 @@ describe('PaiementUnique', () => {
     expect(html).toContain('Rien n’est créé dans QuickBooks')
     expect(html).toContain('Montant avant taxes')
     expect(html).not.toContain('Prélever tous les')
+  })
+})
+
+describe('FiltreDates', () => {
+  const vente = (created_at, extra = {}) => ({ created_at, status: 'active', total_amount_cents: 10000, payment_installments: [], ...extra })
+  it('date de la vente à l’heure de Montréal : 23 h 30 le 22 octobre = 03 h 30 UTC le 23', () => {
+    expect(dateVente(vente('2026-10-23T03:30:00Z'))).toBe('2026-10-22')
+    expect(dansPlage(vente('2026-10-23T03:30:00Z'), { du: '2026-10-23', au: '2026-10-23' })).toBe(false)
+    expect(dansPlage(vente('2026-10-23T05:00:00Z'), { du: '2026-10-23', au: '2026-10-23' })).toBe(true)
+  })
+  it('plage : aujourd’hui, bornes inversées, une seule borne, aucune', () => {
+    expect(plageDates({ mode: 'today' }, '2026-10-23')).toEqual({ du: '2026-10-23', au: '2026-10-23' })
+    expect(plageDates({ mode: 'range', du: '2026-10-20', au: '2026-10-01' })).toEqual({ du: '2026-10-01', au: '2026-10-20' })
+    expect(plageDates({ mode: 'range', du: '2026-10-05', au: '' })).toEqual({ du: '2026-10-05', au: '2026-10-05' })
+    expect(plageDates({ mode: 'range', du: '', au: '' })).toBeNull()
+    expect(plageDates(SANS_DATE)).toBeNull()
+  })
+  it('total de la période, sans les ventes annulées', () => {
+    const html = renderToStaticMarkup(<FiltreDates value={{ mode: 'range', du: '2026-10-01', au: '2026-10-23' }} onChange={noop} plans={[
+      vente('2026-10-02T15:00:00Z', { payment_installments: [{ status: 'paid', amount_cents: 2500 }] }),
+      vente('2026-10-03T15:00:00Z'),
+      vente('2026-10-04T15:00:00Z', { status: 'canceled' }),
+    ]} />)
+    expect(html).toContain('2 ventes')
+    expect(html).toContain('du 2026-10-01 au 2026-10-23')
+    expect(html).toMatch(/200,00\s\$/)
+    expect(html).toMatch(/25,00\s\$/)
   })
 })
