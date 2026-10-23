@@ -389,7 +389,7 @@ const CHAMPS_CANAL = {
     'produit_bloque', 'type', 'ferme_par', 'ferme_le'],
   agenda: ['ancien_creneau', 'nouveau_creneau', 'options_proposees', 'conseiller', 'lien_meet', 'statut', 'slack_texte'],
 }
-const CHAMPS_HUB = ['hub_decided_by', 'hub_decided_at', 'hub_rejet', 'hub_ack', 'hub_execution', 'hub_redaction', 'hub_slack_erreur', 'hub_make_erreur', 'hub_gmail']
+const CHAMPS_HUB = ['hub_decided_by', 'hub_decided_at', 'hub_rejet', 'hub_ack', 'hub_execution', 'hub_redaction', 'hub_slack_erreur', 'hub_make_erreur', 'hub_gmail', 'hub_preparation', 'hub_origine']
 
 export function payloadPourEcran(row) {
   const p = row?.payload ?? {}

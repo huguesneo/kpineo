@@ -26,7 +26,8 @@ import {
 import {
   requeteAnthropic, texteReponse, nettoyerBrouillon, avertissementsBrouillon, ajouterJournalRedaction,
 } from '../_shared/adjointRedaction.js'
-import { idsGmail, libelleDeClassement, classementAReessayer, messageDuFil, libellePlusFrequent, LIBELLES_TEMPORAIRES } from '../_shared/gmailFil.js'
+import { idsGmail, libelleDeClassement, classementAReessayer, messageDuFil, libellePlusFrequent, LIBELLES_TEMPORAIRES, partiesDuMessage, entete, lireAdresse } from '../_shared/gmailFil.js'
+import { lireCommandeWoo, preparerRecu } from '../_shared/recuCommande.js'
 import { filDuDossier, classerFil, filsDeLaPersonne, gmailApi, GmailIndisponible } from '../_shared/gmail.ts'
 import { estInterne, suiteDe, estAvisCommande, ligneCommandeHub } from '../_shared/gmailSync.js'
 import { elementsGmail, elementsGhl, elementsApp } from '../_shared/historique.js'
@@ -433,6 +434,40 @@ Deno.serve(async (req) => {
         if (id) suites[String(x.gmail_message_id)] = id
       }
       return json({ suites })
+    }
+
+    // « Préparer le reçu » : commande sans lignes QuickBooks. Lit l'avis dans Gmail, associe
+    // chaque produit avec qbo_produits_map, écrit payload.Line (format de Make) ou un
+    // blocage clair. Les prix viennent toujours de la commande.
+    if (op === 'preparer_recu') {
+      const id = String(body.id ?? '')
+      const row = await lireLigne(id)
+      const refus = refusDecision(row, now)
+      if (refus) throw new Refus(refus, 409)
+      if (row.channel !== 'commande') throw new Refus('Ce dossier n’est pas une commande.', 400)
+      if (Array.isArray(row.payload?.Line) && row.payload.Line.length) throw new Refus('Le reçu est déjà préparé.', 409)
+      const messageId = row.gmail_message_id || row.payload?.gmail_message_id
+      if (!messageId) throw new Refus('Aucun courriel de commande relié à ce dossier.', 400)
+      let brute: J
+      try {
+        brute = await gmailApi(`/messages/${encodeURIComponent(messageId)}?format=full`)
+      } catch (e) {
+        throw new Refus(`Avis de commande introuvable dans Gmail (${(e as Error).message}).`, 502)
+      }
+      const h = brute?.payload?.headers ?? []
+      if (!estAvisCommande(entete(h, 'Subject'), lireAdresse(entete(h, 'From')).courriel)) throw new Refus('Le courriel relié n’est pas un avis de commande WooCommerce.', 409)
+      const { data: table, error: errTable } = await db.from('qbo_produits_map')
+        .select('nom_woo,variante,mots_variante,article_qbo,item_ref,type,hors_boutique,actif').eq('actif', true)
+      if (errTable) throw new Refus(`Table qbo_produits_map illisible (${errTable.message}).`, 500)
+      const c = lireCommandeWoo(partiesDuMessage(brute.payload).html)
+      if (c.numero && numeroCommande(row) && c.numero !== numeroCommande(row)) throw new Refus(`L’avis porte la commande #${c.numero}, le dossier #${numeroCommande(row)}.`, 409)
+      const { blocages, patch } = preparerRecu(c, table ?? [], { gmailMessageId: messageId })
+      const quand = new Date(now).toISOString()
+      await ecrireSiEnAttente(id, {
+        ...(row.contact_email ? {} : { contact_email: patch.client_courriel }),
+        payload: { ...(row.payload ?? {}), ...patch, hub_preparation: { le: quand, par: moi.courriel, blocages } },
+      })
+      return json({ ok: true, id, pret: blocages.length === 0, blocages })
     }
 
     if (op === 'creerDepuisCourriel') {

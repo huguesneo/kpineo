@@ -120,6 +120,32 @@ Si l'écran de l'étape 3 ne propose pas « Interne » (compte Gmail hors Worksp
 
 Pour couper l'accès : https://myaccount.google.com/permissions avec info@, retirer « NEO Hub ».
 
+## Préparer le reçu (commande sans lignes QuickBooks)
+
+Sur une commande que Léo n'a pas préparée (avis WooCommerce de info@, ou dossier commande
+sans `payload.Line`), « Préparer le reçu » appelle l'op `preparer_recu` de leo-adjoint :
+
+1. lit l'avis de commande dans Gmail (`format=full`) : lignes, quantités, montants,
+   livraison, remise, coupon, TPS, TVQ, total, carte-cadeau (`_shared/recuCommande.js`) ;
+2. associe chaque produit à son article QuickBooks avec la table `qbo_produits_map`
+   (projet Clinique, migration `20261023c_qbo_produits_map.sql`, tirée du skill
+   neo-leo-commandes) : préfixe exact du nom, le plus long gagne ; variante seulement si
+   tous ses mots sont présents ;
+3. construit `payload.Line` au format de Make (`Amount, Qty, UnitPrice, ItemRef,
+   Description, TaxCodeRef '8'`, livraison = ItemRef 342). Les prix viennent toujours de
+   la commande, jamais de QuickBooks ;
+4. le dossier affiche ensuite l'aperçu (lignes, TPS, TVQ, total) et « Créer le reçu ».
+
+Pas de bouton « Créer le reçu », message à la place, si :
+- un produit n'a pas d'article QuickBooks (ou est retiré) : « Produit sans article QuickBooks : … » ;
+- une variante est ambiguë : « Variante à confirmer : … » ;
+- la commande contient ou est payée par une carte-cadeau : « Carte-cadeau : à traiter par Cloé » ;
+- la somme des lignes ne redonne pas le total de la commande (écart > 0,10 $).
+
+La table `qbo_produits_map` remplace la copie du skill pour le Hub seulement : le skill
+neo-leo-commandes garde sa propre table (les skills de Léo ne sont pas modifiés). Un
+nouvel article se met dans les deux.
+
 ## Secrets (projet neo-admin `cbqwrmyctsfdqmenczhm`)
 
 ```bash

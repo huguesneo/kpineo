@@ -190,6 +190,18 @@ describe('File et fiche', () => {
     expect(html).not.toContain('Créer le reçu de vente')
     expect(html).toContain('>Rejeter<')
     expect(html).toContain('Déjà traité à la main')
+    expect(html).toContain('Préparer le reçu')
+  })
+  it('commande sans lignes avec son fil Gmail : « Préparer le reçu »', () => {
+    const html = rendre(commande({ aFilGmail: true, payload: { commande: '8116', client_nom: 'Cassandra Monzon', total_woocommerce: 181.7, hub_origine: 'hub' } }))
+    expect(html).toContain('Préparer le reçu')
+    expect(html).not.toContain('Créer le reçu de vente')
+  })
+  it('préparation bloquée (carte-cadeau) : message clair, pas de « Créer le reçu »', () => {
+    const html = rendre(commande({ aFilGmail: true, payload: { commande: '8120', hub_origine: 'hub', blocage: 'Carte-cadeau : à traiter par Cloé', hub_preparation: { blocages: ['Carte-cadeau : à traiter par Cloé'] } } }))
+    expect(html).toContain('Carte-cadeau : à traiter par Cloé')
+    expect(html).toContain('Préparer le reçu à nouveau')
+    expect(html).not.toContain('Créer le reçu de vente')
   })
   it('commande créée dans le Hub sans lignes QuickBooks : Rejeter et Déjà traité, pas de « Créer le reçu »', () => {
     const html = rendre(commande({ payload: { commande: '8116', client_nom: 'Cassandra Monzon', total_woocommerce: 181.7, hub_origine: 'hub' } }))

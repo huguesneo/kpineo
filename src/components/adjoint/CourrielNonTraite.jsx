@@ -16,6 +16,13 @@ export default function CourrielNonTraite({ m, onOuvrirDossier, suiteDe = null }
     setEtat({ enCours: mode, erreur: null })
     try {
       const r = await appelAdjoint('creerDepuisCourriel', { gmail_message_id: m.gmail_message_id })
+      // Préparer le reçu : lignes QuickBooks construites tout de suite, puis le dossier
+      // s'ouvre avec l'aperçu (ou le blocage)
+      if (mode === 'preparer') {
+        await appelAdjoint('preparer_recu', { id: r.id }).catch(() => {})
+        onOuvrirDossier(r.id)
+        return
+      }
       onOuvrirDossier(r.id, mode)
     } catch (e) {
       setEtat({ enCours: null, erreur: e.message })
@@ -45,10 +52,11 @@ export default function CourrielNonTraite({ m, onOuvrirDossier, suiteDe = null }
         <div className="px-7 py-4 border-t border-[#eef0f3] flex flex-col gap-3">
           {etat.erreur && <p className="m-0 text-sm text-[#b42318]">{etat.erreur}</p>}
           <div className="flex flex-wrap gap-2.5 items-center">
+            <Bouton variante="principal" disabled={occupe} onClick={() => agir('preparer')}>{etat.enCours === 'preparer' ? 'Préparation…' : 'Préparer le reçu'}</Bouton>
             <Bouton variante="danger" disabled={occupe} onClick={() => agir('rejeter')}>Rejeter</Bouton>
             <Bouton variante="discret" disabled={occupe} onClick={() => agir('deja_traite')}>Déjà traité à la main</Bouton>
           </div>
-          <p className="m-0 text-xs text-[#5b616e]">Avis de commande WooCommerce. « Créer le reçu » viendra quand Léo aura préparé les lignes QuickBooks. Rejeter ou Déjà traité crée le dossier de la commande et le ferme (6 secondes pour annuler).</p>
+          <p className="m-0 text-xs text-[#5b616e]">Avis de commande WooCommerce. « Préparer le reçu » associe chaque produit à son article QuickBooks (prix de la commande) et affiche l’aperçu avec « Créer le reçu ». Rejeter ou Déjà traité ferme la commande (6 secondes pour annuler).</p>
         </div>
       ) : (
         <div className="px-7 py-4 border-t border-[#eef0f3] flex flex-col gap-3">

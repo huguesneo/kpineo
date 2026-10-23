@@ -235,6 +235,20 @@ export default function Dossier({ d, fiche, onDecider, occupe, onRecharger, mode
   }
 
   const peutEcrire = enAttente && !!destinataire
+  // Commande sans lignes QuickBooks : « Préparer le reçu » lit l'avis et construit les lignes
+  const peutPreparer = enAttente && d.channel === 'commande' && !(Array.isArray(p.Line) && p.Line.length) && !!d.aFilGmail
+  const [preparation, setPreparation] = useState({ enCours: false, erreur: null })
+  useEffect(() => { setPreparation({ enCours: false, erreur: null }) }, [d.id])
+  async function preparer() {
+    setPreparation({ enCours: true, erreur: null })
+    try {
+      await appelAdjoint('preparer_recu', { id: d.id })
+      setPreparation({ enCours: false, erreur: null })
+      onRecharger?.()
+    } catch (e) {
+      setPreparation({ enCours: false, erreur: e.message })
+    }
+  }
   const libellePrincipal = ecrire ? 'Envoyer ma réponse' : aRelire ? 'Relire et modifier' : action?.libelle
   const principalDesactive = occupe || (ecrire ? !texteLibre.trim() : !action) || !!d.refus
 
@@ -382,6 +396,11 @@ export default function Dossier({ d, fiche, onDecider, occupe, onRecharger, mode
       {enAttente && (
         <div className="px-7 py-4 border-t border-[#eef0f3] flex flex-col gap-3">
           <div className="flex flex-wrap gap-2.5 items-center">
+            {peutPreparer && !ecrire && (
+              <Bouton variante="principal" onClick={preparer} disabled={occupe || preparation.enCours}>
+                {preparation.enCours ? 'Préparation…' : p.hub_preparation?.blocages?.length ? 'Préparer le reçu à nouveau' : 'Préparer le reçu'}
+              </Bouton>
+            )}
             {(action || ecrire) && <Bouton variante="principal" onClick={envoyerPrincipal} disabled={principalDesactive}>{libellePrincipal}</Bouton>}
             {p.html && !ecrire && action && (
               <Bouton onClick={() => (edition ? setEdition(false) : ouvrirEdition())}>{edition ? 'Terminer' : 'Modifier'}</Bouton>
@@ -392,8 +411,11 @@ export default function Dossier({ d, fiche, onDecider, occupe, onRecharger, mode
             <Bouton variante="danger" disabled={occupe} onClick={() => fermer('rejeter')}>Rejeter</Bouton>
             <Bouton variante="discret" disabled={occupe} onClick={() => fermer('deja_traite')}>Déjà traité à la main</Bouton>
           </div>
+          {preparation.erreur && <p className="m-0 text-sm text-[#b42318]">{preparation.erreur}</p>}
           <p className="m-0 text-xs text-[#5b616e]">
-            {!ecrire && !action
+            {peutPreparer && !ecrire
+              ? '« Préparer le reçu » lit l’avis de commande et associe chaque produit à son article QuickBooks. Les prix viennent de la commande. Rien n’est envoyé.'
+              : !ecrire && !action
               ? `Rejeter et « Déjà traité à la main » ferment le dossier sans rien envoyer${d.aFilGmail ? ' et le classent dans Gmail' : ''}. 6 secondes pour annuler.`
               : !ecrire && action.actionId === ACTIONS_MAKE.creer_recu_commande
                 ? 'Exécuté par Make, comme le bouton Slack : client et reçu dans QuickBooks.'
